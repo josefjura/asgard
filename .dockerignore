@@ -1,0 +1,9 @@
+/target
+/.git
+/.github
+/docs
+*.db
+*.db-shm
+*.db-wal
+.env
+*.snap.new

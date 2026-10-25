@@ -22,6 +22,13 @@ serde_json = "1.0.154"
 tempfile = "3.27.0"
 tower = { version = "0.5.3", features = ["util"] }
 
+# The container image's build; plain release stays quick for `cargo test --release` in CI.
+[profile.dist]
+inherits = "release"
+lto = true
+codegen-units = 1
+strip = true
+
 [lints.rust]
 unsafe_code = "forbid"
 

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "7657763359346abf799f312736f24b08ab52c6bd",
+  "include-component-in-tag": false,
+  "packages": {
+    ".": {
+      "release-type": "rust",
+      "package-name": "asgard",
+      "bump-minor-pre-major": true
+    }
+  }
+}

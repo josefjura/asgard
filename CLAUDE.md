@@ -56,6 +56,12 @@ Check UI changes in the gallery before handing them over.
 
 `cargo fmt --check`, `cargo clippy -- -D warnings` (pedantic + nursery) and `cargo test` on every push.
 
+### Branches and releases
+
+- **GitHub Flow:** a short branch per change, a PR into `master`, squash merge. `master` is always deployable.
+- **PR titles** follow Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`; `!` for a breaking change). The squash commit takes the PR title, and Release Please reads it.
+- **Releases:** never tag or bump the version by hand. Release Please keeps a release PR open; merging it tags `vX.Y.Z` and publishes the image. See `docs/operations.md`.
+
 ## Agent skills
 
 ### Issue tracker
