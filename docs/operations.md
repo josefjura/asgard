@@ -4,7 +4,7 @@ Asgard runs as a single-replica Deployment in the MicroK8s cluster on our VPS, a
 
 ## Build and deploy
 
-- A multi-stage `Dockerfile` builds a static musl binary with the `dist` profile (LTO, stripped) and copies it onto `gcr.io/distroless/static-debian12:nonroot`. The image runs as `nonroot` (uid 65532), has no shell, and owns `/data`, where `DATABASE_URL` and `BACKUP_DIR` point by default.
+- A multi-stage `Dockerfile` builds a static musl binary with the `dist` profile (LTO, stripped) and copies it onto `gcr.io/distroless/static-debian12:nonroot`. The image runs as `nonroot` (uid 65532), has no shell, and owns `/data`, where `DATABASE_URL` and `BACKUP_DIR` point by default. A volume mounted at `/data` hides that ownership, so the Deployment sets `securityContext.fsGroup: 65532`.
 - Kubernetes manifests live in `deploy/`: Deployment, Service, Ingress, PVC.
 - The Deployment uses `replicas: 1` and `strategy: Recreate` (ADR 0004). Probes point at the health endpoints.
 
@@ -12,7 +12,7 @@ Asgard runs as a single-replica Deployment in the MicroK8s cluster on our VPS, a
 
 Nobody tags or bumps the version by hand. `.github/workflows/release.yml` runs on every push to `master`:
 
-1. Each squash-merged PR lands on `master` with its Conventional Commits title. Release Please opens or updates a release PR named `chore(master): release X.Y.Z`, which bumps `Cargo.toml` and `Cargo.lock` and adds the `CHANGELOG.md` entry. `feat:` bumps the minor version and `fix:` the patch. Before 1.0, a breaking change also bumps only the minor version.
+1. Each squash-merged PR lands on `master` with its Conventional Commits title. Release Please opens or updates its release PR, which bumps `Cargo.toml` and `Cargo.lock` and adds the `CHANGELOG.md` entry. `feat:` bumps the minor version and `fix:` the patch. Before 1.0, a breaking change also bumps only the minor version.
 2. Merging the release PR creates the `vX.Y.Z` tag and the GitHub Release.
 3. The same workflow run then builds the image and pushes `ghcr.io/josefjura/asgard:X.Y.Z` and `:latest`. It can't be a separate `on: push: tags` workflow, because a tag pushed with `GITHUB_TOKEN` never triggers another workflow.
 
