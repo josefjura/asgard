@@ -1,0 +1,6 @@
+# The one compiler for local builds, CI and the container image. Bump it in its own PR,
+# together with the `rust:` tag in the Dockerfile, so new lints land as a reviewable change.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

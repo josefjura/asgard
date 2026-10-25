@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 
 # Alpine's Rust targets musl and links statically, SQLite included.
-# Floating like CI's `stable`, so the image is built by the compiler CI checks with.
-FROM rust:1-alpine AS builder
+# Matches rust-toolchain.toml, so the image is built by the compiler CI checks with.
+FROM rust:1.99.1-alpine AS builder
 RUN apk add --no-cache musl-dev
 WORKDIR /src
 COPY . .
