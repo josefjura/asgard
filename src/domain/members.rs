@@ -72,11 +72,11 @@ impl fmt::Display for DisplayName {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NameError {
-    #[error("Enter a display name.")]
+    #[error("the display name is blank")]
     Blank,
-    #[error("Keep the display name to {DISPLAY_NAME_MAX} characters or fewer.")]
+    #[error("the display name is longer than {DISPLAY_NAME_MAX} characters")]
     TooLong,
-    #[error("Someone in the Crew is already called {0}.")]
+    #[error("another Member is already called {0}")]
     Taken(DisplayName),
 }
 
@@ -212,17 +212,20 @@ fn parse_date(value: &str) -> Result<Date, sqlx::Error> {
         .map_err(|err: jiff::Error| sqlx::Error::Decode(err.into()))
 }
 
+/// Test data shared by the domain's tests.
 #[cfg(test)]
-mod tests {
+pub(crate) mod fixtures {
     use jiff::civil::date;
+    use sqlx::SqlitePool;
 
-    use super::*;
+    use super::{DisplayName, MemberId, NewMember, insert};
 
-    fn name(input: &str) -> DisplayName {
+    pub fn name(input: &str) -> DisplayName {
         DisplayName::parse(input).unwrap()
     }
 
-    async fn add(db: &SqlitePool, display_name: &str, is_admin: bool) -> MemberId {
+    /// Adds a Member who joined on 2026-03-14.
+    pub async fn add_member(db: &SqlitePool, display_name: &str, is_admin: bool) -> MemberId {
         let mut conn = db.acquire().await.unwrap();
         insert(
             &mut conn,
@@ -230,12 +233,20 @@ mod tests {
                 display_name: &name(display_name),
                 is_admin,
                 joined_on: date(2026, 3, 14),
-                webauthn_user_id: &format!("user-{display_name}"),
+                webauthn_user_id: &format!("handle-{display_name}"),
             },
         )
         .await
         .unwrap()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use jiff::civil::date;
+
+    use super::fixtures::{add_member, name};
+    use super::*;
 
     #[test]
     fn trims_a_display_name() {
@@ -273,7 +284,7 @@ mod tests {
 
     #[sqlx::test]
     async fn a_free_name_is_available(db: SqlitePool) {
-        add(&db, "Josef", true).await;
+        add_member(&db, "Josef", true).await;
 
         Members::new(db)
             .check_available(&name("Ondra"))
@@ -283,7 +294,7 @@ mod tests {
 
     #[sqlx::test]
     async fn refuses_a_name_taken_ignoring_case(db: SqlitePool) {
-        add(&db, "Šimon", false).await;
+        add_member(&db, "Šimon", false).await;
         let members = Members::new(db);
 
         for input in ["Šimon", "šimon", "ŠIMON"] {
@@ -298,7 +309,7 @@ mod tests {
 
     #[sqlx::test]
     async fn the_database_refuses_a_duplicate_that_slipped_past_the_check(db: SqlitePool) {
-        add(&db, "Josef", false).await;
+        add_member(&db, "Josef", false).await;
         let mut conn = db.acquire().await.unwrap();
 
         let result = insert(
@@ -320,7 +331,7 @@ mod tests {
 
     #[sqlx::test]
     async fn finds_a_member_as_they_joined(db: SqlitePool) {
-        let id = add(&db, "Josef", true).await;
+        let id = add_member(&db, "Josef", true).await;
 
         let member = Members::new(db).find(id).await.unwrap().unwrap();
 
@@ -340,8 +351,8 @@ mod tests {
         let members = Members::new(db.clone());
         assert_eq!(members.admin_name().await.unwrap(), None);
 
-        add(&db, "Ondra", false).await;
-        add(&db, "Josef", true).await;
+        add_member(&db, "Ondra", false).await;
+        add_member(&db, "Josef", true).await;
 
         assert_eq!(members.admin_name().await.unwrap(), Some(name("Josef")));
     }

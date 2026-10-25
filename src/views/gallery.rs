@@ -48,7 +48,14 @@ pub fn fixtures() -> Vec<Fixture> {
     let invite = Fixture {
         component: "Invite page",
         state: "Valid link".to_owned(),
-        document: invite::page(CREW_NAME, &name("Ondra"), "/invite/fixture"),
+        document: invite::page(
+            CREW_NAME,
+            &name("Ondra"),
+            &invite::CeremonyUrls {
+                start: "/invite/fixture/start".to_owned(),
+                finish: "/invite/fixture/finish".to_owned(),
+            },
+        ),
         height: PAGE_HEIGHT,
     };
     let link_errors = [

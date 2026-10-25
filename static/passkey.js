@@ -1,7 +1,8 @@
 // Runs the WebAuthn ceremony behind a passkey button. The server sends the options and checks
 // the result; this module only moves bytes between it and the browser's authenticator.
 //
-// A button with `data-passkey-join="<invite path>"` registers a passkey through that Invite link.
+// A button with `data-passkey-start` and `data-passkey-finish` URLs registers a passkey through
+// them. If the link stops working meanwhile, the page reloads to show why.
 
 const fromBase64Url = (text) =>
   Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)).buffer;
@@ -18,6 +19,9 @@ async function post(url, body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  if (response.status === 410) {
+    throw new LinkGone();
+  }
   if (!response.ok) {
     // Our error responses are a sentence meant for the person.
     throw new ServerError(await response.text());
@@ -26,6 +30,7 @@ async function post(url, body) {
 }
 
 class ServerError extends Error {}
+class LinkGone extends Error {}
 
 async function createCredential({ publicKey }) {
   publicKey.challenge = fromBase64Url(publicKey.challenge);
@@ -63,18 +68,22 @@ function message(error) {
   }
 }
 
-for (const button of document.querySelectorAll("[data-passkey-join]")) {
-  const path = button.dataset.passkeyJoin;
+for (const button of document.querySelectorAll("[data-passkey-start]")) {
+  const { passkeyStart, passkeyFinish } = button.dataset;
   const status = document.getElementById(button.getAttribute("aria-describedby"));
   button.addEventListener("click", async () => {
     button.disabled = true;
     status.textContent = "";
     try {
-      const { ceremony, options } = await post(`${path}/start`, {});
+      const { ceremony, options } = await post(passkeyStart, {});
       const credential = await createCredential(options);
-      const { redirect } = await post(`${path}/finish`, { ceremony, credential });
+      const { redirect } = await post(passkeyFinish, { ceremony, credential });
       window.location.assign(redirect);
     } catch (error) {
+      if (error instanceof LinkGone) {
+        window.location.reload();
+        return;
+      }
       status.textContent = message(error);
       button.disabled = false;
     }

@@ -4,12 +4,16 @@ use crate::assets;
 use crate::domain::members::DisplayName;
 use crate::views::layout::document;
 
+/// Where the passkey script sends the two halves of the registration ceremony.
+pub struct CeremonyUrls {
+    pub start: String,
+    pub finish: String,
+}
+
 /// What an Invite link opens: whose Crew it is, the name the new Member will appear under, and
 /// the button that creates their passkey.
-///
-/// `invite_path` is the link's own path; the passkey script posts the ceremony beneath it.
 #[must_use]
-pub fn page(crew: &str, display_name: &DisplayName, invite_path: &str) -> Markup {
+pub fn page(crew: &str, display_name: &DisplayName, ceremony: &CeremonyUrls) -> Markup {
     document(
         "Join the Crew | Asgard",
         &html! {
@@ -20,8 +24,8 @@ pub fn page(crew: &str, display_name: &DisplayName, invite_path: &str) -> Markup
                     "Asgard signs you in with a passkey: the fingerprint, face or screen lock you "
                     "already use on this device. There's no password to remember."
                 }
-                button.button type="button" data-passkey-join=(invite_path)
-                    aria-describedby="passkey-status" {
+                button.button type="button" data-passkey-start=(ceremony.start)
+                    data-passkey-finish=(ceremony.finish) aria-describedby="passkey-status" {
                     "Create a passkey"
                 }
                 p.status #passkey-status role="status" {}
@@ -57,15 +61,19 @@ pub fn link_error(admin: Option<&DisplayName>) -> Markup {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::members::fixtures::name;
     use crate::views::assert_html_snapshot;
 
-    fn name(input: &str) -> DisplayName {
-        DisplayName::parse(input).unwrap()
+    fn urls() -> CeremonyUrls {
+        CeremonyUrls {
+            start: "/invite/abc/start".to_owned(),
+            finish: "/invite/abc/finish".to_owned(),
+        }
     }
 
     #[test]
     fn invite_page() {
-        assert_html_snapshot!(page("Asgard", &name("Ondra"), "/invite/abc"));
+        assert_html_snapshot!(page("Asgard", &name("Ondra"), &urls()));
     }
 
     #[test]
@@ -80,7 +88,7 @@ mod tests {
 
     #[test]
     fn escapes_the_display_name() {
-        let html = page("Asgard", &name("<b>Ondra</b>"), "/invite/abc").into_string();
+        let html = page("Asgard", &name("<b>Ondra</b>"), &urls()).into_string();
 
         assert!(html.contains("&lt;b&gt;Ondra&lt;/b&gt;"));
     }

@@ -1,6 +1,6 @@
 ---
 source: src/views/invite.rs
-expression: "page(\"Asgard\", &name(\"Ondra\"),\n\"/invite/abc\").into_string().replace(\"><\", \">\\n<\")"
+expression: "page(\"Asgard\", &name(\"Ondra\"), &urls()).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -27,7 +27,7 @@ expression: "page(\"Asgard\", &name(\"Ondra\"),\n\"/invite/abc\").into_string().
 <h1>Join Asgard</h1>
 <p class="lead">You'll appear in the Crew as <strong>Ondra</strong>.</p>
 <p>Asgard signs you in with a passkey: the fingerprint, face or screen lock you already use on this device. There's no password to remember.</p>
-<button class="button" type="button" data-passkey-join="/invite/abc" aria-describedby="passkey-status">Create a passkey</button>
+<button class="button" type="button" data-passkey-start="/invite/abc/start" data-passkey-finish="/invite/abc/finish" aria-describedby="passkey-status">Create a passkey</button>
 <p class="status" id="passkey-status" role="status">
 </p>
 <script type="module" src="/static/passkey.[hash].js">

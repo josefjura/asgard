@@ -23,6 +23,15 @@ pub fn path(token: &LinkToken) -> String {
     format!("/invite/{}", token.as_str())
 }
 
+/// Where the invite page's script starts and finishes registering a passkey.
+fn ceremony_urls(token: &LinkToken) -> views::invite::CeremonyUrls {
+    let invite = path(token);
+    views::invite::CeremonyUrls {
+        start: format!("{invite}/start"),
+        finish: format!("{invite}/finish"),
+    }
+}
+
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/invite/{token}", get(show))
@@ -39,7 +48,7 @@ async fn show(
         Ok(invite) => Ok(fresh(views::invite::page(
             CREW_NAME,
             &invite.display_name,
-            &path(&token),
+            &ceremony_urls(&token),
         ))
         .into_response()),
         Err(AuthError::LinkUnusable) => {
@@ -54,54 +63,54 @@ async fn show(
     }
 }
 
+/// What the browser needs to create the passkey.
 #[derive(Serialize)]
-struct Started {
-    ceremony: String,
+struct Challenge {
+    ceremony: CeremonyId,
     options: CreationChallengeResponse,
 }
 
 async fn start(
     State(state): State<AppState>,
     Path(token): Path<String>,
-) -> Result<Json<Started>, AppError> {
+) -> Result<Json<Challenge>, AppError> {
     let (ceremony, options) = state
         .auth
         .start_joining(&LinkToken::from_client(token))
         .await?;
-    Ok(Json(Started {
-        ceremony: ceremony.as_str().to_owned(),
-        options,
-    }))
+    Ok(Json(Challenge { ceremony, options }))
 }
 
+/// The passkey the browser created for a [`Challenge`].
 #[derive(Deserialize)]
-struct Finish {
-    ceremony: String,
+struct NewPasskey {
+    ceremony: CeremonyId,
     credential: RegisterPublicKeyCredential,
 }
 
+/// Where the browser goes once it is signed in.
 #[derive(Serialize)]
-struct Finished {
+struct Landing {
     redirect: &'static str,
 }
 
 async fn finish(
     State(state): State<AppState>,
     Path(token): Path<String>,
-    Json(body): Json<Finish>,
+    Json(body): Json<NewPasskey>,
 ) -> Result<impl IntoResponse, AppError> {
     let joined = state
         .auth
         .finish_joining(
             &LinkToken::from_client(token),
-            &CeremonyId::from_client(body.ceremony),
+            &body.ceremony,
             &body.credential,
         )
         .await?;
     tracing::info!(member = joined.member.get(), "a new Member joined the Crew");
     Ok((
         [(SET_COOKIE, session_cookie(&joined.session))],
-        Json(Finished {
+        Json(Landing {
             redirect: Tab::Finance.href(),
         }),
     ))
@@ -149,7 +158,8 @@ mod tests {
         let html = body_text(response).await;
         assert!(html.contains("<h1>Join Asgard</h1>"));
         assert!(html.contains("<strong>Josef</strong>"));
-        assert!(html.contains(&format!("data-passkey-join=\"{invite}\"")));
+        assert!(html.contains(&format!("data-passkey-start=\"{invite}/start\"")));
+        assert!(html.contains(&format!("data-passkey-finish=\"{invite}/finish\"")));
     }
 
     #[sqlx::test]

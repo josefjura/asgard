@@ -17,7 +17,8 @@ pub const CEREMONY_LIFETIME: Duration = Duration::from_mins(5);
 const MAX_PENDING: usize = 64;
 
 /// Names a pending ceremony; the browser sends it back with the finish request.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
 pub struct CeremonyId(String);
 
 impl CeremonyId {

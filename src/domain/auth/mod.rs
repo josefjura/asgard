@@ -49,15 +49,15 @@ pub struct Joined {
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
     /// Unknown, used, expired or revoked: the person needs a new link either way.
-    #[error("This link has expired or was already used.")]
+    #[error("the link is unknown, used, expired or revoked")]
     LinkUnusable,
-    #[error("The Crew already has an Admin.")]
+    #[error("the Crew already has an Admin")]
     AdminExists,
     #[error(transparent)]
     Name(#[from] NameError),
-    #[error("That took too long. Please try again.")]
+    #[error("the ceremony is unknown or expired")]
     CeremonyExpired,
-    #[error("Your passkey couldn't be verified. Please try again.")]
+    #[error("the passkey didn't verify")]
     PasskeyRejected(#[source] WebauthnError),
     #[error("WebAuthn failed")]
     Webauthn(#[source] WebauthnError),
@@ -77,7 +77,7 @@ impl From<MemberError> for AuthError {
 }
 
 /// A registration waiting for the browser's new credential.
-struct Joining {
+struct PendingJoin {
     link_hash: Vec<u8>,
     webauthn_user_id: Uuid,
     registration: PasskeyRegistration,
@@ -90,7 +90,7 @@ pub struct Auth {
     clock: Clock,
     members: Members,
     webauthn: Arc<Webauthn>,
-    joining: Arc<Ceremonies<Joining>>,
+    joining: Arc<Ceremonies<PendingJoin>>,
 }
 
 impl Auth {
@@ -169,6 +169,7 @@ impl Auth {
     pub async fn invite(&self, token: &LinkToken) -> Result<Invite, AuthError> {
         let hash = token.hash();
         let now = unix_seconds(self.clock.now());
+        // The same conditions as the UPDATE in `finish_joining`; `query!` needs each as a literal.
         let link = sqlx::query!(
             r#"SELECT display_name AS "display_name!", grants_admin AS "grants_admin: bool"
                FROM links
@@ -205,7 +206,7 @@ impl Auth {
             .map_err(AuthError::Webauthn)?;
         let ceremony = self.joining.insert(
             self.clock.now(),
-            Joining {
+            PendingJoin {
                 link_hash: token.hash(),
                 webauthn_user_id,
                 registration,
@@ -296,12 +297,16 @@ impl Auth {
     }
 }
 
+/// A stored passkey, which the sessions it starts point back at.
+#[derive(Debug, Clone, Copy)]
+struct PasskeyId(i64);
+
 async fn insert_passkey(
     conn: &mut SqliteConnection,
     member: MemberId,
     passkey: &Passkey,
     now: i64,
-) -> Result<i64, AuthError> {
+) -> Result<PasskeyId, AuthError> {
     let member = member.get();
     let credential_id = passkey.cred_id().as_ref();
     let credential = serde_json::to_string(passkey)?;
@@ -317,13 +322,13 @@ async fn insert_passkey(
     .execute(conn)
     .await?
     .last_insert_rowid();
-    Ok(id)
+    Ok(PasskeyId(id))
 }
 
 async fn insert_session(
     conn: &mut SqliteConnection,
     member: MemberId,
-    passkey: i64,
+    passkey: PasskeyId,
     now: i64,
 ) -> Result<SessionToken, AuthError> {
     let token = SessionToken::generate();
@@ -335,7 +340,7 @@ async fn insert_session(
          VALUES (?, ?, ?, ?, ?)",
         hash,
         member,
-        passkey,
+        passkey.0,
         now,
         expires_at,
     )
@@ -346,10 +351,9 @@ async fn insert_session(
 
 #[cfg(test)]
 mod tests {
-    use jiff::civil::date;
-
     use super::*;
     use crate::domain::clock::ManualClock;
+    use crate::domain::members::fixtures::{add_member, name};
 
     fn auth(db: SqlitePool) -> Auth {
         let clock = ManualClock::starting_at(std::time::SystemTime::UNIX_EPOCH);
@@ -361,25 +365,6 @@ mod tests {
             &Url::parse("https://asgard.test").unwrap(),
         )
         .unwrap()
-    }
-
-    fn name(input: &str) -> DisplayName {
-        DisplayName::parse(input).unwrap()
-    }
-
-    async fn add_member(db: &SqlitePool, display_name: &str, is_admin: bool) {
-        let mut conn = db.acquire().await.unwrap();
-        members::insert(
-            &mut conn,
-            NewMember {
-                display_name: &name(display_name),
-                is_admin,
-                joined_on: date(2026, 1, 1),
-                webauthn_user_id: display_name,
-            },
-        )
-        .await
-        .unwrap();
     }
 
     #[sqlx::test]
