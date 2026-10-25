@@ -6,7 +6,7 @@ use sqlx::SqlitePool;
 use sqlx::migrate::{MigrateError, Migrator};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 
-pub static MIGRATOR: Migrator = sqlx::migrate!();
+static MIGRATOR: Migrator = sqlx::migrate!();
 
 /// Opens the database, creating the file if it is missing.
 ///

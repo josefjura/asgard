@@ -31,10 +31,10 @@ async fn main() -> ExitCode {
 async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let pool = db::connect(config.database)
         .await
-        .map_err(|err| format!("cannot open the database: {err}"))?;
+        .map_err(|err| format!("cannot open the database at DATABASE_URL: {err}"))?;
     db::migrate(&pool)
         .await
-        .map_err(|err| format!("cannot migrate the database: {err}"))?;
+        .map_err(|err| format!("cannot migrate the database at DATABASE_URL: {err}"))?;
 
     let listener = tokio::net::TcpListener::bind(config.listen)
         .await

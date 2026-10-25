@@ -72,16 +72,8 @@ impl Config {
         let public_url = parse_public_url(&require("PUBLIC_URL")?)?;
         let vapid_private_key = parse_vapid_private_key(require("VAPID_PRIVATE_KEY")?)?;
         let backup_dir = PathBuf::from(require("BACKUP_DIR")?);
-        let host = get("HOST").map_or(Ok(DEFAULT_HOST), |value| {
-            value
-                .parse()
-                .map_err(|_| invalid("HOST", "expected an IP address"))
-        })?;
-        let port = get("PORT").map_or(Ok(DEFAULT_PORT), |value| {
-            value
-                .parse()
-                .map_err(|_| invalid("PORT", "expected a port number"))
-        })?;
+        let host = parse_or("HOST", get("HOST"), DEFAULT_HOST, "expected an IP address")?;
+        let port = parse_or("PORT", get("PORT"), DEFAULT_PORT, "expected a port number")?;
 
         Ok(Self {
             database,
@@ -98,6 +90,17 @@ fn invalid(var: &'static str, reason: impl Into<String>) -> ConfigError {
         var,
         reason: reason.into(),
     }
+}
+
+fn parse_or<T: FromStr>(
+    var: &'static str,
+    value: Option<String>,
+    default: T,
+    reason: &str,
+) -> Result<T, ConfigError> {
+    value.map_or(Ok(default), |value| {
+        value.parse().map_err(|_| invalid(var, reason))
+    })
 }
 
 fn parse_database(value: &str) -> Result<SqliteConnectOptions, ConfigError> {

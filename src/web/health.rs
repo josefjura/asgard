@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use axum::extract::State;
 use sqlx::Connection;
 
@@ -8,16 +10,21 @@ pub async fn live() -> &'static str {
     "ok"
 }
 
-/// Answers only when the database does.
+/// Answers only when the database does, within [`READY_TIMEOUT`].
 pub async fn ready(State(state): State<AppState>) -> Result<&'static str, AppError> {
-    let mut conn = state
-        .db
-        .acquire()
+    let check = async {
+        let mut conn = state.db.acquire().await?;
+        conn.ping().await
+    };
+    tokio::time::timeout(READY_TIMEOUT, check)
         .await
+        .unwrap_or(Err(sqlx::Error::PoolTimedOut))
         .map_err(AppError::DatabaseUnavailable)?;
-    conn.ping().await.map_err(AppError::DatabaseUnavailable)?;
     Ok("ok")
 }
+
+/// Shorter than a Kubernetes probe's default timeout, so a stuck database answers 503.
+const READY_TIMEOUT: Duration = Duration::from_millis(800);
 
 #[cfg(test)]
 mod tests {
