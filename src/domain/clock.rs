@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn setting_a_manual_clock_jumps_to_that_time() {
         let manual = ManualClock::starting_at(START);
-        let later = START + Duration::from_secs(24 * 60 * 60);
+        let later = START + Duration::from_hours(24);
 
         manual.set(later);
 

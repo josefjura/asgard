@@ -85,7 +85,7 @@ pub(crate) mod test_support {
 
     /// Where a test app's clock starts: 2026-01-01T00:00:00Z.
     pub fn clock_start() -> SystemTime {
-        SystemTime::UNIX_EPOCH + Duration::from_secs(1_767_225_600)
+        SystemTime::UNIX_EPOCH + Duration::from_hours(490_896)
     }
 
     /// The app's router with a clock the test controls.
@@ -183,7 +183,7 @@ mod tests {
         app.clock.advance(Duration::from_secs(90));
         assert_eq!(body_text(app.get("/now").await).await, "90");
 
-        app.clock.set(clock_start() + Duration::from_secs(86_400));
+        app.clock.set(clock_start() + Duration::from_hours(24));
         assert_eq!(body_text(app.get("/now").await).await, "86400");
     }
 }
