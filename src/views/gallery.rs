@@ -85,6 +85,7 @@ pub fn page(fixtures: &[Fixture]) -> Markup {
     }
 }
 
+/// The gallery's own chrome. Debug-only, so it stays out of the app's stylesheet.
 const GALLERY_CSS: &str = "
 body { margin: 0; padding: 1.5rem; font-family: system-ui, sans-serif; background: #e4e6da; color: #22261b; }
 h2 { margin-top: 2.5rem; }
@@ -122,7 +123,13 @@ mod tests {
         let fixtures = fixtures();
         let html = page(&fixtures).into_string();
 
-        assert_eq!(html.matches("width=\"390\"").count(), fixtures.len());
-        assert_eq!(html.matches("width=\"1280\"").count(), fixtures.len());
+        assert_eq!(
+            html.matches(&format!("width=\"{PHONE_WIDTH}\"")).count(),
+            fixtures.len()
+        );
+        assert_eq!(
+            html.matches(&format!("width=\"{DESKTOP_WIDTH}\"")).count(),
+            fixtures.len()
+        );
     }
 }

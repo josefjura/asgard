@@ -8,40 +8,79 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
-/// Served at `/static/<name>.<hash>.<ext>` and cached forever: (constant, file, content type).
-const HASHED: &[(&str, &str, &str)] = &[
-    ("APP_CSS", "app.css", "text/css; charset=utf-8"),
-    (
-        "HTMX",
-        "htmx-2.0.11.min.js",
-        "text/javascript; charset=utf-8",
-    ),
-    (
-        "REGISTER_SW",
-        "register-sw.js",
-        "text/javascript; charset=utf-8",
-    ),
-    ("ICON_SVG", "icon.svg", "image/svg+xml"),
-    ("ICON_192", "icon-192.png", "image/png"),
-    ("ICON_512", "icon-512.png", "image/png"),
-    ("ICON_MASKABLE_512", "icon-maskable-512.png", "image/png"),
-    ("APPLE_TOUCH_ICON", "apple-touch-icon.png", "image/png"),
+/// Served at `/static/<name>.<hash>.<ext>` and cached forever.
+struct Hashed {
+    constant: &'static str,
+    file: &'static str,
+    content_type: &'static str,
+}
+
+/// Served at a fixed URL and revalidated on every request.
+struct Fixed {
+    constant: &'static str,
+    file: &'static str,
+    url: &'static str,
+    content_type: &'static str,
+}
+
+const JAVASCRIPT: &str = "text/javascript; charset=utf-8";
+
+const HASHED: &[Hashed] = &[
+    Hashed {
+        constant: "APP_CSS",
+        file: "app.css",
+        content_type: "text/css; charset=utf-8",
+    },
+    Hashed {
+        constant: "HTMX",
+        file: "htmx-2.0.11.min.js",
+        content_type: JAVASCRIPT,
+    },
+    Hashed {
+        constant: "REGISTER_SW",
+        file: "register-sw.js",
+        content_type: JAVASCRIPT,
+    },
+    Hashed {
+        constant: "ICON_SVG",
+        file: "icon.svg",
+        content_type: "image/svg+xml",
+    },
+    Hashed {
+        constant: "ICON_192",
+        file: "icon-192.png",
+        content_type: "image/png",
+    },
+    Hashed {
+        constant: "ICON_512",
+        file: "icon-512.png",
+        content_type: "image/png",
+    },
+    Hashed {
+        constant: "ICON_MASKABLE_512",
+        file: "icon-maskable-512.png",
+        content_type: "image/png",
+    },
+    Hashed {
+        constant: "APPLE_TOUCH_ICON",
+        file: "apple-touch-icon.png",
+        content_type: "image/png",
+    },
 ];
 
-/// Served at a fixed URL and revalidated on every request: (constant, file, URL, content type).
-const FIXED: &[(&str, &str, &str, &str)] = &[
-    (
-        "SERVICE_WORKER",
-        "sw.js",
-        "/sw.js",
-        "text/javascript; charset=utf-8",
-    ),
-    (
-        "MANIFEST",
-        "manifest.webmanifest",
-        "/manifest.webmanifest",
-        "application/manifest+json",
-    ),
+const FIXED: &[Fixed] = &[
+    Fixed {
+        constant: "SERVICE_WORKER",
+        file: "sw.js",
+        url: "/sw.js",
+        content_type: JAVASCRIPT,
+    },
+    Fixed {
+        constant: "MANIFEST",
+        file: "manifest.webmanifest",
+        url: "/manifest.webmanifest",
+        content_type: "application/manifest+json",
+    },
 ];
 
 fn main() {
@@ -56,12 +95,13 @@ fn main() {
     let mut placeholders = Vec::new();
     let mut hashed_urls = Vec::new();
 
-    for &(constant, file, content_type) in HASHED {
-        let path = static_dir.join(file);
-        let bytes = fs::read(&path).unwrap_or_else(|err| panic!("cannot read {file}: {err}"));
-        let url = format!("/static/{}", hash::hashed_file_name(file, &bytes));
-        write_asset(&mut code, constant, &url, content_type, &path);
-        placeholders.push((format!("{{{{{constant}}}}}"), url.clone()));
+    for asset in HASHED {
+        let path = static_dir.join(asset.file);
+        let bytes =
+            fs::read(&path).unwrap_or_else(|err| panic!("cannot read {}: {err}", asset.file));
+        let url = format!("/static/{}", hash::hashed_file_name(asset.file, &bytes));
+        write_asset(&mut code, asset.constant, &url, asset.content_type, &path);
+        placeholders.push((format!("{{{{{}}}}}", asset.constant), url.clone()));
         hashed_urls.push(url);
     }
 
@@ -73,7 +113,8 @@ fn main() {
     placeholders.push(("{{VERSION}}".to_owned(), version));
     placeholders.push(("{{PRECACHE}}".to_owned(), json_array(&hashed_urls)));
 
-    for &(constant, file, url, content_type) in FIXED {
+    for asset in FIXED {
+        let file = asset.file;
         let mut text = fs::read_to_string(static_dir.join(file))
             .unwrap_or_else(|err| panic!("cannot read {file}: {err}"));
         for (placeholder, value) in &placeholders {
@@ -82,11 +123,17 @@ fn main() {
         assert!(!text.contains("{{"), "{file} has an unknown placeholder");
         let path = out_dir.join(file);
         fs::write(&path, text).unwrap_or_else(|err| panic!("cannot write {file}: {err}"));
-        write_asset(&mut code, constant, url, content_type, &path);
+        write_asset(
+            &mut code,
+            asset.constant,
+            asset.url,
+            asset.content_type,
+            &path,
+        );
     }
 
-    let hashed: Vec<&str> = HASHED.iter().map(|asset| asset.0).collect();
-    let fixed: Vec<&str> = FIXED.iter().map(|asset| asset.0).collect();
+    let hashed: Vec<&str> = HASHED.iter().map(|asset| asset.constant).collect();
+    let fixed: Vec<&str> = FIXED.iter().map(|asset| asset.constant).collect();
     let _ = writeln!(
         code,
         "/// Assets served under `/static/` with a content-hash name.\n\

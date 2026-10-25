@@ -30,6 +30,17 @@ self.addEventListener("fetch", (event) => {
   if (url.origin === self.location.origin && PRECACHE.includes(url.pathname)) {
     event.respondWith(caches.match(request).then((cached) => cached ?? fetch(request)));
   } else if (request.mode === "navigate") {
-    event.respondWith(fetch(request).catch(() => caches.match(OFFLINE_URL)));
+    event.respondWith(fetch(request).catch(offlineResponse));
   }
 });
+
+async function offlineResponse() {
+  const cached = await caches.match(OFFLINE_URL);
+  return (
+    cached ??
+    new Response("You're offline. Check your connection, then try again.", {
+      status: 503,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    })
+  );
+}

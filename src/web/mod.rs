@@ -28,12 +28,14 @@ pub fn router(state: AppState) -> Router {
         .route("/health/live", get(health::live))
         .route("/health/ready", get(health::ready))
         .route("/offline", get(pages::offline))
-        .route("/static/{file}", get(static_files::hashed));
+        .route("/static/{file}", get(static_files::hashed))
+        .route(
+            assets::SERVICE_WORKER.url,
+            get(static_files::service_worker),
+        )
+        .route(assets::MANIFEST.url, get(static_files::manifest));
     for tab in Tab::ALL {
         router = router.route(tab.href(), pages::tab(tab));
-    }
-    for asset in assets::FIXED {
-        router = router.route(asset.url, static_files::fixed(*asset));
     }
     #[cfg(debug_assertions)]
     {

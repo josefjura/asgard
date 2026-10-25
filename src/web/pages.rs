@@ -1,3 +1,5 @@
+use axum::http::header::CACHE_CONTROL;
+use axum::response::IntoResponse;
 use axum::routing::{MethodRouter, get};
 use maud::Markup;
 
@@ -7,12 +9,17 @@ use crate::views::nav::Tab;
 
 /// A tab's page.
 pub fn tab(tab: Tab) -> MethodRouter<AppState> {
-    get(move || async move { views::tabs::page(tab) })
+    get(move || async move { fresh(views::tabs::page(tab)) })
 }
 
 /// The page the service worker caches and shows when there is no network.
-pub async fn offline() -> Markup {
-    views::offline::page()
+pub async fn offline() -> impl IntoResponse {
+    fresh(views::offline::page())
+}
+
+/// Pages are always revalidated, so they never point at an outdated asset URL.
+fn fresh(page: Markup) -> impl IntoResponse {
+    ([(CACHE_CONTROL, "no-cache")], page)
 }
 
 #[cfg(test)]
@@ -33,6 +40,7 @@ mod tests {
                 response.headers()[header::CONTENT_TYPE],
                 "text/html; charset=utf-8"
             );
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
             let html = body_text(response).await;
             assert!(html.contains(&format!("href=\"{}\" aria-current=\"page\"", tab.href())));
         }

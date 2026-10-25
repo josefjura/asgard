@@ -21,12 +21,6 @@ pub fn hashed(url: &str) -> Option<Asset> {
     HASHED.iter().copied().find(|asset| asset.url == url)
 }
 
-/// Finds the asset served at the fixed `url`.
-#[must_use]
-pub fn fixed(url: &str) -> Option<Asset> {
-    FIXED.iter().copied().find(|asset| asset.url == url)
-}
-
 #[cfg(test)]
 mod tests {
     use super::hash::{fingerprint, hashed_file_name};
@@ -96,7 +90,5 @@ mod tests {
         assert_eq!(hashed(APP_CSS.url), Some(APP_CSS));
         assert_eq!(hashed("/static/app.0000000000000000.css"), None);
         assert_eq!(hashed(SERVICE_WORKER.url), None);
-        assert_eq!(fixed("/sw.js"), Some(SERVICE_WORKER));
-        assert_eq!(fixed(APP_CSS.url), None);
     }
 }
