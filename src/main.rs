@@ -2,7 +2,8 @@ use std::process::ExitCode;
 
 use asgard::config::Config;
 use asgard::db;
-use asgard::web::{self, AppState};
+use asgard::domain::clock::Clock;
+use asgard::web::{self, AppState, PublicOrigin};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -41,7 +42,12 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|err| format!("cannot listen on {}: {err}", config.listen))?;
     tracing::info!(address = %config.listen, public_url = %config.public_url, "listening");
 
-    axum::serve(listener, web::router(AppState { db: pool.clone() }))
+    let state = AppState {
+        db: pool.clone(),
+        clock: Clock::system(),
+        public_origin: PublicOrigin::of(&config.public_url),
+    };
+    axum::serve(listener, web::router(state))
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
