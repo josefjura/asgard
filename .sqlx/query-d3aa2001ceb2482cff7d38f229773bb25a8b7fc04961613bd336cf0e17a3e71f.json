@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT EXISTS (SELECT 1 FROM members WHERE display_name_key = ?) AS \"taken: bool\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "taken: bool",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d3aa2001ceb2482cff7d38f229773bb25a8b7fc04961613bd336cf0e17a3e71f"
+}

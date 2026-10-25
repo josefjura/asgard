@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT display_name FROM members WHERE is_admin ORDER BY id LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "display_name",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "085e44b18c7a267c336cf728cc380fb5f6b51cbce352ec1f1f6732a4eafc0c02"
+}

@@ -3,9 +3,10 @@
 
 use maud::{DOCTYPE, Markup, html};
 
+use crate::domain::members::{CREW_NAME, DisplayName};
 use crate::views::layout::document;
 use crate::views::nav::{Tab, bottom_nav};
-use crate::views::{offline, tabs};
+use crate::views::{invite, offline, sign_in, tabs};
 
 /// One component in one state, rendered as a complete document.
 pub struct Fixture {
@@ -20,6 +21,9 @@ const PHONE_WIDTH: u16 = 390;
 const PAGE_HEIGHT: u16 = 720;
 const DESKTOP_WIDTH: u16 = 1280;
 
+/// # Panics
+///
+/// If a fixture's display name is invalid, which is a bug in the fixtures.
 #[must_use]
 pub fn fixtures() -> Vec<Fixture> {
     let nav = Tab::ALL.into_iter().map(|tab| Fixture {
@@ -40,7 +44,34 @@ pub fn fixtures() -> Vec<Fixture> {
         document: offline::page(),
         height: PAGE_HEIGHT,
     };
-    nav.chain(pages).chain([offline]).collect()
+    let name = |name: &str| DisplayName::parse(name).expect("fixture names are valid");
+    let invite = Fixture {
+        component: "Invite page",
+        state: "Valid link".to_owned(),
+        document: invite::page(CREW_NAME, &name("Ondra"), "/invite/fixture"),
+        height: PAGE_HEIGHT,
+    };
+    let link_errors = [
+        ("Naming the Admin", Some(name("Josef"))),
+        ("Before there is an Admin", None),
+    ]
+    .map(|(state, admin)| Fixture {
+        component: "Link error page",
+        state: state.to_owned(),
+        document: invite::link_error(admin.as_ref()),
+        height: PAGE_HEIGHT,
+    });
+    let sign_in = Fixture {
+        component: "Sign-in page",
+        state: "Placeholder".to_owned(),
+        document: sign_in::placeholder(),
+        height: PAGE_HEIGHT,
+    };
+    nav.chain(pages)
+        .chain([offline, invite])
+        .chain(link_errors)
+        .chain([sign_in])
+        .collect()
 }
 
 #[must_use]
@@ -105,7 +136,14 @@ mod tests {
     fn lists_every_component_in_every_state() {
         let html = page(&fixtures()).into_string();
 
-        for component in ["Bottom navigation", "App shell", "Offline page"] {
+        for component in [
+            "Bottom navigation",
+            "App shell",
+            "Offline page",
+            "Invite page",
+            "Link error page",
+            "Sign-in page",
+        ] {
             assert!(
                 html.contains(&format!("<h2>{component}</h2>")),
                 "{component}"
@@ -115,7 +153,15 @@ mod tests {
             assert!(html.contains(&format!("<h3>{} active</h3>", tab.label())));
             assert!(html.contains(&format!("<h3>{} tab</h3>", tab.label())));
         }
-        assert!(html.contains("<h3>No network</h3>"));
+        for state in [
+            "No network",
+            "Valid link",
+            "Naming the Admin",
+            "Before there is an Admin",
+            "Placeholder",
+        ] {
+            assert!(html.contains(&format!("<h3>{state}</h3>")), "{state}");
+        }
     }
 
     #[test]

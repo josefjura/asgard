@@ -1,6 +1,7 @@
 //! Asgard: the Crew's shared money, Shopping list, Reminders and Quotes.
 
 pub mod assets;
+pub mod cli;
 pub mod config;
 pub mod db;
 pub mod domain;

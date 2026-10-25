@@ -1,0 +1,32 @@
+---
+source: src/views/invite.rs
+expression: "link_error(Some(&name(\"Josef\"))).into_string().replace(\"><\", \">\\n<\")"
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Link no longer works | Asgard</title>
+<meta name="theme-color" content="#3E5B2B" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#263820" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Asgard">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="/static/icon.[hash].svg">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.[hash].png">
+<link rel="stylesheet" href="/static/app.[hash].css">
+<script src="/static/htmx-2.0.11.min.[hash].js" defer>
+</script>
+<script type="module" src="/static/register-sw.[hash].js">
+</script>
+</head>
+<body>
+<main class="standalone">
+<h1>This link no longer works</h1>
+<p>Each link works once, for 24 hours. This one has expired or was already used.</p>
+<p>Ask <strong>Josef</strong>, the Admin, to send you a new one.</p>
+</main>
+</body>
+</html>

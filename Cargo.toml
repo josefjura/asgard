@@ -6,7 +6,15 @@ edition = "2024"
 [dependencies]
 axum = "0.8.9"
 base64 = "0.23.1"
+cookie = "0.18.2"
+jiff = { version = "0.2.38", features = ["tzdb-bundle-always"] }
 maud = { version = "0.27.0", features = ["axum"] }
+# Pulled in by webauthn-rs; vendored so the static musl image needs no system OpenSSL.
+openssl = { version = "0.10.81", features = ["vendored"] }
+rand = "0.9.5"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.10.9"
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["full"] }
@@ -14,13 +22,14 @@ tower-http = { version = "0.7.1", features = ["trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
+webauthn-rs = "0.5.5"
 
 [dev-dependencies]
 http-body-util = "0.1.5"
 insta = { version = "1.49.0", features = ["filters"] }
-serde_json = "1.0.154"
 tempfile = "3.27.0"
 tower = { version = "0.5.3", features = ["util"] }
+webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }
 
 # The container image's build; plain release stays quick for `cargo test --release` in CI.
 [profile.dist]

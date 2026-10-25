@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO links (token_hash, kind, display_name, grants_admin, created_by, created_at, expires_at)\n             VALUES (?, 'invite', ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "886fc253d93415c254502094d431597b5c92feca60f64fbc92be7fb52c7ae7f3"
+}

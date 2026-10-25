@@ -64,6 +64,16 @@ Environment variables, validated at startup. Secrets come from a Kubernetes Secr
 | `HOST` / `PORT` | Listen address |
 | `RUST_LOG` | Log filter |
 
+## The first Admin
+
+On a fresh database, create the first Admin's Invite link with the bootstrap subcommand. It runs with the same environment as the server, so in the cluster run it inside the pod:
+
+```sh
+kubectl exec deploy/asgard -- /usr/local/bin/asgard bootstrap-admin "Josef"
+```
+
+It prints a link that works once, for 24 hours. Opening it registers a passkey and signs the new Member in as the Admin. The subcommand refuses once the Crew has an Admin; it is the only way to create one.
+
 ## Health
 
 - `/health/live`: the process is up.
