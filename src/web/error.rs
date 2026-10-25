@@ -8,6 +8,8 @@ pub enum AppError {
     DatabaseUnavailable(#[source] sqlx::Error),
     #[error("database error")]
     Database(#[from] sqlx::Error),
+    #[error("request not sent from our origin")]
+    ForeignOrigin,
 }
 
 impl IntoResponse for AppError {
@@ -15,8 +17,13 @@ impl IntoResponse for AppError {
         let status = match &self {
             Self::DatabaseUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::ForeignOrigin => StatusCode::FORBIDDEN,
         };
-        tracing::error!(error = ?self, "request failed");
+        if status.is_server_error() {
+            tracing::error!(error = ?self, "request failed");
+        } else {
+            tracing::warn!(error = %self, "request rejected");
+        }
         (status, status.canonical_reason().unwrap_or_default()).into_response()
     }
 }
