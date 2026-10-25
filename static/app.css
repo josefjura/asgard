@@ -1,0 +1,238 @@
+/* Asgard: one mobile-first stylesheet. Hop greens and pale-ale amber. */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #eef0e4;
+  --surface: #fafbf4;
+  --ink: #22261b;
+  --muted: #5e6450;
+  --line: #d5d9c4;
+  --band: #3e5b2b;
+  --band-ink: #f1f4e6;
+  --active: #3e5b2b;
+  --amber: #d9a021;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 1rem;
+  --space-4: 1.5rem;
+  --space-5: 2.5rem;
+  --measure: 40rem;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15180f;
+    --surface: #1f2318;
+    --ink: #e7eadb;
+    --muted: #a0a68e;
+    --line: #343a29;
+    --band: #263820;
+    --band-ink: #e7eadb;
+    --active: #a9c97f;
+    --amber: #e3ae36;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--active);
+}
+
+:focus-visible {
+  outline: 3px solid var(--amber);
+  outline-offset: 2px;
+}
+
+/* App shell: header band, page content, navigation. */
+
+.shell {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas: "header" "main" "nav";
+  min-height: 100dvh;
+}
+
+.shell-header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  padding: calc(var(--space-3) + env(safe-area-inset-top)) var(--space-3) var(--space-3);
+  background: var(--band);
+  color: var(--band-ink);
+}
+
+.wordmark {
+  margin: 0;
+  color: inherit;
+  font-size: 1.375rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.shell-main {
+  grid-area: main;
+  width: 100%;
+  max-width: var(--measure);
+  padding: var(--space-4) var(--space-3) var(--space-5);
+}
+
+.shell-main h1 {
+  margin: 0 0 var(--space-3);
+  font-size: 1.75rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+/* Bottom navigation: four equal tabs, the active one marked with an amber bar. */
+
+.tabs {
+  grid-area: nav;
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+
+.tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 3.5rem;
+  padding: var(--space-2) var(--space-1);
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-decoration: none;
+}
+
+.tab svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tab[aria-current="page"] {
+  color: var(--active);
+  font-weight: 600;
+}
+
+.tab[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  inset: -1px 25% auto;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: var(--amber);
+}
+
+@media (min-width: 48rem) {
+  /* The header band spans the row and the navigation sits on top of it, so no seam shows. */
+  .shell {
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto 1fr;
+    grid-template-areas: none;
+  }
+
+  .shell-header {
+    grid-area: 1 / 1 / 2 / -1;
+    padding-inline: var(--space-4);
+  }
+
+  .shell-main {
+    grid-area: 2 / 1 / 3 / -1;
+    padding-inline: var(--space-4);
+  }
+
+  .tabs {
+    grid-area: 1 / 2 / 2 / 3;
+    position: static;
+    grid-template-columns: repeat(4, auto);
+    gap: var(--space-1);
+    padding: 0 var(--space-4) 0 0;
+    background: var(--band);
+    border-top: 0;
+  }
+
+  .tab {
+    flex-direction: row;
+    gap: var(--space-2);
+    min-height: 0;
+    padding: var(--space-3);
+    color: var(--band-ink);
+    font-size: 0.9375rem;
+    opacity: 0.8;
+  }
+
+  .tab svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .tab[aria-current="page"] {
+    color: var(--band-ink);
+    opacity: 1;
+  }
+
+  .tab[aria-current="page"]::before {
+    inset: auto var(--space-3) 0;
+    border-radius: 3px 3px 0 0;
+  }
+}
+
+/* Placeholder and offline content. */
+
+.empty {
+  max-width: 32rem;
+  color: var(--muted);
+}
+
+.offline {
+  display: grid;
+  place-content: center;
+  min-height: 100dvh;
+  padding: var(--space-4) var(--space-3);
+}
+
+.offline h1 {
+  margin: 0 0 var(--space-2);
+  font-size: 1.75rem;
+  line-height: 1.2;
+}
+
+.offline p {
+  max-width: 28rem;
+  margin: 0 0 var(--space-3);
+  color: var(--muted);
+}
