@@ -2,9 +2,11 @@
 
 #[cfg(debug_assertions)]
 pub mod gallery;
+pub mod invite;
 pub mod layout;
 pub mod nav;
 pub mod offline;
+pub mod sign_in;
 pub mod tabs;
 
 /// Snapshots markup one tag per line, with asset hashes masked so a CSS edit doesn't churn

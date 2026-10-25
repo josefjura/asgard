@@ -52,6 +52,17 @@ Every feature ships with tests.
 
 Check UI changes in the gallery before handing them over.
 
+### Queries
+
+`sqlx::query!` checks queries at compile time. Without `DATABASE_URL` it reads the committed `.sqlx/` data, which is how CI builds. After adding or changing a query or migration, regenerate it against a migrated scratch database:
+
+```sh
+export DATABASE_URL=sqlite:target/sqlx-dev.db
+cargo sqlx database setup && cargo sqlx prepare -- --all-targets
+```
+
+On Windows, the vendored OpenSSL needs Strawberry Perl: set `OPENSSL_SRC_PERL` to its `perl.exe`.
+
 ### CI
 
 `cargo fmt --check`, `cargo clippy -- -D warnings` (pedantic + nursery) and `cargo test` on every push.

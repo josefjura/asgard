@@ -42,6 +42,11 @@ const HASHED: &[Hashed] = &[
         content_type: JAVASCRIPT,
     },
     Hashed {
+        constant: "PASSKEY",
+        file: "passkey.js",
+        content_type: JAVASCRIPT,
+    },
+    Hashed {
         constant: "ICON_SVG",
         file: "icon.svg",
         content_type: "image/svg+xml",

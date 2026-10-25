@@ -6,6 +6,12 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use std::time::SystemTime;
 
+use jiff::civil::Date;
+use jiff::{Timestamp, tz};
+
+/// Where the Crew lives: times are entered and displayed here, and stored as UTC.
+pub const CREW_TIME_ZONE: &str = "Europe/Prague";
+
 /// Tells the current time: the system clock in production, a [`ManualClock`] in tests.
 #[derive(Debug, Clone)]
 pub struct Clock(Source);
@@ -30,6 +36,32 @@ impl Clock {
             #[cfg(test)]
             Source::Manual(now) => *lock(now),
         }
+    }
+
+    /// Today's date in the Crew's time zone.
+    ///
+    /// # Panics
+    ///
+    /// Never in practice: the time zone database is compiled in, and the clock stays within the
+    /// years 9999 BC to 9999 AD.
+    #[must_use]
+    pub fn today(&self) -> Date {
+        let zone = tz::db()
+            .get(CREW_TIME_ZONE)
+            .expect("the bundled time zone database has the Crew's zone");
+        Timestamp::try_from(self.now())
+            .expect("the clock is within jiff's range")
+            .to_zoned(zone)
+            .date()
+    }
+}
+
+/// `time` as whole seconds since the Unix epoch, the way the database stores instants.
+#[must_use]
+pub fn unix_seconds(time: SystemTime) -> i64 {
+    match time.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(since) => i64::try_from(since.as_secs()).unwrap_or(i64::MAX),
+        Err(before) => i64::try_from(before.duration().as_secs()).map_or(i64::MIN, |secs| -secs),
     }
 }
 
@@ -99,6 +131,22 @@ mod tests {
         manual.advance(Duration::from_secs(90));
 
         assert_eq!(clock.now(), START + Duration::from_secs(90));
+    }
+
+    #[test]
+    fn today_is_the_date_in_prague() {
+        // 2026-01-01T22:59:59Z is still New Year's Day in Prague (UTC+1); a second later it's not.
+        let manual = ManualClock::starting_at(START + Duration::from_secs(1_767_308_399));
+        assert_eq!(manual.clock().today(), jiff::civil::date(2026, 1, 1));
+
+        manual.advance(Duration::from_secs(1));
+        assert_eq!(manual.clock().today(), jiff::civil::date(2026, 1, 2));
+    }
+
+    #[test]
+    fn counts_unix_seconds_either_side_of_the_epoch() {
+        assert_eq!(unix_seconds(START + Duration::from_secs(90)), 90);
+        assert_eq!(unix_seconds(START - Duration::from_secs(90)), -90);
     }
 
     #[test]

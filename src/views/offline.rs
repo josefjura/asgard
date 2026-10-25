@@ -8,7 +8,7 @@ pub fn page() -> Markup {
     document(
         "Offline | Asgard",
         &html! {
-            main.offline {
+            main.standalone {
                 h1 { "You're offline" }
                 p { "Asgard needs a connection to load the Crew's data. Check your connection, then try again." }
                 p { a href="/" { "Try again" } }

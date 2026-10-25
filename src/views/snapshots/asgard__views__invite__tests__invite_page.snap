@@ -1,0 +1,37 @@
+---
+source: src/views/invite.rs
+expression: "page(\"Asgard\", &name(\"Ondra\"), &urls()).into_string().replace(\"><\", \">\\n<\")"
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Join the Crew | Asgard</title>
+<meta name="theme-color" content="#3E5B2B" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#263820" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Asgard">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="/static/icon.[hash].svg">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.[hash].png">
+<link rel="stylesheet" href="/static/app.[hash].css">
+<script src="/static/htmx-2.0.11.min.[hash].js" defer>
+</script>
+<script type="module" src="/static/register-sw.[hash].js">
+</script>
+</head>
+<body>
+<main class="standalone">
+<h1>Join Asgard</h1>
+<p class="lead">You'll appear in the Crew as <strong>Ondra</strong>.</p>
+<p>Asgard signs you in with a passkey: the fingerprint, face or screen lock you already use on this device. There's no password to remember.</p>
+<button class="button" type="button" data-passkey-start="/invite/abc/start" data-passkey-finish="/invite/abc/finish" aria-describedby="passkey-status">Create a passkey</button>
+<p class="status" id="passkey-status" role="status">
+</p>
+<script type="module" src="/static/passkey.[hash].js">
+</script>
+</main>
+</body>
+</html>

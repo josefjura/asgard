@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO members (display_name, display_name_key, is_admin, joined_on, webauthn_user_id)\n         VALUES (?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "3a2fb608bfa52206df76451b9c3a8d9f5929aaaf9c525d92d1e048371f3907cc"
+}

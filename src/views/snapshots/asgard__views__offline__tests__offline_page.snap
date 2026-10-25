@@ -23,7 +23,7 @@ expression: "super::page().into_string().replace(\"><\", \">\\n<\")"
 </script>
 </head>
 <body>
-<main class="offline">
+<main class="standalone">
 <h1>You're offline</h1>
 <p>Asgard needs a connection to load the Crew's data. Check your connection, then try again.</p>
 <p>

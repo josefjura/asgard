@@ -211,28 +211,63 @@ a {
   }
 }
 
-/* Placeholder and offline content. */
+/* Placeholder content, and the pages shown outside the shell. */
 
 .empty {
   max-width: 32rem;
   color: var(--muted);
 }
 
-.offline {
+.standalone {
   display: grid;
   place-content: center;
   min-height: 100dvh;
   padding: var(--space-4) var(--space-3);
 }
 
-.offline h1 {
+.standalone h1 {
   margin: 0 0 var(--space-2);
   font-size: 1.75rem;
   line-height: 1.2;
 }
 
-.offline p {
+.standalone p {
   max-width: 28rem;
   margin: 0 0 var(--space-3);
   color: var(--muted);
+}
+
+.standalone .lead {
+  color: var(--ink);
+  font-size: 1.125rem;
+}
+
+/* Buttons and the status line beneath them. */
+
+.button {
+  justify-self: start;
+  min-height: 3rem;
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  border-radius: 0.5rem;
+  background: var(--band);
+  color: var(--band-ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.standalone .status {
+  min-height: 1.5em;
+  margin-top: var(--space-3);
+  color: var(--ink);
+}
+
+.status:empty {
+  visibility: hidden;
 }

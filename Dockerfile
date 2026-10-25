@@ -3,7 +3,8 @@
 # Alpine's Rust targets musl and links statically, SQLite included.
 # Matches rust-toolchain.toml, so the image is built by the compiler CI checks with.
 FROM rust:1.99.1-alpine AS builder
-RUN apk add --no-cache musl-dev
+# perl and make build the vendored OpenSSL that webauthn-rs links against.
+RUN apk add --no-cache musl-dev perl make
 WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
