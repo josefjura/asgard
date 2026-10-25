@@ -1,5 +1,0 @@
----
-source: src/views/home.rs
-expression: "super::page().into_string()"
----
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Asgard</title></head><body><main><h1>Asgard</h1><p>The Crew's shared money, Shopping list, Reminders and Quotes are on their way.</p></main></body></html>

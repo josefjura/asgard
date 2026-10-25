@@ -1,0 +1,44 @@
+---
+source: src/views/nav.rs
+expression: "super::bottom_nav(tab).into_string().replace(\"><\", \">\\n<\")"
+---
+<nav class="tabs" aria-label="Sections">
+<a class="tab" href="/">
+<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+<ellipse cx="12" cy="6" rx="7" ry="3">
+</ellipse>
+<path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6">
+</path>
+<path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6">
+</path>
+</svg>
+<span>Finance</span>
+</a>
+<a class="tab" href="/shopping">
+<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+<path d="M3 4h2l2.4 11h10.2L20 8H6.2">
+</path>
+<circle cx="9" cy="19.5" r="1.5">
+</circle>
+<circle cx="17" cy="19.5" r="1.5">
+</circle>
+</svg>
+<span>Shopping</span>
+</a>
+<a class="tab" href="/reminders" aria-current="page">
+<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+<path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z">
+</path>
+<path d="M10 20.5a2 2 0 0 0 4 0">
+</path>
+</svg>
+<span>Reminders</span>
+</a>
+<a class="tab" href="/quotes">
+<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+<path d="M4 5h16v11H9l-5 4z">
+</path>
+</svg>
+<span>Quotes</span>
+</a>
+</nav>

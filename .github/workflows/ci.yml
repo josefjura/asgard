@@ -19,3 +19,5 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+      - name: cargo test --release (proves /dev/gallery is absent from release builds)
+        run: cargo test --release
