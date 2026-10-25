@@ -7,6 +7,7 @@ use axum::http::{HeaderMap, HeaderValue};
 use cookie::time::Duration;
 use cookie::{Cookie, SameSite};
 
+use super::htmx::HX_REQUEST;
 use super::{AppError, AppState};
 use crate::domain::auth::{SESSION_LIFETIME, SessionToken};
 use crate::domain::members;
@@ -48,7 +49,7 @@ impl FromRequestParts<AppState> for Member {
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
         let sign_in = || AppError::SignInRequired {
-            htmx: parts.headers.contains_key("hx-request"),
+            htmx: parts.headers.contains_key(HX_REQUEST),
         };
         let token = session_token(&parts.headers).ok_or_else(sign_in)?;
         state

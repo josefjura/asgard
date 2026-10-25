@@ -5,6 +5,7 @@ mod error;
 #[cfg(debug_assertions)]
 mod gallery;
 mod health;
+mod htmx;
 pub mod invite;
 mod origin;
 mod pages;
@@ -46,9 +47,10 @@ impl AppState {
     ///
     /// Fails if `public_url` can't be a WebAuthn relying party.
     pub fn new(db: SqlitePool, clock: Clock, public_url: &Url) -> Result<Self, WebauthnError> {
+        let members = Members::new(db.clone());
         Ok(Self {
-            auth: Auth::new(db.clone(), clock.clone(), public_url)?,
-            members: Members::new(db.clone()),
+            auth: Auth::new(db.clone(), clock.clone(), members.clone(), public_url)?,
+            members,
             public_origin: PublicOrigin::of(public_url),
             db,
             clock,
@@ -192,30 +194,57 @@ pub(crate) mod test_support {
             super::invite::path(&token)
         }
 
-        /// Registers a passkey on `authenticator` through the Invite link at `invite_path`, the
-        /// way the invite page's script does, and returns the last response.
+        /// Asks to register a passkey through the Invite link at `invite_path`, the way the
+        /// invite page's script does. Any answer but OK comes back as the error.
+        pub async fn start_joining(
+            &self,
+            invite_path: &str,
+        ) -> Result<Started, Box<Response<Body>>> {
+            let response = self
+                .post_json(&format!("{invite_path}/start"), &serde_json::json!({}))
+                .await;
+            if response.status() != StatusCode::OK {
+                return Err(Box::new(response));
+            }
+            let body: serde_json::Value = serde_json::from_str(&body_text(response).await).unwrap();
+            Ok(Started {
+                options: serde_json::from_value(body["options"].clone()).unwrap(),
+                ceremony: body["ceremony"].clone(),
+            })
+        }
+
+        /// Creates the passkey on `authenticator`, as a browser at `origin` would, and sends it.
+        pub async fn finish_joining(
+            &self,
+            invite_path: &str,
+            started: Started,
+            authenticator: &mut Authenticator,
+            origin: &str,
+        ) -> Response<Body> {
+            let credential = authenticator
+                .do_registration(Url::parse(origin).unwrap(), started.options)
+                .unwrap();
+            self.post_json(
+                &format!("{invite_path}/finish"),
+                &serde_json::json!({ "ceremony": started.ceremony, "credential": credential }),
+            )
+            .await
+        }
+
+        /// Registers a passkey on `authenticator` through the Invite link at `invite_path` and
+        /// returns the last response.
         pub async fn join(
             &self,
             invite_path: &str,
             authenticator: &mut Authenticator,
         ) -> Response<Body> {
-            let start = self
-                .post_json(&format!("{invite_path}/start"), &serde_json::json!({}))
-                .await;
-            if start.status() != StatusCode::OK {
-                return start;
+            match self.start_joining(invite_path).await {
+                Ok(started) => {
+                    self.finish_joining(invite_path, started, authenticator, PUBLIC_ORIGIN)
+                        .await
+                }
+                Err(response) => *response,
             }
-            let started: serde_json::Value = serde_json::from_str(&body_text(start).await).unwrap();
-            let options: CreationChallengeResponse =
-                serde_json::from_value(started["options"].clone()).unwrap();
-            let credential = authenticator
-                .do_registration(Url::parse(PUBLIC_ORIGIN).unwrap(), options)
-                .unwrap();
-            self.post_json(
-                &format!("{invite_path}/finish"),
-                &serde_json::json!({ "ceremony": started["ceremony"], "credential": credential }),
-            )
-            .await
         }
 
         /// Bootstraps an Admin called `name` and returns their browser's session cookie.
@@ -225,6 +254,12 @@ pub(crate) mod test_support {
             assert_eq!(response.status(), StatusCode::OK, "joining failed");
             cookie_pair(&response)
         }
+    }
+
+    /// What the passkey script receives when it starts a registration.
+    pub struct Started {
+        pub ceremony: serde_json::Value,
+        pub options: CreationChallengeResponse,
     }
 
     /// The `name=value` a browser sends back for the cookie `response` sets.

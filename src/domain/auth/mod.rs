@@ -99,13 +99,18 @@ impl Auth {
     /// # Errors
     ///
     /// Fails if `public_url` can't be a WebAuthn relying party.
-    pub fn new(db: SqlitePool, clock: Clock, public_url: &Url) -> Result<Self, WebauthnError> {
+    pub fn new(
+        db: SqlitePool,
+        clock: Clock,
+        members: Members,
+        public_url: &Url,
+    ) -> Result<Self, WebauthnError> {
         let rp_id = public_url.host_str().unwrap_or_default();
         let webauthn = WebauthnBuilder::new(rp_id, public_url)?
             .rp_name(CREW_NAME)
             .build()?;
         Ok(Self {
-            members: Members::new(db.clone()),
+            members,
             db,
             clock,
             webauthn: Arc::new(webauthn),
@@ -155,7 +160,8 @@ impl Auth {
         Ok(token)
     }
 
-    /// What the Invite link offers, while it is unused, unexpired and unrevoked.
+    /// What the Invite link offers, while it is unused, unexpired and unrevoked. An Admin link
+    /// also stops working once the Crew has an Admin, so there is only ever one.
     ///
     /// # Errors
     ///
@@ -167,7 +173,8 @@ impl Auth {
             r#"SELECT display_name AS "display_name!", grants_admin AS "grants_admin: bool"
                FROM links
                WHERE token_hash = ? AND kind = 'invite'
-                 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?"#,
+                 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?
+                 AND NOT (grants_admin AND EXISTS (SELECT 1 FROM members WHERE is_admin))"#,
             hash,
             now,
         )
@@ -214,7 +221,7 @@ impl Auth {
     ///
     /// Returns [`AuthError::CeremonyExpired`] for an unknown, expired or mismatched ceremony,
     /// [`AuthError::PasskeyRejected`] if the credential doesn't verify, and
-    /// [`AuthError::LinkUnusable`] if the link was used or expired meanwhile.
+    /// [`AuthError::LinkUnusable`] if the link stopped working meanwhile.
     pub async fn finish_joining(
         &self,
         token: &LinkToken,
@@ -240,6 +247,7 @@ impl Auth {
             r#"UPDATE links SET used_at = ?1
                WHERE token_hash = ?2 AND kind = 'invite'
                  AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?1
+                 AND NOT (grants_admin AND EXISTS (SELECT 1 FROM members WHERE is_admin))
                RETURNING display_name AS "display_name!", grants_admin AS "grants_admin: bool""#,
             now,
             joining.link_hash,
@@ -345,9 +353,11 @@ mod tests {
 
     fn auth(db: SqlitePool) -> Auth {
         let clock = ManualClock::starting_at(std::time::SystemTime::UNIX_EPOCH);
+        let members = Members::new(db.clone());
         Auth::new(
             db,
             clock.clock(),
+            members,
             &Url::parse("https://asgard.test").unwrap(),
         )
         .unwrap()
@@ -394,6 +404,17 @@ mod tests {
         let result = auth(db).create_admin_invite(&name("Ondra")).await;
 
         assert!(matches!(result, Err(AuthError::AdminExists)), "{result:?}");
+    }
+
+    #[sqlx::test]
+    async fn an_admin_invite_stops_working_once_there_is_an_admin(db: SqlitePool) {
+        let auth = auth(db.clone());
+        let token = auth.create_admin_invite(&name("Josef")).await.unwrap();
+
+        add_member(&db, "Ondra", true).await;
+
+        let result = auth.invite(&token).await;
+        assert!(matches!(result, Err(AuthError::LinkUnusable)), "{result:?}");
     }
 
     #[sqlx::test]

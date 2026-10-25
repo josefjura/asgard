@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT display_name AS \"display_name!\", grants_admin AS \"grants_admin: bool\"\n               FROM links\n               WHERE token_hash = ? AND kind = 'invite'\n                 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?\n                 AND NOT (grants_admin AND EXISTS (SELECT 1 FROM members WHERE is_admin))",
+  "describe": {
+    "columns": [
+      {
+        "name": "display_name!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "grants_admin: bool",
+        "ordinal": 1,
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "b69072a5ca4477f9743f1805f81358c2847d052b9d9a6e1ed074fd2c1b5a2682"
+}

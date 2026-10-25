@@ -116,46 +116,25 @@ mod tests {
     use axum::http::{Method, Response, StatusCode};
     use cookie::{Cookie, SameSite};
     use jiff::civil::date;
-    use serde_json::json;
     use sqlx::SqlitePool;
-    use url::Url;
-    use webauthn_rs::prelude::CreationChallengeResponse;
 
     use crate::domain::auth::{LINK_LIFETIME, SessionToken};
     use crate::domain::members::DisplayName;
     use crate::web::test_support::{
-        PUBLIC_ORIGIN, TestApp, authenticator, body_text, cookie_pair, request,
+        PUBLIC_ORIGIN, Started, TestApp, authenticator, body_text, cookie_pair, request,
     };
 
     const ONE_SECOND: Duration = Duration::from_secs(1);
 
-    /// The ceremony id and options from a start response.
-    async fn started(response: Response<Body>) -> (serde_json::Value, CreationChallengeResponse) {
-        assert_eq!(response.status(), StatusCode::OK);
-        let body: serde_json::Value = serde_json::from_str(&body_text(response).await).unwrap();
-        let options = serde_json::from_value(body["options"].clone()).unwrap();
-        (body["ceremony"].clone(), options)
+    async fn start(app: &TestApp, invite: &str) -> Started {
+        app.start_joining(invite)
+            .await
+            .unwrap_or_else(|response| panic!("starting failed: {}", response.status()))
     }
 
-    async fn start(app: &TestApp, invite: &str) -> (serde_json::Value, CreationChallengeResponse) {
-        started(app.post_json(&format!("{invite}/start"), &json!({})).await).await
-    }
-
-    async fn finish(
-        app: &TestApp,
-        invite: &str,
-        ceremony: &serde_json::Value,
-        options: CreationChallengeResponse,
-        origin: &str,
-    ) -> Response<Body> {
-        let credential = authenticator()
-            .do_registration(Url::parse(origin).unwrap(), options)
-            .unwrap();
-        app.post_json(
-            &format!("{invite}/finish"),
-            &json!({ "ceremony": ceremony, "credential": credential }),
-        )
-        .await
+    async fn finish(app: &TestApp, invite: &str, started: Started) -> Response<Body> {
+        app.finish_joining(invite, started, &mut authenticator(), PUBLIC_ORIGIN)
+            .await
     }
 
     #[sqlx::test]
@@ -243,11 +222,11 @@ mod tests {
     async fn only_one_of_two_racing_ceremonies_can_use_a_link(db: SqlitePool) {
         let app = TestApp::new(db);
         let invite = app.admin_invite("Josef").await;
-        let (first, first_options) = start(&app, &invite).await;
-        let (second, second_options) = start(&app, &invite).await;
+        let first = start(&app, &invite).await;
+        let second = start(&app, &invite).await;
 
-        let won = finish(&app, &invite, &first, first_options, PUBLIC_ORIGIN).await;
-        let lost = finish(&app, &invite, &second, second_options, PUBLIC_ORIGIN).await;
+        let won = finish(&app, &invite, first).await;
+        let lost = finish(&app, &invite, second).await;
 
         assert_eq!(won.status(), StatusCode::OK);
         assert_eq!(lost.status(), StatusCode::GONE);
@@ -290,10 +269,10 @@ mod tests {
         let invite = app.admin_invite("Josef").await;
         app.clock
             .advance(LINK_LIFETIME.checked_sub(ONE_SECOND).unwrap());
-        let (ceremony, options) = start(&app, &invite).await;
+        let started = start(&app, &invite).await;
 
         app.clock.advance(ONE_SECOND);
-        let response = finish(&app, &invite, &ceremony, options, PUBLIC_ORIGIN).await;
+        let response = finish(&app, &invite, started).await;
 
         assert_eq!(response.status(), StatusCode::GONE);
     }
@@ -314,10 +293,17 @@ mod tests {
     async fn a_passkey_made_for_another_site_is_rejected(db: SqlitePool) {
         let app = TestApp::new(db);
         let invite = app.admin_invite("Josef").await;
-        let (ceremony, mut options) = start(&app, &invite).await;
-        options.public_key.rp.id = "evil.example".to_owned();
+        let mut started = start(&app, &invite).await;
+        started.options.public_key.rp.id = "evil.example".to_owned();
 
-        let response = finish(&app, &invite, &ceremony, options, "https://evil.example").await;
+        let response = app
+            .finish_joining(
+                &invite,
+                started,
+                &mut authenticator(),
+                "https://evil.example",
+            )
+            .await;
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert!(body_text(response).await.contains("couldn't be verified"));
@@ -329,12 +315,27 @@ mod tests {
         let app = TestApp::new(db);
         let invite = app.admin_invite("Josef").await;
         let other = app.admin_invite("Ondra").await;
-        let (ceremony, options) = start(&app, &other).await;
+        let started = start(&app, &other).await;
 
-        let response = finish(&app, &invite, &ceremony, options, PUBLIC_ORIGIN).await;
+        let response = finish(&app, &invite, started).await;
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert!(body_text(response).await.contains("took too long"));
+    }
+
+    #[sqlx::test]
+    async fn only_one_admin_link_can_make_an_admin(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let first = app.admin_invite("Josef").await;
+        let second = app.admin_invite("Ondra").await;
+        let started = start(&app, &second).await;
+        app.join(&first, &mut authenticator()).await;
+
+        assert_eq!(
+            finish(&app, &second, started).await.status(),
+            StatusCode::GONE
+        );
+        assert_eq!(app.get(&second).await.status(), StatusCode::GONE);
     }
 
     #[sqlx::test]

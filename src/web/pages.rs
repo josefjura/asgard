@@ -32,6 +32,7 @@ mod tests {
 
     use crate::domain::auth::SESSION_LIFETIME;
     use crate::views::nav::Tab;
+    use crate::web::htmx::{HX_REDIRECT, HX_REQUEST};
     use crate::web::test_support::{TestApp, body_text, get, request};
 
     #[sqlx::test]
@@ -82,7 +83,7 @@ mod tests {
         for tab in Tab::ALL {
             let mut htmx = request(Method::GET, tab.href(), None);
             htmx.headers_mut()
-                .insert("hx-request", "true".parse().unwrap());
+                .insert(HX_REQUEST, "true".parse().unwrap());
             let response = app.send(htmx).await;
 
             assert_eq!(
@@ -91,7 +92,7 @@ mod tests {
                 "{}",
                 tab.href()
             );
-            assert_eq!(response.headers()["hx-redirect"], "/sign-in");
+            assert_eq!(response.headers()[HX_REDIRECT], "/sign-in");
             assert!(!response.headers().contains_key(header::LOCATION));
         }
     }

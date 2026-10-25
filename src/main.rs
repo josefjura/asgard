@@ -5,6 +5,7 @@ use asgard::config::Config;
 use asgard::db;
 use asgard::domain::auth::Auth;
 use asgard::domain::clock::Clock;
+use asgard::domain::members::Members;
 use asgard::web::{self, AppState};
 use sqlx::SqlitePool;
 use tracing_subscriber::EnvFilter;
@@ -59,7 +60,8 @@ async fn bootstrap_admin(
     display_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pool = open_database(&config).await?;
-    let auth = Auth::new(pool.clone(), Clock::system(), &config.public_url)?;
+    let members = Members::new(pool.clone());
+    let auth = Auth::new(pool.clone(), Clock::system(), members, &config.public_url)?;
     let link = cli::bootstrap_admin(&auth, &config.public_url, display_name).await;
     pool.close().await;
 

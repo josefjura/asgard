@@ -1,12 +1,10 @@
+use axum::http::StatusCode;
 use axum::http::header::LOCATION;
-use axum::http::{HeaderName, StatusCode};
 use axum::response::{IntoResponse, Response};
 
+use super::htmx::HX_REDIRECT;
 use super::sign_in;
 use crate::domain::auth::AuthError;
-
-/// Tells htmx to load another page instead of swapping the response in.
-const HX_REDIRECT: HeaderName = HeaderName::from_static("hx-redirect");
 
 /// The one error type handlers return.
 #[derive(Debug, thiserror::Error)]
