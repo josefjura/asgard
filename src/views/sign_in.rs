@@ -1,17 +1,15 @@
 use maud::{Markup, html};
 
-use crate::views::layout::document;
+use crate::views::layout::standalone;
 
 /// Where a signed-out visitor is sent. Signing in with a passkey arrives in a later ticket.
 #[must_use]
 pub fn placeholder() -> Markup {
-    document(
+    standalone(
         "Sign in | Asgard",
         &html! {
-            main.standalone {
-                h1 { "Sign in" }
-                p { "Signing in with a passkey is on its way. To join the Crew, open the Invite link the Admin sent you." }
-            }
+            h1 { "Sign in" }
+            p { "Signing in with a passkey is on its way. To join the Crew, open the Invite link the Admin sent you." }
         },
     )
 }

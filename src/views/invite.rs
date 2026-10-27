@@ -2,7 +2,7 @@ use maud::{Markup, html};
 
 use crate::assets;
 use crate::domain::members::DisplayName;
-use crate::views::layout::document;
+use crate::views::layout::standalone;
 
 /// Where the passkey script sends the two halves of the registration ceremony.
 pub struct CeremonyUrls {
@@ -14,23 +14,21 @@ pub struct CeremonyUrls {
 /// the button that creates their passkey.
 #[must_use]
 pub fn page(crew: &str, display_name: &DisplayName, ceremony: &CeremonyUrls) -> Markup {
-    document(
+    standalone(
         "Join the Crew | Asgard",
         &html! {
-            main.standalone {
-                h1 { "Join " (crew) }
-                p.lead { "You'll appear in the Crew as " strong { (display_name) } "." }
-                p {
-                    "Asgard signs you in with a passkey: the fingerprint, face or screen lock you "
-                    "already use on this device. There's no password to remember."
-                }
-                button.button type="button" data-passkey-start=(ceremony.start)
-                    data-passkey-finish=(ceremony.finish) aria-describedby="passkey-status" {
-                    "Create a passkey"
-                }
-                p.status #passkey-status role="status" {}
-                script type="module" src=(assets::PASSKEY.url) {}
+            h1 { "Join " (crew) }
+            p.lead { "You'll appear in the Crew as " strong { (display_name) } "." }
+            p {
+                "Asgard signs you in with a passkey: the fingerprint, face or screen lock you "
+                "already use on this device. There's no password to remember."
             }
+            button.button type="button" data-passkey-start=(ceremony.start)
+                data-passkey-finish=(ceremony.finish) aria-describedby="passkey-status" {
+                "Create a passkey"
+            }
+            p.status #passkey-status role="status" {}
+            script type="module" src=(assets::PASSKEY.url) {}
         },
     )
 }
@@ -38,21 +36,19 @@ pub fn page(crew: &str, display_name: &DisplayName, ceremony: &CeremonyUrls) -> 
 /// What a used, expired or unknown link opens, naming the Admin to ask once there is one.
 #[must_use]
 pub fn link_error(admin: Option<&DisplayName>) -> Markup {
-    document(
+    standalone(
         "Link no longer works | Asgard",
         &html! {
-            main.standalone {
-                h1 { "This link no longer works" }
-                p { "Each link works once, for 24 hours. This one has expired or was already used." }
-                p {
-                    "Ask "
-                    @if let Some(admin) = admin {
-                        strong { (admin) } ", the Admin,"
-                    } @else {
-                        "the Admin"
-                    }
-                    " to send you a new one."
+            h1 { "This link no longer works" }
+            p { "Each link works once, for 24 hours. This one has expired or was already used." }
+            p {
+                "Ask "
+                @if let Some(admin) = admin {
+                    strong { (admin) } ", the Admin,"
+                } @else {
+                    "the Admin"
                 }
+                " to send you a new one."
             }
         },
     )

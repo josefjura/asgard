@@ -25,7 +25,9 @@ expression: "page(tab).into_string().replace(\"><\", \">\\n<\")"
 <body>
 <div class="shell">
 <header class="shell-header">
-<a class="wordmark" href="/">Asgard</a>
+<a class="logo" href="/">
+<img src="/static/logo-header.[hash].svg" alt="Asgard" width="128" height="32">
+</a>
 </header>
 <main class="shell-main">
 <h1>Finance</h1>

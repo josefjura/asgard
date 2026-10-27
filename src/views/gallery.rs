@@ -3,7 +3,9 @@
 
 use maud::{DOCTYPE, Markup, html};
 
+use crate::assets;
 use crate::domain::members::{CREW_NAME, DisplayName};
+use crate::views::brand::header_logo;
 use crate::views::layout::document;
 use crate::views::nav::{Tab, bottom_nav};
 use crate::views::{invite, offline, sign_in, tabs};
@@ -74,11 +76,40 @@ pub fn fixtures() -> Vec<Fixture> {
         document: sign_in::placeholder(),
         height: PAGE_HEIGHT,
     };
+    let brand = Fixture {
+        component: "Brand",
+        state: "Logos on every background".to_owned(),
+        document: brand(),
+        height: 560,
+    };
     nav.chain(pages)
-        .chain([offline, invite])
+        .chain([brand, offline, invite])
         .chain(link_errors)
         .chain([sign_in])
         .collect()
+}
+
+/// Each logo on every background it was drawn for, whatever scheme the viewer's browser is in.
+fn brand() -> Markup {
+    let hero = |asset: assets::Asset, background: &str| {
+        html! {
+            div style={ "padding: 1rem; background: " (background) } {
+                img src=(asset.url) alt="" width="180" height="180" style="display: block";
+            }
+        }
+    };
+    document(
+        "Brand",
+        &html! {
+            @for band in ["#3E5B2B", "#263820"] {
+                header.shell-header style={ "background: " (band) } { (header_logo()) }
+            }
+            div style="display: flex; flex-wrap: wrap" {
+                (hero(assets::LOGO_HERO_LIGHT, "#EEF0E4"))
+                (hero(assets::LOGO_HERO_DARK, "#15180F"))
+            }
+        },
+    )
 }
 
 #[must_use]
@@ -146,6 +177,7 @@ mod tests {
         for component in [
             "Bottom navigation",
             "App shell",
+            "Brand",
             "Offline page",
             "Invite page",
             "Link error page",
@@ -161,6 +193,7 @@ mod tests {
             assert!(html.contains(&format!("<h3>{} tab</h3>", tab.label())));
         }
         for state in [
+            "Logos on every background",
             "No network",
             "Valid link",
             "Naming the Admin",

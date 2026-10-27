@@ -1,5 +1,6 @@
 //! Maud components and pages: pure functions from data to HTML, no DB access.
 
+pub mod brand;
 #[cfg(debug_assertions)]
 pub mod gallery;
 pub mod invite;

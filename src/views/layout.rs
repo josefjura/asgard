@@ -1,6 +1,7 @@
 use maud::{DOCTYPE, Markup, html};
 
 use crate::assets;
+use crate::views::brand::{header_logo, hero_logo};
 use crate::views::nav::{Tab, bottom_nav};
 
 /// A complete HTML document with the shared head: stylesheet, scripts, icons and manifest.
@@ -38,10 +39,25 @@ pub fn shell(active: Tab, content: &Markup) -> Markup {
         &html! {
             div.shell {
                 header.shell-header {
-                    a.wordmark href="/" { "Asgard" }
+                    (header_logo())
                 }
                 main.shell-main { (content) }
                 (bottom_nav(active))
+            }
+        },
+    )
+}
+
+/// A page outside the app shell (sign-in, Invite, errors, offline): the hero logo above
+/// `content`, centred on the page.
+#[must_use]
+pub fn standalone(title: &str, content: &Markup) -> Markup {
+    document(
+        title,
+        &html! {
+            main.standalone {
+                (hero_logo())
+                (content)
             }
         },
     )
@@ -57,6 +73,24 @@ mod tests {
     #[test]
     fn shell() {
         assert_html_snapshot!(super::shell(Tab::Shopping, &html! { p { "Content" } }));
+    }
+
+    #[test]
+    fn shell_header_links_home_with_the_logo() {
+        let html = super::shell(Tab::Quotes, &html! {}).into_string();
+
+        assert!(html.contains(&format!(
+            "<header class=\"shell-header\"><a class=\"logo\" href=\"/\"><img src=\"{}\" alt=\"Asgard\" width=\"128\" height=\"32\">",
+            assets::LOGO_HEADER.url
+        )));
+    }
+
+    #[test]
+    fn standalone_page_shows_the_hero_above_its_content() {
+        let html = standalone("Test", &html! { h1 { "Heading" } }).into_string();
+
+        assert!(html.contains("<main class=\"standalone\"><picture class=\"hero\">"));
+        assert!(html.contains("</picture><h1>Heading</h1></main>"));
     }
 
     #[test]
