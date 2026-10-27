@@ -71,6 +71,26 @@ const HASHED: &[Hashed] = &[
         file: "apple-touch-icon.png",
         content_type: "image/png",
     },
+    Hashed {
+        constant: "BADGE_96",
+        file: "badge-96.png",
+        content_type: "image/png",
+    },
+    Hashed {
+        constant: "LOGO_HEADER",
+        file: "logo-header.svg",
+        content_type: "image/svg+xml",
+    },
+    Hashed {
+        constant: "LOGO_HERO_LIGHT",
+        file: "logo-hero-light.svg",
+        content_type: "image/svg+xml",
+    },
+    Hashed {
+        constant: "LOGO_HERO_DARK",
+        file: "logo-hero-dark.svg",
+        content_type: "image/svg+xml",
+    },
 ];
 
 const FIXED: &[Fixed] = &[

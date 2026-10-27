@@ -5,11 +5,11 @@
 
   --bg: #eef0e4;
   --surface: #fafbf4;
-  --ink: #22261b;
+  --ink: #121212;
   --muted: #5e6450;
   --line: #d5d9c4;
   --band: #3e5b2b;
-  --band-ink: #f1f4e6;
+  --band-ink: #eee9da;
   --active: #3e5b2b;
   --amber: #d9a021;
 
@@ -26,11 +26,11 @@
   :root {
     --bg: #15180f;
     --surface: #1f2318;
-    --ink: #e7eadb;
+    --ink: #eee9da;
     --muted: #a0a68e;
     --line: #343a29;
     --band: #263820;
-    --band-ink: #e7eadb;
+    --band-ink: #eee9da;
     --active: #a9c97f;
     --amber: #e3ae36;
   }
@@ -84,13 +84,15 @@ a {
   color: var(--band-ink);
 }
 
-.wordmark {
-  margin: 0;
-  color: inherit;
-  font-size: 1.375rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  text-decoration: none;
+.logo {
+  display: block;
+}
+
+/* Sized by height: the band is built around a 32 px lockup. */
+.logo img {
+  display: block;
+  width: auto;
+  height: 2rem;
 }
 
 .shell-main {
@@ -223,6 +225,13 @@ a {
   place-content: center;
   min-height: 100dvh;
   padding: var(--space-4) var(--space-3);
+}
+
+.hero img {
+  display: block;
+  width: min(180px, 50vw);
+  height: auto;
+  margin-bottom: var(--space-3);
 }
 
 .standalone h1 {

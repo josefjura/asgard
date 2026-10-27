@@ -1,18 +1,16 @@
 use maud::{Markup, html};
 
-use crate::views::layout::document;
+use crate::views::layout::standalone;
 
 /// What the service worker shows when a page can't load for lack of network.
 #[must_use]
 pub fn page() -> Markup {
-    document(
+    standalone(
         "Offline | Asgard",
         &html! {
-            main.standalone {
-                h1 { "You're offline" }
-                p { "Asgard needs a connection to load the Crew's data. Check your connection, then try again." }
-                p { a href="/" { "Try again" } }
-            }
+            h1 { "You're offline" }
+            p { "Asgard needs a connection to load the Crew's data. Check your connection, then try again." }
+            p { a href="/" { "Try again" } }
         },
     )
 }

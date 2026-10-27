@@ -24,6 +24,10 @@ expression: "page(\"Asgard\", &name(\"Ondra\"), &urls()).into_string().replace(\
 </head>
 <body>
 <main class="standalone">
+<picture class="hero">
+<source srcset="/static/logo-hero-dark.[hash].svg" media="(prefers-color-scheme: dark)">
+<img src="/static/logo-hero-light.[hash].svg" alt="" width="180" height="180">
+</picture>
 <h1>Join Asgard</h1>
 <p class="lead">You'll appear in the Crew as <strong>Ondra</strong>.</p>
 <p>Asgard signs you in with a passkey: the fingerprint, face or screen lock you already use on this device. There's no password to remember.</p>
