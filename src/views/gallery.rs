@@ -8,6 +8,7 @@ use crate::domain::members::{CREW_NAME, DisplayName};
 use crate::views::brand::header_logo;
 use crate::views::layout::document;
 use crate::views::nav::{Tab, bottom_nav};
+use crate::views::passkey::CeremonyUrls;
 use crate::views::{invite, offline, sign_in, tabs};
 
 /// One component in one state, rendered as a complete document.
@@ -53,7 +54,7 @@ pub fn fixtures() -> Vec<Fixture> {
         document: invite::page(
             CREW_NAME,
             &name("Ondra"),
-            &invite::CeremonyUrls {
+            &CeremonyUrls {
                 start: "/invite/fixture/start".to_owned(),
                 finish: "/invite/fixture/finish".to_owned(),
             },
@@ -70,10 +71,19 @@ pub fn fixtures() -> Vec<Fixture> {
         document: invite::link_error(admin.as_ref()),
         height: PAGE_HEIGHT,
     });
+    let signed_in = Fixture {
+        component: "Invite page",
+        state: "Already signed in".to_owned(),
+        document: invite::signed_in(&name("Josef"), "/invite/fixture/log-out"),
+        height: PAGE_HEIGHT,
+    };
     let sign_in = Fixture {
         component: "Sign-in page",
-        state: "Placeholder".to_owned(),
-        document: sign_in::placeholder(),
+        state: "Signed out".to_owned(),
+        document: sign_in::page(&CeremonyUrls {
+            start: "/sign-in/start".to_owned(),
+            finish: "/sign-in/finish".to_owned(),
+        }),
         height: PAGE_HEIGHT,
     };
     let brand = Fixture {
@@ -83,7 +93,7 @@ pub fn fixtures() -> Vec<Fixture> {
         height: 560,
     };
     nav.chain(pages)
-        .chain([brand, offline, invite])
+        .chain([brand, offline, invite, signed_in])
         .chain(link_errors)
         .chain([sign_in])
         .collect()
@@ -196,9 +206,10 @@ mod tests {
             "Logos on every background",
             "No network",
             "Valid link",
+            "Already signed in",
             "Naming the Admin",
             "Before there is an Admin",
-            "Placeholder",
+            "Signed out",
         ] {
             assert!(html.contains(&format!("<h3>{state}</h3>")), "{state}");
         }

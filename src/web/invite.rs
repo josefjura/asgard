@@ -1,4 +1,7 @@
 //! Joining the Crew through an Invite link: the page, then the passkey ceremony.
+//!
+//! A browser that is already signed in is only offered to log out, so a passkey is never
+//! attached to the wrong Member.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -9,13 +12,15 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use webauthn_rs::prelude::{CreationChallengeResponse, RegisterPublicKeyCredential};
 
-use super::access::session_cookie;
+use super::access::{Member, SessionCookie, SignedOut, session_cookie};
 use super::pages::fresh;
+use super::sign_in::{self, Landing};
 use super::{AppError, AppState};
 use crate::domain::auth::{AuthError, CeremonyId, LinkToken};
 use crate::domain::members::CREW_NAME;
 use crate::views;
 use crate::views::nav::Tab;
+use crate::views::passkey::CeremonyUrls;
 
 /// Where an Invite link points.
 #[must_use]
@@ -23,10 +28,15 @@ pub fn path(token: &LinkToken) -> String {
     format!("/invite/{}", token.as_str())
 }
 
+/// Where a browser that is already signed in logs out before using the link.
+fn log_out_path(token: &LinkToken) -> String {
+    format!("{}/log-out", path(token))
+}
+
 /// Where the invite page's script starts and finishes registering a passkey.
-fn ceremony_urls(token: &LinkToken) -> views::invite::CeremonyUrls {
+fn ceremony_urls(token: &LinkToken) -> CeremonyUrls {
     let invite = path(token);
-    views::invite::CeremonyUrls {
+    CeremonyUrls {
         start: format!("{invite}/start"),
         finish: format!("{invite}/finish"),
     }
@@ -37,14 +47,21 @@ pub fn routes() -> Router<AppState> {
         .route("/invite/{token}", get(show))
         .route("/invite/{token}/start", post(start))
         .route("/invite/{token}/finish", post(finish))
+        .route("/invite/{token}/log-out", post(log_out))
 }
 
 async fn show(
     State(state): State<AppState>,
     Path(token): Path<String>,
+    member: Option<Member>,
 ) -> Result<Response, AppError> {
     let token = LinkToken::from_client(token);
     match state.auth.invite(&token).await {
+        Ok(_) if let Some(Member(member)) = member => Ok(fresh(views::invite::signed_in(
+            &member.display_name,
+            &log_out_path(&token),
+        ))
+        .into_response()),
         Ok(invite) => Ok(fresh(views::invite::page(
             CREW_NAME,
             &invite.display_name,
@@ -73,6 +90,7 @@ struct Challenge {
 async fn start(
     State(state): State<AppState>,
     Path(token): Path<String>,
+    _: SignedOut,
 ) -> Result<Json<Challenge>, AppError> {
     let (ceremony, options) = state
         .auth
@@ -88,15 +106,11 @@ struct NewPasskey {
     credential: RegisterPublicKeyCredential,
 }
 
-/// Where the browser goes once it is signed in.
-#[derive(Serialize)]
-struct Landing {
-    redirect: &'static str,
-}
-
 async fn finish(
     State(state): State<AppState>,
     Path(token): Path<String>,
+    // Signing in elsewhere mid-ceremony mustn't let the link attach a passkey either.
+    _: SignedOut,
     Json(body): Json<NewPasskey>,
 ) -> Result<impl IntoResponse, AppError> {
     let joined = state
@@ -116,16 +130,27 @@ async fn finish(
     ))
 }
 
+/// Logs this device out and opens the Invite link again, now ready to join.
+async fn log_out(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+    session: SessionCookie,
+) -> Result<Response, AppError> {
+    let invite = path(&LinkToken::from_client(token));
+    sign_in::end_session(&state, session, &invite).await
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
     use axum::body::Body;
-    use axum::http::header::{CACHE_CONTROL, SET_COOKIE};
+    use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE};
     use axum::http::{Method, Response, StatusCode};
     use cookie::{Cookie, SameSite};
     use jiff::civil::date;
     use sqlx::SqlitePool;
+    use webauthn_rs_proto::ResidentKeyRequirement;
 
     use crate::domain::auth::{LINK_LIFETIME, SessionToken};
     use crate::domain::members::DisplayName;
@@ -180,10 +205,11 @@ mod tests {
         let member = app
             .state
             .auth
-            .session_member(&token)
+            .session(&token)
             .await
             .unwrap()
-            .unwrap();
+            .unwrap()
+            .member;
         assert_eq!(member.display_name, DisplayName::parse("Josef").unwrap());
         assert!(member.is_admin);
         assert_eq!(member.joined_on, date(2026, 1, 1));
@@ -346,6 +372,128 @@ mod tests {
             StatusCode::GONE
         );
         assert_eq!(app.get(&second).await.status(), StatusCode::GONE);
+    }
+
+    #[sqlx::test]
+    async fn joining_asks_for_a_discoverable_passkey(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let invite = app.admin_invite("Josef").await;
+
+        let started = start(&app, &invite).await;
+
+        let selection = started.options.public_key.authenticator_selection.unwrap();
+        assert_eq!(
+            selection.resident_key,
+            Some(ResidentKeyRequirement::Required)
+        );
+        assert!(selection.require_resident_key);
+    }
+
+    /// An Invite link for Ondra, opened on a browser where the Admin is signed in.
+    async fn signed_in_with_an_invite(app: &TestApp) -> (String, String) {
+        let cookie = app.sign_in_new_admin("Josef").await;
+        let token = app
+            .state
+            .auth
+            .create_test_invite(&DisplayName::parse("Ondra").unwrap())
+            .await;
+        (cookie, super::path(&token))
+    }
+
+    #[sqlx::test]
+    async fn an_invite_link_opened_while_signed_in_offers_to_log_out(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (cookie, invite) = signed_in_with_an_invite(&app).await;
+
+        let response = app.get_with(&invite, &cookie).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body_text(response).await;
+        assert!(html.contains("signed in as <strong>Josef</strong>"));
+        assert!(html.contains(&format!(
+            "<form method=\"post\" action=\"{invite}/log-out\">"
+        )));
+        assert!(!html.contains("data-passkey"));
+        assert!(!html.contains("Ondra"));
+    }
+
+    #[sqlx::test]
+    async fn an_invite_link_registers_nothing_while_signed_in(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (cookie, invite) = signed_in_with_an_invite(&app).await;
+
+        let mut start = request(
+            Method::POST,
+            &format!("{invite}/start"),
+            Some(PUBLIC_ORIGIN),
+        );
+        start.headers_mut().insert(COOKIE, cookie.parse().unwrap());
+        let response = app.send(start).await;
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert!(body_text(response).await.contains("Log out first"));
+        assert_eq!(app.get(&invite).await.status(), StatusCode::OK);
+    }
+
+    #[sqlx::test]
+    async fn signing_in_mid_ceremony_stops_the_link_attaching_a_passkey(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let token = app
+            .state
+            .auth
+            .create_test_invite(&DisplayName::parse("Ondra").unwrap())
+            .await;
+        let invite = super::path(&token);
+        let started = start(&app, &invite).await;
+        let cookie = app.sign_in_new_admin("Josef").await;
+
+        let credential = authenticator().register(PUBLIC_ORIGIN, started.options);
+        let mut finish = request(
+            Method::POST,
+            &format!("{invite}/finish"),
+            Some(PUBLIC_ORIGIN),
+        );
+        finish.headers_mut().insert(COOKIE, cookie.parse().unwrap());
+        finish
+            .headers_mut()
+            .insert(CONTENT_TYPE, "application/json".parse().unwrap());
+        *finish.body_mut() = Body::from(
+            serde_json::json!({ "ceremony": started.ceremony, "credential": credential })
+                .to_string(),
+        );
+        let response = app.send(finish).await;
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(app.get(&invite).await.status(), StatusCode::OK);
+    }
+
+    #[sqlx::test]
+    async fn logging_out_from_an_invite_link_reopens_it_ready_to_join(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (cookie, invite) = signed_in_with_an_invite(&app).await;
+
+        let response = app.post_with(&format!("{invite}/log-out"), &cookie).await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[LOCATION], invite.as_str());
+        assert!(response.headers().contains_key(SET_COOKIE));
+        assert_eq!(
+            app.get_with("/", &cookie).await.status(),
+            StatusCode::SEE_OTHER
+        );
+        let html = body_text(app.get(&invite).await).await;
+        assert!(html.contains("<strong>Ondra</strong>"));
+        assert!(html.contains("data-passkey=\"register\""));
+    }
+
+    #[sqlx::test]
+    async fn a_dead_link_opened_while_signed_in_shows_the_link_error_page(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+
+        let response = app.get_with("/invite/made-up", &cookie).await;
+
+        assert_eq!(response.status(), StatusCode::GONE);
     }
 
     #[sqlx::test]

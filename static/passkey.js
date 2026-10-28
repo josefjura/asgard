@@ -1,8 +1,9 @@
 // Runs the WebAuthn ceremony behind a passkey button. The server sends the options and checks
 // the result; this module only moves bytes between it and the browser's authenticator.
 //
-// A button with `data-passkey-start` and `data-passkey-finish` URLs registers a passkey through
-// them. If the link stops working meanwhile, the page reloads to show why.
+// A button with `data-passkey` set to `register` or `sign-in` runs that ceremony through its
+// `data-passkey-start` and `data-passkey-finish` URLs. If a link stops working meanwhile, the
+// page reloads to show why.
 
 const fromBase64Url = (text) =>
   Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)).buffer;
@@ -51,40 +52,75 @@ async function createCredential({ publicKey }) {
   };
 }
 
+// The options also ask for conditional mediation (autofill), which a button doesn't use, so
+// only `publicKey` is passed on and the browser shows its usual passkey prompt.
+async function getCredential({ publicKey }) {
+  publicKey.challenge = fromBase64Url(publicKey.challenge);
+  for (const credential of publicKey.allowCredentials ?? []) {
+    credential.id = fromBase64Url(credential.id);
+  }
+  const credential = await navigator.credentials.get({ publicKey });
+  const { authenticatorData, clientDataJSON, signature, userHandle } = credential.response;
+  return {
+    id: credential.id,
+    rawId: toBase64Url(credential.rawId),
+    type: credential.type,
+    response: {
+      authenticatorData: toBase64Url(authenticatorData),
+      clientDataJSON: toBase64Url(clientDataJSON),
+      signature: toBase64Url(signature),
+      userHandle: userHandle ? toBase64Url(userHandle) : null,
+    },
+    extensions: credential.getClientExtensionResults(),
+  };
+}
+
+const ceremonies = {
+  register: {
+    credential: createCredential,
+    cancelled: "The passkey wasn't created. Press the button to try again.",
+  },
+  "sign-in": {
+    credential: getCredential,
+    cancelled: "You weren't signed in. Press the button to try again.",
+  },
+};
+
 // Browser errors carry developer text, so they become sentences a person can act on.
-function message(error) {
+function message(error, ceremony) {
   if (error instanceof ServerError) return error.message;
   console.error(error);
   switch (error.name) {
     case "NotAllowedError":
     case "AbortError":
-      return "The passkey wasn't created. Press the button to try again.";
+      return ceremony.cancelled;
     case "InvalidStateError":
       return "This device already has a passkey for Asgard.";
     case "NotSupportedError":
-      return "This browser can't create passkeys. Try another browser or device.";
+      return "This browser can't use passkeys. Try another browser or device.";
     default:
       return "Something went wrong with the passkey. Please try again.";
   }
 }
 
-for (const button of document.querySelectorAll("[data-passkey-start]")) {
-  const { passkeyStart, passkeyFinish } = button.dataset;
+for (const button of document.querySelectorAll("[data-passkey]")) {
+  const { passkey, passkeyStart, passkeyFinish } = button.dataset;
+  const ceremony = ceremonies[passkey];
   const status = document.getElementById(button.getAttribute("aria-describedby"));
   button.addEventListener("click", async () => {
     button.disabled = true;
     status.textContent = "";
     try {
-      const { ceremony, options } = await post(passkeyStart, {});
-      const credential = await createCredential(options);
-      const { redirect } = await post(passkeyFinish, { ceremony, credential });
+      const { ceremony: id, options } = await post(passkeyStart, {});
+      const credential = await ceremony.credential(options);
+      const { redirect } = await post(passkeyFinish, { ceremony: id, credential });
       window.location.assign(redirect);
     } catch (error) {
       if (error instanceof LinkGone) {
         window.location.reload();
         return;
       }
-      status.textContent = message(error);
+      status.textContent = message(error, ceremony);
       button.disabled = false;
     }
   });

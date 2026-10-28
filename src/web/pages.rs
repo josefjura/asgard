@@ -25,8 +25,6 @@ pub fn fresh(page: Markup) -> impl IntoResponse {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use axum::http::{Method, StatusCode, header};
     use sqlx::SqlitePool;
 
@@ -107,30 +105,16 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn a_session_ends_when_it_expires(db: SqlitePool) {
+    async fn a_session_ends_once_unused_for_its_lifetime(db: SqlitePool) {
         let app = TestApp::new(db);
         let cookie = app.sign_in_new_admin("Josef").await;
 
-        app.clock.advance(
-            SESSION_LIFETIME
-                .checked_sub(Duration::from_secs(1))
-                .unwrap(),
-        );
-        assert_eq!(app.get_with("/", &cookie).await.status(), StatusCode::OK);
+        app.clock.advance(SESSION_LIFETIME);
 
-        app.clock.advance(Duration::from_secs(1));
         assert_eq!(
             app.get_with("/", &cookie).await.status(),
             StatusCode::SEE_OTHER
         );
-    }
-
-    #[sqlx::test]
-    async fn serves_the_sign_in_placeholder_signed_out(db: SqlitePool) {
-        let response = get(db, "/sign-in").await;
-
-        assert_eq!(response.status(), StatusCode::OK);
-        assert!(body_text(response).await.contains("<h1>Sign in</h1>"));
     }
 
     #[sqlx::test]

@@ -7,6 +7,7 @@ pub mod invite;
 pub mod layout;
 pub mod nav;
 pub mod offline;
+pub mod passkey;
 pub mod sign_in;
 pub mod tabs;
 

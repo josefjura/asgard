@@ -1,6 +1,6 @@
 ---
 source: src/views/sign_in.rs
-expression: "super::placeholder().into_string().replace(\"><\", \">\\n<\")"
+expression: "page(&CeremonyUrls\n{\n    start: \"/sign-in/start\".to_owned(), finish: \"/sign-in/finish\".to_owned(),\n}).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -29,7 +29,13 @@ expression: "super::placeholder().into_string().replace(\"><\", \">\\n<\")"
 <img src="/static/logo-hero-light.[hash].svg" alt="" width="180" height="180">
 </picture>
 <h1>Sign in</h1>
-<p>Signing in with a passkey is on its way. To join the Crew, open the Invite link the Admin sent you.</p>
+<p class="lead">Welcome back to the Crew.</p>
+<button class="button" type="button" data-passkey="sign-in" data-passkey-start="/sign-in/start" data-passkey-finish="/sign-in/finish" aria-describedby="passkey-status">Sign in with passkey</button>
+<p class="status" id="passkey-status" role="status">
+</p>
+<script type="module" src="/static/passkey.[hash].js">
+</script>
+<p>New here? Open the Invite link the Admin sent you.</p>
 </main>
 </body>
 </html>

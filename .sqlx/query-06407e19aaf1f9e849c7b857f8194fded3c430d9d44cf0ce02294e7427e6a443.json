@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT passkeys.id AS \"id!\", passkeys.member_id, passkeys.credential\n             FROM passkeys JOIN members ON members.id = passkeys.member_id\n             WHERE passkeys.credential_id = ? AND members.webauthn_user_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "member_id",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "credential",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "06407e19aaf1f9e849c7b857f8194fded3c430d9d44cf0ce02294e7427e6a443"
+}
