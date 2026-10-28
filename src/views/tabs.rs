@@ -1,13 +1,13 @@
 use maud::{Markup, html};
 
 use crate::views::layout::shell;
-use crate::views::nav::Tab;
+use crate::views::nav::{Place, Tab};
 
 /// A tab's page, empty until its feature lands.
 #[must_use]
 pub fn page(tab: Tab) -> Markup {
     shell(
-        tab,
+        Place::Tab(tab),
         &html! {
             h1 { (tab.label()) }
             p.empty { (empty_text(tab)) }

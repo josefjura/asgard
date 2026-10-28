@@ -8,9 +8,9 @@ use crate::domain::members::{CREW_NAME, DisplayName};
 use crate::views::brand::header_logo;
 use crate::views::display_name::{self, Outcome};
 use crate::views::layout::document;
-use crate::views::nav::{Tab, bottom_nav};
+use crate::views::nav::{Place, Tab, bottom_nav};
 use crate::views::passkey::CeremonyUrls;
-use crate::views::{invite, offline, sign_in, tabs, welcome};
+use crate::views::{invite, offline, settings, sign_in, tabs, welcome};
 
 /// One component in one state, rendered as a complete document.
 pub struct Fixture {
@@ -25,6 +25,8 @@ const PHONE_WIDTH: u16 = 390;
 const PAGE_HEIGHT: u16 = 720;
 /// The welcome page is long: its sections stack on a phone.
 const WELCOME_HEIGHT: u16 = 1500;
+/// Settings stacks its sections under the app shell's header.
+const SETTINGS_HEIGHT: u16 = 1000;
 const DESKTOP_WIDTH: u16 = 1280;
 
 /// # Panics
@@ -35,7 +37,7 @@ pub fn fixtures() -> Vec<Fixture> {
     let nav = Tab::ALL.into_iter().map(|tab| Fixture {
         component: "Bottom navigation",
         state: format!("{} active", tab.label()),
-        document: document("Bottom navigation", &bottom_nav(tab)),
+        document: document("Bottom navigation", &bottom_nav(Place::Tab(tab))),
         height: 80,
     });
     let pages = Tab::ALL.into_iter().map(|tab| Fixture {
@@ -89,6 +91,22 @@ pub fn fixtures() -> Vec<Fixture> {
         }),
         height: PAGE_HEIGHT,
     };
+    let brand = Fixture {
+        component: "Brand",
+        state: "Logos on every background".to_owned(),
+        document: brand(),
+        height: 560,
+    };
+    nav.chain(pages)
+        .chain([brand, offline, invite, signed_in])
+        .chain(link_errors)
+        .chain([sign_in])
+        .chain(signed_in_pages())
+        .collect()
+}
+
+/// The pages a signed-in Member changes their display name on, and the form itself.
+fn signed_in_pages() -> Vec<Fixture> {
     let welcome = Fixture {
         component: "Welcome page",
         state: "Just joined".to_owned(),
@@ -98,6 +116,15 @@ pub fn fixtures() -> Vec<Fixture> {
             "/welcome/done",
         ),
         height: WELCOME_HEIGHT,
+    };
+    let settings = Fixture {
+        component: "Settings page",
+        state: "Signed in".to_owned(),
+        document: settings::page(
+            &display_name::form("/settings/name", "Ondra", None),
+            "/log-out",
+        ),
+        height: SETTINGS_HEIGHT,
     };
     let refused = "Someone in the Crew is already called Josef.";
     let name_forms = [
@@ -114,18 +141,7 @@ pub fn fixtures() -> Vec<Fixture> {
         ),
         height: 260,
     });
-    let brand = Fixture {
-        component: "Brand",
-        state: "Logos on every background".to_owned(),
-        document: brand(),
-        height: 560,
-    };
-    nav.chain(pages)
-        .chain([brand, offline, invite, signed_in])
-        .chain(link_errors)
-        .chain([sign_in, welcome])
-        .chain(name_forms)
-        .collect()
+    [welcome, settings].into_iter().chain(name_forms).collect()
 }
 
 /// Each logo on every background it was drawn for, whatever scheme the viewer's browser is in.
@@ -222,6 +238,7 @@ mod tests {
             "Link error page",
             "Sign-in page",
             "Welcome page",
+            "Settings page",
             "Display name form",
         ] {
             assert!(
@@ -242,6 +259,7 @@ mod tests {
             "Before there is an Admin",
             "Signed out",
             "Just joined",
+            "Signed in",
             "Unchanged",
             "Saved",
             "Refused",

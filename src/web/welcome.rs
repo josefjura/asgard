@@ -1,20 +1,18 @@
 //! The one-time welcome page a new Member lands on after joining.
 
 use axum::extract::State;
-use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Form, Router};
-use serde::Deserialize;
 
 use super::access::Member;
-use super::error::name_message;
 use super::htmx::Htmx;
+use super::name_form::{self, NameForm};
 use super::pages::fresh;
 use super::{AppError, AppState};
-use crate::domain::members::{CREW_NAME, DisplayName, MemberError};
+use crate::domain::members::CREW_NAME;
 use crate::views;
-use crate::views::display_name::{self, Outcome};
+use crate::views::display_name;
 use crate::views::nav::Tab;
 
 /// Where joining lands a new Member.
@@ -43,40 +41,13 @@ fn page(name_form: &maud::Markup) -> maud::Markup {
     views::welcome::page(CREW_NAME, name_form, DONE_PATH)
 }
 
-#[derive(Deserialize)]
-struct NameForm {
-    display_name: String,
-}
-
-/// Changes the Member's display name. htmx gets the form back; a plain form post gets the
-/// whole page.
 async fn rename(
     State(state): State<AppState>,
     Member(member): Member,
     Htmx(htmx): Htmx,
     Form(input): Form<NameForm>,
 ) -> Result<Response, AppError> {
-    let renamed = match DisplayName::parse(&input.display_name) {
-        Ok(name) => state.members.rename(member.id, &name).await.map(|()| name),
-        Err(err) => Err(err.into()),
-    };
-    let (status, form) = match renamed {
-        Ok(name) => (
-            StatusCode::OK,
-            display_name::form(NAME_PATH, name.as_str(), Some(Outcome::Saved)),
-        ),
-        Err(MemberError::Name(err)) => (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            display_name::form(
-                NAME_PATH,
-                &input.display_name,
-                Some(Outcome::Refused(&name_message(&err))),
-            ),
-        ),
-        Err(MemberError::Database(err)) => return Err(err.into()),
-    };
-    let body = if htmx { form } else { page(&form) };
-    Ok((status, fresh(body)).into_response())
+    name_form::submit(&state, &member, &input, NAME_PATH, htmx, page).await
 }
 
 /// "Got it": the welcome page never shows again, and the Member starts on Finance.

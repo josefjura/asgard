@@ -97,6 +97,42 @@ a {
   height: 2rem;
 }
 
+/* The way into settings: a cog at the band's far end, a full tap target that doesn't make the
+   band taller than the logo does. */
+.settings-link {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) auto;
+  color: var(--band-ink);
+  opacity: 0.8;
+}
+
+.settings-link svg {
+  width: 1.5rem;
+  height: 1.5rem;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.settings-link[aria-current="page"] {
+  opacity: 1;
+}
+
+.settings-link[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  inset: auto var(--space-2) calc(-1 * var(--space-2));
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--amber);
+}
+
 .shell-main {
   grid-area: main;
   width: 100%;
@@ -162,9 +198,10 @@ a {
 }
 
 @media (min-width: 48rem) {
-  /* The header band spans the row and the navigation sits on top of it, so no seam shows. */
+  /* The header band spans the row and the navigation sits on top of it, so no seam shows. The
+     last column keeps the settings cog clear of the tabs. */
   .shell {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: 1fr auto calc(3rem + var(--space-4));
     grid-template-rows: auto 1fr;
     grid-template-areas: none;
   }
@@ -184,7 +221,7 @@ a {
     position: static;
     grid-template-columns: repeat(4, auto);
     gap: var(--space-1);
-    padding: 0 var(--space-4) 0 0;
+    padding: 0;
     background: var(--band);
     border-top: 0;
   }
@@ -283,14 +320,17 @@ a {
   visibility: hidden;
 }
 
-/* The welcome page: its sections, the install and tour lists, and the push placeholder. */
+/* The welcome and settings pages: their sections, the install and tour lists, and the
+   placeholders for controls still to come. */
 
-.welcome-section {
+.welcome-section,
+.settings-section {
   max-width: 28rem;
   margin-bottom: var(--space-4);
 }
 
-.welcome-section h2 {
+.welcome-section h2,
+.settings-section h2 {
   margin: 0 0 var(--space-2);
   font-size: 1.125rem;
   line-height: 1.3;

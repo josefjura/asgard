@@ -2,7 +2,7 @@ use maud::{DOCTYPE, Markup, html};
 
 use crate::assets;
 use crate::views::brand::{header_logo, hero_logo};
-use crate::views::nav::{Tab, bottom_nav};
+use crate::views::nav::{Place, bottom_nav, settings_link};
 
 /// htmx's default response handling, except that a 422 is swapped in too: it is a form
 /// answering with what to fix.
@@ -36,18 +36,20 @@ pub fn document(title: &str, body: &Markup) -> Markup {
     }
 }
 
-/// The app shell: header band, the page content and the navigation with `active` marked.
+/// The app shell: header band with the way into settings, the page content and the
+/// navigation, with `current` marked.
 #[must_use]
-pub fn shell(active: Tab, content: &Markup) -> Markup {
+pub fn shell(current: Place, content: &Markup) -> Markup {
     document(
-        &format!("{} | Asgard", active.label()),
+        &format!("{} | Asgard", current.label()),
         &html! {
             div.shell {
                 header.shell-header {
                     (header_logo())
+                    (settings_link(current))
                 }
                 main.shell-main { (content) }
-                (bottom_nav(active))
+                (bottom_nav(current))
             }
         },
     )
@@ -74,20 +76,31 @@ mod tests {
 
     use super::*;
     use crate::views::assert_html_snapshot;
+    use crate::views::nav::Tab;
 
     #[test]
     fn shell() {
-        assert_html_snapshot!(super::shell(Tab::Shopping, &html! { p { "Content" } }));
+        assert_html_snapshot!(super::shell(
+            Place::Tab(Tab::Shopping),
+            &html! { p { "Content" } }
+        ));
     }
 
     #[test]
     fn shell_header_links_home_with_the_logo() {
-        let html = super::shell(Tab::Quotes, &html! {}).into_string();
+        let html = super::shell(Place::Tab(Tab::Quotes), &html! {}).into_string();
 
         assert!(html.contains(&format!(
             "<header class=\"shell-header\"><a class=\"logo\" href=\"/\"><img src=\"{}\" alt=\"Asgard\" width=\"128\" height=\"32\">",
             assets::LOGO_HEADER.url
         )));
+    }
+
+    #[test]
+    fn shell_header_leads_to_settings() {
+        let html = super::shell(Place::Tab(Tab::Quotes), &html! {}).into_string();
+
+        assert!(html.contains("<a class=\"settings-link\" href=\"/settings\""));
     }
 
     #[test]
