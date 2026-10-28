@@ -1,0 +1,11 @@
+# Apply with `kubectl apply -k deploy/`. See docs/operations.md.
+# The Secret is not listed: it holds real values and is created by hand from secret.example.yaml.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: asgard
+resources:
+  - namespace.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
