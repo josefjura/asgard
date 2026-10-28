@@ -22,7 +22,9 @@ tower-http = { version = "0.7.1", features = ["trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5.8"
-webauthn-rs = "0.5.5"
+webauthn-rs = { version = "0.5.5", features = ["conditional-ui"] }
+# The request options webauthn-rs doesn't re-export, at the version it pins.
+webauthn-rs-proto = "0.5.5"
 
 [dev-dependencies]
 http-body-util = "0.1.5"

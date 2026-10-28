@@ -9,9 +9,11 @@ use std::time::Duration;
 use sqlx::{SqliteConnection, SqlitePool};
 use url::Url;
 use webauthn_rs::prelude::{
-    CreationChallengeResponse, Passkey, PasskeyRegistration, RegisterPublicKeyCredential, Uuid,
-    Webauthn, WebauthnBuilder, WebauthnError,
+    CreationChallengeResponse, DiscoverableAuthentication, DiscoverableKey, Passkey,
+    PasskeyRegistration, PublicKeyCredential, RegisterPublicKeyCredential,
+    RequestChallengeResponse, Uuid, Webauthn, WebauthnBuilder, WebauthnError,
 };
+use webauthn_rs_proto::ResidentKeyRequirement;
 
 pub use ceremonies::{CEREMONY_LIFETIME, CeremonyId};
 pub use tokens::{LinkToken, SessionToken};
@@ -26,8 +28,12 @@ use super::members::{
 /// How long an Invite or Device link works after it is created.
 pub const LINK_LIFETIME: Duration = Duration::from_hours(24);
 
-/// How long a session lasts.
+/// How long a session lasts without being used.
 pub const SESSION_LIFETIME: Duration = Duration::from_hours(90 * 24);
+
+/// How often using a session moves its expiry forward, so a request isn't a write every time.
+/// A session therefore ends between 89 and 90 days after it was last used.
+pub const SESSION_RENEWAL_INTERVAL: Duration = Duration::from_hours(24);
 
 /// What a passkey is called until its Member renames it.
 const DEFAULT_PASSKEY_NAME: &str = "Passkey";
@@ -37,6 +43,14 @@ const DEFAULT_PASSKEY_NAME: &str = "Passkey";
 pub struct Invite {
     pub display_name: DisplayName,
     pub grants_admin: bool,
+}
+
+/// The Member behind a live session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Session {
+    pub member: Member,
+    /// Whether this use moved the session's expiry forward, so the browser's cookie should too.
+    pub renewed: bool,
 }
 
 /// A new Member, signed in on the device they joined from.
@@ -57,6 +71,9 @@ pub enum AuthError {
     Name(#[from] NameError),
     #[error("the ceremony is unknown or expired")]
     CeremonyExpired,
+    /// No Member has this passkey: it was never registered here, or has been deleted.
+    #[error("the passkey is unknown")]
+    UnknownPasskey,
     #[error("the passkey didn't verify")]
     PasskeyRejected(#[source] WebauthnError),
     #[error("WebAuthn failed")]
@@ -91,6 +108,7 @@ pub struct Auth {
     members: Members,
     webauthn: Arc<Webauthn>,
     joining: Arc<Ceremonies<PendingJoin>>,
+    signing_in: Arc<Ceremonies<DiscoverableAuthentication>>,
 }
 
 impl Auth {
@@ -115,6 +133,7 @@ impl Auth {
             clock,
             webauthn: Arc::new(webauthn),
             joining: Arc::new(Ceremonies::new()),
+            signing_in: Arc::new(Ceremonies::new()),
         })
     }
 
@@ -200,10 +219,15 @@ impl Auth {
         let invite = self.invite(token).await?;
         let webauthn_user_id = Uuid::new_v4();
         let name = invite.display_name.as_str();
-        let (challenge, registration) = self
+        let (mut challenge, registration) = self
             .webauthn
             .start_passkey_registration(webauthn_user_id, name, name, None)
             .map_err(AuthError::Webauthn)?;
+        // Signing in has no username field, so the passkey must be discoverable.
+        if let Some(selection) = challenge.public_key.authenticator_selection.as_mut() {
+            selection.resident_key = Some(ResidentKeyRequirement::Required);
+            selection.require_resident_key = true;
+        }
         let ceremony = self.joining.insert(
             self.clock.now(),
             PendingJoin {
@@ -272,29 +296,142 @@ impl Auth {
         Ok(Joined { member, session })
     }
 
-    /// The Member signed in with `token`, while the session lasts.
+    /// Starts signing in with whichever of their passkeys the Member's device offers.
+    ///
+    /// # Errors
+    ///
+    /// Fails only if WebAuthn can't make a challenge.
+    pub fn start_signing_in(&self) -> Result<(CeremonyId, RequestChallengeResponse), AuthError> {
+        let (challenge, authentication) = self
+            .webauthn
+            .start_discoverable_authentication()
+            .map_err(AuthError::Webauthn)?;
+        let ceremony = self.signing_in.insert(self.clock.now(), authentication);
+        Ok((ceremony, challenge))
+    }
+
+    /// Verifies the passkey against the one stored for its Member, then starts a session.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AuthError::CeremonyExpired`] for an unknown or expired ceremony,
+    /// [`AuthError::UnknownPasskey`] if no Member has the passkey, and
+    /// [`AuthError::PasskeyRejected`] if it doesn't verify.
+    pub async fn finish_signing_in(
+        &self,
+        ceremony: &CeremonyId,
+        credential: &PublicKeyCredential,
+    ) -> Result<SessionToken, AuthError> {
+        let now = self.clock.now();
+        let authentication = self
+            .signing_in
+            .take(ceremony, now)
+            .ok_or(AuthError::CeremonyExpired)?;
+        let (webauthn_user_id, credential_id) = self
+            .webauthn
+            .identify_discoverable_authentication(credential)
+            .map_err(|_| AuthError::UnknownPasskey)?;
+        let webauthn_user_id = webauthn_user_id.to_string();
+        let stored = sqlx::query!(
+            r#"SELECT passkeys.id AS "id!", passkeys.member_id, passkeys.credential
+             FROM passkeys JOIN members ON members.id = passkeys.member_id
+             WHERE passkeys.credential_id = ? AND members.webauthn_user_id = ?"#,
+            credential_id,
+            webauthn_user_id,
+        )
+        .fetch_optional(&self.db)
+        .await?
+        .ok_or(AuthError::UnknownPasskey)?;
+        let mut passkey: Passkey = serde_json::from_str(&stored.credential)?;
+        let result = self
+            .webauthn
+            .finish_discoverable_authentication(
+                credential,
+                authentication,
+                &[DiscoverableKey::from(&passkey)],
+            )
+            .map_err(AuthError::PasskeyRejected)?;
+        // Keeps the signature counter current, so a cloned authenticator can be told apart.
+        passkey.update_credential(&result);
+        let updated = serde_json::to_string(&passkey)?;
+
+        let now = unix_seconds(now);
+        let mut tx = self.db.begin().await?;
+        sqlx::query!(
+            "UPDATE passkeys SET credential = ?, last_used_at = ? WHERE id = ?",
+            updated,
+            now,
+            stored.id,
+        )
+        .execute(&mut *tx)
+        .await?;
+        let member = MemberId::from_stored(stored.member_id);
+        let session = insert_session(&mut tx, member, PasskeyId(stored.id), now).await?;
+        tx.commit().await?;
+        Ok(session)
+    }
+
+    /// The Member signed in with `token`, while the session lasts. Using a session moves its
+    /// expiry forward, at most once per [`SESSION_RENEWAL_INTERVAL`].
     ///
     /// # Errors
     ///
     /// Fails if the database does.
-    pub async fn session_member(
-        &self,
-        token: &SessionToken,
-    ) -> Result<Option<Member>, sqlx::Error> {
+    pub async fn session(&self, token: &SessionToken) -> Result<Option<Session>, sqlx::Error> {
         let hash = token.hash();
         let now = unix_seconds(self.clock.now());
-        let member = sqlx::query_scalar!(
-            "SELECT member_id FROM sessions WHERE token_hash = ? AND expires_at > ?",
+        let Some(session) = sqlx::query!(
+            "SELECT id, member_id, expires_at FROM sessions WHERE token_hash = ? AND expires_at > ?",
             hash,
             now,
         )
         .fetch_optional(&self.db)
-        .await?;
-        match member {
-            Some(id) => self.members.find(MemberId::from_stored(id)).await,
-            None => Ok(None),
+        .await?
+        else {
+            return Ok(None);
+        };
+        let expires_at = now.saturating_add_unsigned(SESSION_LIFETIME.as_secs());
+        // The expiry was last moved this long ago.
+        let since_renewal = expires_at.saturating_sub(session.expires_at);
+        let renewed = since_renewal >= renewal_interval_secs();
+        if renewed {
+            sqlx::query!(
+                "UPDATE sessions SET expires_at = ? WHERE id = ?",
+                expires_at,
+                session.id,
+            )
+            .execute(&self.db)
+            .await?;
         }
+        let member = self
+            .members
+            .find(MemberId::from_stored(session.member_id))
+            .await?;
+        Ok(member.map(|member| Session { member, renewed }))
     }
+
+    /// Ends the session, so its cookie no longer signs anyone in. An unknown token is ignored.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the database does.
+    pub async fn end_session(&self, token: &SessionToken) -> Result<(), sqlx::Error> {
+        let hash = token.hash();
+        sqlx::query!("DELETE FROM sessions WHERE token_hash = ?", hash)
+            .execute(&self.db)
+            .await?;
+        Ok(())
+    }
+
+    /// An Invite link for a Member without the Admin role, until the admin page makes them.
+    #[cfg(test)]
+    pub(crate) async fn create_test_invite(&self, name: &DisplayName) -> LinkToken {
+        self.insert_invite(name, false, None).await.unwrap()
+    }
+}
+
+fn renewal_interval_secs() -> i64 {
+    i64::try_from(SESSION_RENEWAL_INTERVAL.as_secs()).unwrap_or(i64::MAX)
 }
 
 /// A stored passkey, which the sessions it starts point back at.
@@ -425,11 +562,8 @@ mod tests {
 
     #[sqlx::test]
     async fn an_unknown_session_has_no_member(db: SqlitePool) {
-        let member = auth(db)
-            .session_member(&SessionToken::generate())
-            .await
-            .unwrap();
+        let session = auth(db).session(&SessionToken::generate()).await.unwrap();
 
-        assert_eq!(member, None);
+        assert_eq!(session, None);
     }
 }

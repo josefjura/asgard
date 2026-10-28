@@ -67,13 +67,13 @@ fn routes() -> Router<AppState> {
         .route("/health/live", get(health::live))
         .route("/health/ready", get(health::ready))
         .route("/offline", get(pages::offline))
-        .route(sign_in::PATH, get(sign_in::show))
         .route("/static/{file}", get(static_files::hashed))
         .route(
             assets::SERVICE_WORKER.url,
             get(static_files::service_worker),
         )
         .route(assets::MANIFEST.url, get(static_files::manifest))
+        .merge(sign_in::routes())
         .merge(invite::routes());
     for tab in Tab::ALL {
         router = router.route(tab.href(), pages::tab(tab));
@@ -87,6 +87,7 @@ fn routes() -> Router<AppState> {
 
 fn with_layers(routes: Router<AppState>, state: AppState) -> Router {
     routes
+        .layer(middleware::from_fn(access::renew_session_cookie))
         .layer(middleware::from_fn_with_state(
             state.public_origin.clone(),
             origin::require_public_origin,
@@ -109,7 +110,11 @@ pub(crate) mod test_support {
     use url::Url;
     use webauthn_authenticator_rs::WebauthnAuthenticator;
     use webauthn_authenticator_rs::softpasskey::SoftPasskey;
-    use webauthn_rs::prelude::CreationChallengeResponse;
+    use webauthn_rs::prelude::{
+        Base64UrlSafeData, CreationChallengeResponse, PublicKeyCredential,
+        RegisterPublicKeyCredential, RequestChallengeResponse,
+    };
+    use webauthn_rs_proto::AllowCredentials;
 
     use super::{AppState, routes, with_layers};
     use crate::domain::clock::ManualClock;
@@ -124,10 +129,66 @@ pub(crate) mod test_support {
     }
 
     /// A software passkey: real WebAuthn, with its keys held in memory.
-    pub type Authenticator = WebauthnAuthenticator<SoftPasskey>;
+    ///
+    /// `SoftPasskey` can't store discoverable credentials, so this keeps what a discoverable one
+    /// would: each credential it made and the user handle it was made for. Signing in then
+    /// picks a credential and hands back its user handle, as a phone does. The handle isn't
+    /// signed, so the server's checks run unchanged.
+    pub struct Authenticator {
+        soft: WebauthnAuthenticator<SoftPasskey>,
+        discoverable: Vec<(Base64UrlSafeData, Base64UrlSafeData)>,
+    }
+
+    impl Authenticator {
+        /// Creates a passkey for the registration `options`, as a browser at `origin` would.
+        pub fn register(
+            &mut self,
+            origin: &str,
+            mut options: CreationChallengeResponse,
+        ) -> RegisterPublicKeyCredential {
+            let user_handle = options.public_key.user.id.clone();
+            if let Some(selection) = options.public_key.authenticator_selection.as_mut() {
+                selection.require_resident_key = false;
+            }
+            let credential = self
+                .soft
+                .do_registration(Url::parse(origin).unwrap(), options)
+                .unwrap();
+            self.discoverable
+                .push((credential.raw_id.clone(), user_handle));
+            credential
+        }
+
+        /// Answers the sign-in `options` with the newest passkey, as a browser at `origin` would.
+        pub fn authenticate(
+            &mut self,
+            origin: &str,
+            mut options: RequestChallengeResponse,
+        ) -> PublicKeyCredential {
+            let (credential_id, user_handle) = self
+                .discoverable
+                .last()
+                .expect("the authenticator has a passkey")
+                .clone();
+            options.public_key.allow_credentials = vec![AllowCredentials {
+                type_: "public-key".to_owned(),
+                id: credential_id,
+                transports: None,
+            }];
+            let mut credential = self
+                .soft
+                .do_authentication(Url::parse(origin).unwrap(), options)
+                .unwrap();
+            credential.response.user_handle = Some(user_handle);
+            credential
+        }
+    }
 
     pub fn authenticator() -> Authenticator {
-        WebauthnAuthenticator::new(SoftPasskey::new(true))
+        Authenticator {
+            soft: WebauthnAuthenticator::new(SoftPasskey::new(true)),
+            discoverable: Vec::new(),
+        }
     }
 
     /// The app's router with a clock the test controls.
@@ -165,6 +226,15 @@ pub(crate) mod test_support {
         /// A GET from a browser that holds `cookie`.
         pub async fn get_with(&self, uri: &str, cookie: &str) -> Response<Body> {
             let mut request = request(Method::GET, uri, None);
+            request
+                .headers_mut()
+                .insert(COOKIE, cookie.parse().unwrap());
+            self.send(request).await
+        }
+
+        /// A POST from one of our own pages by a browser that holds `cookie`, as a form sends it.
+        pub async fn post_with(&self, uri: &str, cookie: &str) -> Response<Body> {
+            let mut request = request(Method::POST, uri, Some(PUBLIC_ORIGIN));
             request
                 .headers_mut()
                 .insert(COOKIE, cookie.parse().unwrap());
@@ -221,9 +291,7 @@ pub(crate) mod test_support {
             authenticator: &mut Authenticator,
             origin: &str,
         ) -> Response<Body> {
-            let credential = authenticator
-                .do_registration(Url::parse(origin).unwrap(), started.options)
-                .unwrap();
+            let credential = authenticator.register(origin, started.options);
             self.post_json(
                 &format!("{invite_path}/finish"),
                 &serde_json::json!({ "ceremony": started.ceremony, "credential": credential }),
@@ -249,10 +317,33 @@ pub(crate) mod test_support {
 
         /// Bootstraps an Admin called `name` and returns their browser's session cookie.
         pub async fn sign_in_new_admin(&self, name: &str) -> String {
+            self.join_as_admin(name, &mut authenticator()).await
+        }
+
+        /// Bootstraps an Admin called `name` whose passkey is on `authenticator`, and returns
+        /// the session cookie of the browser they joined from.
+        pub async fn join_as_admin(&self, name: &str, authenticator: &mut Authenticator) -> String {
             let invite = self.admin_invite(name).await;
-            let response = self.join(&invite, &mut authenticator()).await;
+            let response = self.join(&invite, authenticator).await;
             assert_eq!(response.status(), StatusCode::OK, "joining failed");
             cookie_pair(&response)
+        }
+
+        /// Signs in with `authenticator`'s passkey, the way the sign-in page's script does,
+        /// and returns the last response.
+        pub async fn sign_in(&self, authenticator: &mut Authenticator) -> Response<Body> {
+            let response = self
+                .post_json("/sign-in/start", &serde_json::json!({}))
+                .await;
+            assert_eq!(response.status(), StatusCode::OK, "starting failed");
+            let body: serde_json::Value = serde_json::from_str(&body_text(response).await).unwrap();
+            let options = serde_json::from_value(body["options"].clone()).unwrap();
+            let credential = authenticator.authenticate(PUBLIC_ORIGIN, options);
+            self.post_json(
+                "/sign-in/finish",
+                &serde_json::json!({ "ceremony": body["ceremony"], "credential": credential }),
+            )
+            .await
         }
     }
 

@@ -19,6 +19,10 @@ pub enum AppError {
     /// No valid session. `htmx` is whether htmx sent the request, which can't follow a redirect.
     #[error("sign-in required")]
     SignInRequired { htmx: bool },
+    /// A link was used by a browser that is already signed in, which could attach a passkey to
+    /// the wrong Member.
+    #[error("already signed in")]
+    AlreadySignedIn,
     #[error(transparent)]
     Auth(#[from] AuthError),
 }
@@ -32,6 +36,13 @@ impl AppError {
             Self::ForeignOrigin => (StatusCode::FORBIDDEN, None),
             Self::SignInRequired { htmx: true } => (StatusCode::UNAUTHORIZED, None),
             Self::SignInRequired { htmx: false } => (StatusCode::SEE_OTHER, None),
+            Self::AlreadySignedIn => (
+                StatusCode::CONFLICT,
+                Some(
+                    "You're already signed in on this device. Log out first to use this link."
+                        .to_owned(),
+                ),
+            ),
             Self::Auth(err) => auth_outcome(err),
         }
     }
@@ -49,6 +60,10 @@ fn auth_outcome(err: &AuthError) -> (StatusCode, Option<String>) {
         AuthError::CeremonyExpired => say(
             StatusCode::BAD_REQUEST,
             "That took too long. Please try again.",
+        ),
+        AuthError::UnknownPasskey => say(
+            StatusCode::UNAUTHORIZED,
+            "Asgard doesn't know this passkey. Try another one, or ask the Admin for a Device link.",
         ),
         AuthError::PasskeyRejected(_) => say(
             StatusCode::BAD_REQUEST,

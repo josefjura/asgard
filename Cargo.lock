@@ -44,6 +44,7 @@ dependencies = [
  "url",
  "webauthn-authenticator-rs",
  "webauthn-rs",
+ "webauthn-rs-proto",
 ]
 
 [[package]]

@@ -1,14 +1,8 @@
 use maud::{Markup, html};
 
-use crate::assets;
 use crate::domain::members::DisplayName;
 use crate::views::layout::standalone;
-
-/// Where the passkey script sends the two halves of the registration ceremony.
-pub struct CeremonyUrls {
-    pub start: String,
-    pub finish: String,
-}
+use crate::views::passkey::{self, Ceremony, CeremonyUrls};
 
 /// What an Invite link opens: whose Crew it is, the name the new Member will appear under, and
 /// the button that creates their passkey.
@@ -23,12 +17,27 @@ pub fn page(crew: &str, display_name: &DisplayName, ceremony: &CeremonyUrls) -> 
                 "Asgard signs you in with a passkey: the fingerprint, face or screen lock you "
                 "already use on this device. There's no password to remember."
             }
-            button.button type="button" data-passkey-start=(ceremony.start)
-                data-passkey-finish=(ceremony.finish) aria-describedby="passkey-status" {
-                "Create a passkey"
+            (passkey::button("Create a passkey", Ceremony::Register, ceremony))
+        },
+    )
+}
+
+/// What an Invite link opens on a device that is already signed in: who is signed in, and the
+/// way to log out before the link can be used.
+#[must_use]
+pub fn signed_in(member: &DisplayName, sign_out: &str) -> Markup {
+    standalone(
+        "Already signed in | Asgard",
+        &html! {
+            h1 { "You're already signed in" }
+            p.lead { "This device is signed in as " strong { (member) } "." }
+            p {
+                "This link is for someone joining the Crew. If it's meant for you on this "
+                "device, log out first, then use the link."
             }
-            p.status #passkey-status role="status" {}
-            script type="module" src=(assets::PASSKEY.url) {}
+            form method="post" action=(sign_out) {
+                button.button type="submit" { "Log out" }
+            }
         },
     )
 }
@@ -70,6 +79,11 @@ mod tests {
     #[test]
     fn invite_page() {
         assert_html_snapshot!(page("Asgard", &name("Ondra"), &urls()));
+    }
+
+    #[test]
+    fn signed_in_page() {
+        assert_html_snapshot!(signed_in(&name("Josef"), "/invite/abc/sign-out"));
     }
 
     #[test]
