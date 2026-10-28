@@ -1,6 +1,7 @@
 //! Invite links, passkeys and sessions: passkey-only, invite-only sign-in (ADR 0005).
 
 mod ceremonies;
+mod links;
 mod passkeys;
 mod tokens;
 
@@ -17,6 +18,7 @@ use webauthn_rs::prelude::{
 use webauthn_rs_proto::ResidentKeyRequirement;
 
 pub use ceremonies::{CEREMONY_LIFETIME, CeremonyId};
+pub use links::{LinkId, OpenLink};
 pub use passkeys::{PASSKEY_NAME_MAX, PasskeyId, PasskeyName, PasskeyNameError, PasskeySummary};
 pub use tokens::{LinkToken, SessionToken};
 
@@ -28,8 +30,11 @@ use super::members::{
     self, CREW_NAME, DisplayName, Member, MemberError, MemberId, Members, NameError, NewMember,
 };
 
+/// How many hours an Invite or Device link works after it is created.
+pub const LINK_LIFETIME_HOURS: u64 = 24;
+
 /// How long an Invite or Device link works after it is created.
-pub const LINK_LIFETIME: Duration = Duration::from_hours(24);
+pub const LINK_LIFETIME: Duration = Duration::from_hours(LINK_LIFETIME_HOURS);
 
 /// How long a session lasts without being used.
 pub const SESSION_LIFETIME: Duration = Duration::from_hours(90 * 24);
@@ -429,7 +434,8 @@ impl Auth {
         Ok(())
     }
 
-    /// An Invite link for a Member without the Admin role, until the admin page makes them.
+    /// An Invite link for a Member without the Admin role that no Member created, for tests
+    /// that need a second Member without going through the admin page.
     #[cfg(test)]
     pub(crate) async fn create_test_invite(&self, name: &DisplayName) -> LinkToken {
         self.insert_invite(name, false, None).await.unwrap()
@@ -506,15 +512,21 @@ mod tests {
     use crate::domain::members::fixtures::{add_member, name};
 
     pub(super) fn auth(db: SqlitePool) -> Auth {
+        auth_with_clock(db).0
+    }
+
+    /// The service, and the clock it reads, which starts at the Unix epoch.
+    pub(super) fn auth_with_clock(db: SqlitePool) -> (Auth, ManualClock) {
         let clock = ManualClock::starting_at(std::time::SystemTime::UNIX_EPOCH);
         let members = Members::new(db.clone());
-        Auth::new(
+        let auth = Auth::new(
             db,
             clock.clock(),
             members,
             &Url::parse("https://asgard.test").unwrap(),
         )
-        .unwrap()
+        .unwrap();
+        (auth, clock)
     }
 
     #[sqlx::test]

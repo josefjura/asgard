@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use asgard::cli::{self, Command};
 use asgard::config::Config;
 use asgard::db;
-use asgard::domain::auth::Auth;
+use asgard::domain::auth::{Auth, LINK_LIFETIME_HOURS};
 use asgard::domain::clock::Clock;
 use asgard::domain::members::Members;
 use asgard::web::{self, AppState};
@@ -66,7 +66,7 @@ async fn bootstrap_admin(
     pool.close().await;
 
     let link = link?;
-    eprintln!("Open this link within 24 hours to join the Crew as its Admin:");
+    eprintln!("Open this link within {LINK_LIFETIME_HOURS} hours to join the Crew as its Admin:");
     println!("{link}");
     Ok(())
 }

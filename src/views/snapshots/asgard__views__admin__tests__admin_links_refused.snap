@@ -1,0 +1,23 @@
+---
+source: src/views/admin.rs
+expression: "links(BASE, &[], Some(outcome)).into_string().replace(\"><\", \">\\n<\")"
+---
+<div class="admin-links" id="links">
+<section class="settings-section" aria-labelledby="admin-invite">
+<h2 id="admin-invite">Invite someone</h2>
+<form class="name-form" method="post" action="/admin/invites" hx-post="/admin/invites" hx-target="#links" hx-swap="outerHTML">
+<label for="invite-name">Display name</label>
+<div class="field-row">
+<input id="invite-name" type="text" name="display_name" value="josef" required autocomplete="off" aria-describedby="invite-name-note" aria-invalid="true">
+<button class="button" type="submit">Make link</button>
+</div>
+<p class="note refused" id="invite-name-note" role="status">Someone in the Crew is already called josef.</p>
+</form>
+</section>
+<section class="settings-section" aria-labelledby="admin-open">
+<h2 id="admin-open">Open links</h2>
+<p class="lead-in">No open links. Each link works once, for 24 hours.</p>
+<p class="note" role="status">
+</p>
+</section>
+</div>

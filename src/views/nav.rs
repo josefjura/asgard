@@ -64,11 +64,15 @@ impl Tab {
 /// Where a Member changes their display name and logs out.
 pub const SETTINGS_HREF: &str = "/settings";
 
-/// A page inside the app shell: one of the tabs, or settings.
+/// Where the Admin makes and revokes links. Only the Admin's settings link to it.
+pub const ADMIN_HREF: &str = "/admin";
+
+/// A page inside the app shell: one of the tabs, settings, or the admin page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Place {
     Tab(Tab),
     Settings,
+    Admin,
 }
 
 impl Place {
@@ -77,6 +81,7 @@ impl Place {
         match self {
             Self::Tab(tab) => tab.label(),
             Self::Settings => "Settings",
+            Self::Admin => "Admin",
         }
     }
 }

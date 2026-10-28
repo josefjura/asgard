@@ -1,5 +1,6 @@
 use maud::{Markup, html};
 
+use crate::domain::auth::LINK_LIFETIME_HOURS;
 use crate::domain::members::DisplayName;
 use crate::views::layout::standalone;
 use crate::views::passkey::{self, Ceremony, CeremonyUrls};
@@ -42,14 +43,18 @@ pub fn signed_in(member: &DisplayName, log_out: &str) -> Markup {
     )
 }
 
-/// What a used, expired or unknown link opens, naming the Admin to ask once there is one.
+/// What a used, expired, revoked or unknown link opens, naming the Admin to ask once there
+/// is one.
 #[must_use]
 pub fn link_error(admin: Option<&DisplayName>) -> Markup {
     standalone(
         "Link no longer works | Asgard",
         &html! {
             h1 { "This link no longer works" }
-            p { "Each link works once, for 24 hours. This one has expired or was already used." }
+            p {
+                "Each link works once, for " (LINK_LIFETIME_HOURS) " hours. This one has expired, "
+                "was already used or was revoked."
+            }
             p {
                 "Ask "
                 @if let Some(admin) = admin {

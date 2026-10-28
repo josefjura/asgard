@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 use std::time::SystemTime;
 
-use jiff::civil::Date;
-use jiff::{Timestamp, tz};
+use jiff::civil::{Date, DateTime};
+use jiff::{Timestamp, Zoned, tz};
 
 /// Where the Crew lives: times are entered and displayed here, and stored as UTC.
 pub const CREW_TIME_ZONE: &str = "Europe/Prague";
@@ -54,19 +54,33 @@ impl Clock {
 /// jiff's range, which the database never holds, is clamped to it.
 #[must_use]
 pub fn crew_date_of_unix_seconds(seconds: i64) -> Date {
-    let at = Timestamp::from_second(seconds).unwrap_or(if seconds < 0 {
+    crew_date(timestamp_of_unix_seconds(seconds))
+}
+
+/// The date and time on the clock in the Crew's time zone at an instant stored as Unix seconds,
+/// clamped like [`crew_date_of_unix_seconds`].
+#[must_use]
+pub fn crew_time_of_unix_seconds(seconds: i64) -> DateTime {
+    crew_zoned(timestamp_of_unix_seconds(seconds)).datetime()
+}
+
+fn timestamp_of_unix_seconds(seconds: i64) -> Timestamp {
+    Timestamp::from_second(seconds).unwrap_or(if seconds < 0 {
         Timestamp::MIN
     } else {
         Timestamp::MAX
-    });
-    crew_date(at)
+    })
 }
 
 fn crew_date(at: Timestamp) -> Date {
+    crew_zoned(at).date()
+}
+
+fn crew_zoned(at: Timestamp) -> Zoned {
     let zone = tz::db()
         .get(CREW_TIME_ZONE)
         .expect("the bundled time zone database has the Crew's zone");
-    at.to_zoned(zone).date()
+    at.to_zoned(zone)
 }
 
 /// `time` as whole seconds since the Unix epoch, the way the database stores instants.
@@ -165,6 +179,20 @@ mod tests {
         assert_eq!(
             crew_date_of_unix_seconds(1_767_308_400),
             jiff::civil::date(2026, 1, 2)
+        );
+    }
+
+    #[test]
+    fn a_stored_instant_reads_as_prague_wall_clock_time() {
+        // 2026-01-01T22:59:59Z is 23:59:59 in Prague (UTC+1), and 2026-07-01T12:00:00Z is 14:00
+        // in summer (UTC+2).
+        assert_eq!(
+            crew_time_of_unix_seconds(1_767_308_399),
+            jiff::civil::date(2026, 1, 1).at(23, 59, 59, 0)
+        );
+        assert_eq!(
+            crew_time_of_unix_seconds(1_782_907_200),
+            jiff::civil::date(2026, 7, 1).at(14, 0, 0, 0)
         );
     }
 

@@ -25,6 +25,12 @@ impl PublicOrigin {
         Self(public_url.origin().ascii_serialization().into())
     }
 
+    /// The full URL of `path` on this origin, for a link sent outside the app.
+    #[must_use]
+    pub fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.0)
+    }
+
     fn matches(&self, origin: &HeaderValue) -> bool {
         origin.as_bytes() == self.0.as_bytes()
     }
