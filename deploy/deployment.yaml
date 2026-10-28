@@ -17,6 +17,9 @@ spec:
       labels:
         app: asgard
     spec:
+      # The package on ghcr.io is private; the Secret is created by hand (docs/operations.md).
+      imagePullSecrets:
+        - name: ghcr-secret
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -47,6 +50,8 @@ spec:
             httpGet:
               path: /health/live
               port: http
+            # Migrations run before the server listens.
+            initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
           readinessProbe:

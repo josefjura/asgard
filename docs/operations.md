@@ -56,21 +56,26 @@ Generate it once and keep a copy in the password manager. Every push subscriptio
 
 ### First deploy
 
-Run these from a clone of the repository, with `kubectl` pointed at the MicroK8s cluster.
+Run these on the VPS from a clone of the repository. The commands say `kubectl`; there it is `microk8s kubectl`, unless it is aliased.
 
 1. **Check the prerequisites.**
    - The image tag in `deploy/deployment.yaml` has been released: `ghcr.io/josefjura/asgard:X.Y.Z` exists.
-   - The package is public (*GitHub → Packages → asgard → Package settings → Change visibility*), because the Deployment has no pull secret.
    - `asgard.joseforge.cz` resolves to the cluster's ingress IP: `dig +short asgard.joseforge.cz`.
-2. **Create the namespace and the Secret.** Paste the key from the password manager (see [VAPID key](#vapid-key)) when `read` asks, so it never lands in the shell history:
+2. **Create the namespace and the Secrets.** The package on ghcr.io is private, so the pod pulls the image with `ghcr-secret`, like the other apps. Secrets belong to one namespace, so Asgard needs its own copy. Use a GitHub personal access token (classic) with the `read:packages` scope. Paste the token, then the VAPID key from the password manager (see [VAPID key](#vapid-key)), when `read` asks, so neither lands in the shell history:
 
    ```sh
    kubectl apply -f deploy/namespace.yaml
+   read -rs GHCR_TOKEN
+   kubectl -n asgard create secret docker-registry ghcr-secret \
+     --docker-server=ghcr.io --docker-username=josefjura \
+     --docker-password="$GHCR_TOKEN"
    read -rs VAPID_PRIVATE_KEY
    kubectl -n asgard create secret generic asgard-secrets \
      --from-literal=VAPID_PRIVATE_KEY="$VAPID_PRIVATE_KEY"
-   unset VAPID_PRIVATE_KEY
+   unset GHCR_TOKEN VAPID_PRIVATE_KEY
    ```
+
+   If the pod later shows `ImagePullBackOff`, the token is wrong or has expired: delete `ghcr-secret`, create it again, and delete the pod.
 
 3. **Apply the manifests and wait for the pod:**
 
@@ -114,11 +119,7 @@ Run these from a clone of the repository, with `kubectl` pointed at the MicroK8s
 
 `Recreate` stops the old pod before the new one starts, so Asgard is down for a few seconds. Migrations run when the new pod starts. Watch it with `kubectl -n asgard get pods -w`: the old pod is `Terminating` and gone before the new one is `ContainerCreating`.
 
-**Rolling back:** set the previous tag and apply again. That works only if the newer release added no migration: an older binary refuses to start on a database with a migration it doesn't know. In that case, restore the last nightly snapshot from before the upgrade (see [Backups and restore](#backups-and-restore)) together with the older tag.
-
-### Volume permissions
-
-The image runs as uid 65532, and the Deployment sets `fsGroup: 65532` so the pod can write to `/data`. MicroK8s's hostpath-storage doesn't apply `fsGroup`, but it creates each volume's directory world-writable, so the pod can write anyway. If the pod logs a permission error on `/data/asgard.db` with another storage class, fix the ownership of the volume's directory on the host (`chown -R 65532:65532 <path>`).
+**Rolling back:** set the previous tag and apply again. That works only if the newer release added no migration: an older binary refuses to start on a database with a migration it doesn't know. In that case, restore the last nightly snapshot from before the upgrade (see [Backups and restore](#backups-and-restore)) together with the older tag. Nightly snapshots arrive with #13; until then, the only way back across a migration is a fix-forward release.
 
 ## Ingress and HTTPS
 
