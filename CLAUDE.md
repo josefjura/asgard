@@ -24,7 +24,7 @@ One crate, thin routes:
 | `db.rs`, `config.rs` | Pool setup, migrations, env config | Config validated once at startup |
 
 - **State:** services are built once at startup and held in an `AppState`. Routes extract what they need; no lazy getters.
-- **Access:** `Member` and `Admin` extractors. A route's signature shows its access level; no handler checks sessions by hand.
+- **Access:** `Member` and `Admin` extractors, and `SignedOut` for routes that must not run for a signed-in browser. A route's signature shows its access level; no handler checks sessions by hand.
 - **Errors:** one `AppError` implementing `IntoResponse`. Handlers return `Result<_, AppError>` and use `?`.
 - **Money:** integer whole crowns (CZK only), never floats.
 - **Time:** stored as UTC, entered and displayed in `Europe/Prague`.

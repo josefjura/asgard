@@ -113,6 +113,24 @@ impl OptionalFromRequestParts<AppState> for Member {
     }
 }
 
+/// A browser with no valid session, for routes that must not act on a signed-in Member's
+/// behalf. A signed-in request is refused with [`AppError::AlreadySignedIn`].
+#[derive(Debug)]
+pub struct SignedOut;
+
+impl FromRequestParts<AppState> for SignedOut {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
+        match <Member as OptionalFromRequestParts<AppState>>::from_request_parts(parts, state)
+            .await?
+        {
+            Some(_) => Err(AppError::AlreadySignedIn),
+            None => Ok(Self),
+        }
+    }
+}
+
 /// The session this browser's cookie names, valid or not: all that ending it needs.
 pub struct SessionCookie(pub Option<SessionToken>);
 

@@ -12,7 +12,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use webauthn_rs::prelude::{CreationChallengeResponse, RegisterPublicKeyCredential};
 
-use super::access::{Member, SessionCookie, session_cookie};
+use super::access::{Member, SessionCookie, SignedOut, session_cookie};
 use super::pages::fresh;
 use super::sign_in::{self, Landing};
 use super::{AppError, AppState};
@@ -90,11 +90,8 @@ struct Challenge {
 async fn start(
     State(state): State<AppState>,
     Path(token): Path<String>,
-    member: Option<Member>,
+    _: SignedOut,
 ) -> Result<Json<Challenge>, AppError> {
-    if member.is_some() {
-        return Err(AppError::AlreadySignedIn);
-    }
     let (ceremony, options) = state
         .auth
         .start_joining(&LinkToken::from_client(token))
@@ -112,13 +109,10 @@ struct NewPasskey {
 async fn finish(
     State(state): State<AppState>,
     Path(token): Path<String>,
-    member: Option<Member>,
+    // Signing in elsewhere mid-ceremony mustn't let the link attach a passkey either.
+    _: SignedOut,
     Json(body): Json<NewPasskey>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Signing in elsewhere mid-ceremony mustn't let the link attach a passkey either.
-    if member.is_some() {
-        return Err(AppError::AlreadySignedIn);
-    }
     let joined = state
         .auth
         .finish_joining(
