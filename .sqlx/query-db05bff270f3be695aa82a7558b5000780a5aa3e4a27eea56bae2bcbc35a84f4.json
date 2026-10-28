@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT credential_id FROM passkeys WHERE member_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "credential_id",
+        "ordinal": 0,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "db05bff270f3be695aa82a7558b5000780a5aa3e4a27eea56bae2bcbc35a84f4"
+}

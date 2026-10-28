@@ -46,14 +46,27 @@ impl Clock {
     /// years 9999 BC to 9999 AD.
     #[must_use]
     pub fn today(&self) -> Date {
-        let zone = tz::db()
-            .get(CREW_TIME_ZONE)
-            .expect("the bundled time zone database has the Crew's zone");
-        Timestamp::try_from(self.now())
-            .expect("the clock is within jiff's range")
-            .to_zoned(zone)
-            .date()
+        crew_date(Timestamp::try_from(self.now()).expect("the clock is within jiff's range"))
     }
+}
+
+/// The date in the Crew's time zone of an instant stored as Unix seconds. An instant outside
+/// jiff's range, which the database never holds, is clamped to it.
+#[must_use]
+pub fn crew_date_of_unix_seconds(seconds: i64) -> Date {
+    let at = Timestamp::from_second(seconds).unwrap_or(if seconds < 0 {
+        Timestamp::MIN
+    } else {
+        Timestamp::MAX
+    });
+    crew_date(at)
+}
+
+fn crew_date(at: Timestamp) -> Date {
+    let zone = tz::db()
+        .get(CREW_TIME_ZONE)
+        .expect("the bundled time zone database has the Crew's zone");
+    at.to_zoned(zone).date()
 }
 
 /// `time` as whole seconds since the Unix epoch, the way the database stores instants.
@@ -141,6 +154,18 @@ mod tests {
 
         manual.advance(Duration::from_secs(1));
         assert_eq!(manual.clock().today(), jiff::civil::date(2026, 1, 2));
+    }
+
+    #[test]
+    fn a_stored_instant_falls_on_its_date_in_prague() {
+        assert_eq!(
+            crew_date_of_unix_seconds(1_767_308_399),
+            jiff::civil::date(2026, 1, 1)
+        );
+        assert_eq!(
+            crew_date_of_unix_seconds(1_767_308_400),
+            jiff::civil::date(2026, 1, 2)
+        );
     }
 
     #[test]

@@ -10,6 +10,8 @@ pub mod invite;
 mod name_form;
 mod origin;
 mod pages;
+mod passkeys;
+mod registration;
 mod settings;
 mod sign_in;
 mod static_files;
@@ -79,7 +81,8 @@ fn routes() -> Router<AppState> {
         .merge(sign_in::routes())
         .merge(invite::routes())
         .merge(welcome::routes())
-        .merge(settings::routes());
+        .merge(settings::routes())
+        .merge(passkeys::routes());
     for tab in Tab::ALL {
         router = router.route(tab.href(), pages::tab(tab));
     }
@@ -264,13 +267,20 @@ pub(crate) mod test_support {
 
         /// A JSON POST from one of our own pages, the way the passkey script sends it.
         pub async fn post_json(&self, uri: &str, body: &serde_json::Value) -> Response<Body> {
-            let request = Request::builder()
-                .method(Method::POST)
-                .uri(uri)
-                .header(ORIGIN, PUBLIC_ORIGIN)
-                .header(CONTENT_TYPE, "application/json")
-                .body(Body::from(body.to_string()))
-                .unwrap();
+            self.send(json_request(uri, body)).await
+        }
+
+        /// A JSON POST from the passkey script on a browser that holds `cookie`.
+        pub async fn post_json_with(
+            &self,
+            uri: &str,
+            cookie: &str,
+            body: &serde_json::Value,
+        ) -> Response<Body> {
+            let mut request = json_request(uri, body);
+            request
+                .headers_mut()
+                .insert(COOKIE, cookie.parse().unwrap());
             self.send(request).await
         }
 
@@ -389,6 +399,17 @@ pub(crate) mod test_support {
     pub fn cookie_pair(response: &Response<Body>) -> String {
         let set_cookie = response.headers()[SET_COOKIE].to_str().unwrap();
         set_cookie.split(';').next().unwrap().to_owned()
+    }
+
+    /// A JSON POST from our own origin.
+    pub fn json_request(uri: &str, body: &serde_json::Value) -> Request<Body> {
+        Request::builder()
+            .method(Method::POST)
+            .uri(uri)
+            .header(ORIGIN, PUBLIC_ORIGIN)
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
     }
 
     /// A request with an empty body, sent with `origin` as its `Origin` header, or none.

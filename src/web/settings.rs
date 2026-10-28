@@ -1,4 +1,5 @@
-//! A Member's settings: their display name and logging out of this device.
+//! A Member's settings: their display name and logging out of this device. Their passkeys are
+//! managed in [`super::passkeys`].
 
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
@@ -10,8 +11,10 @@ use super::access::Member;
 use super::htmx::Htmx;
 use super::name_form::{self, NameForm};
 use super::pages::fresh;
+use super::passkeys;
 use super::sign_in::LOG_OUT_PATH;
 use super::{AppError, AppState};
+use crate::domain::members;
 use crate::views;
 use crate::views::display_name;
 use crate::views::nav::SETTINGS_HREF;
@@ -24,13 +27,27 @@ pub fn routes() -> Router<AppState> {
         .route(NAME_PATH, post(rename))
 }
 
-async fn show(Member(member): Member) -> impl IntoResponse {
-    let form = display_name::form(NAME_PATH, member.display_name.as_str(), None);
-    fresh(page(&form))
+async fn show(
+    State(state): State<AppState>,
+    Member(member): Member,
+) -> Result<impl IntoResponse, AppError> {
+    let passkeys = passkeys::list(&state, &member, None).await?;
+    Ok(fresh(page(&name_form(&member), &passkeys)))
 }
 
-fn page(name_form: &Markup) -> Markup {
-    views::settings::page(name_form, LOG_OUT_PATH)
+/// The display-name form showing the Member's current name.
+pub fn name_form(member: &members::Member) -> Markup {
+    display_name::form(NAME_PATH, member.display_name.as_str(), None)
+}
+
+/// The settings page around the display-name form and the passkey list.
+pub fn page(name_form: &Markup, passkeys: &Markup) -> Markup {
+    views::settings::page(
+        name_form,
+        passkeys,
+        &passkeys::ceremony_urls(),
+        LOG_OUT_PATH,
+    )
 }
 
 async fn rename(
@@ -39,7 +56,16 @@ async fn rename(
     Htmx(htmx): Htmx,
     Form(input): Form<NameForm>,
 ) -> Result<Response, AppError> {
-    name_form::submit(&state, &member, &input, NAME_PATH, htmx, page).await
+    // htmx gets the form alone, so only a plain form post needs the passkeys for the page.
+    let passkeys = if htmx {
+        Markup::default()
+    } else {
+        passkeys::list(&state, &member, None).await?
+    };
+    name_form::submit(&state, &member, &input, NAME_PATH, htmx, |form| {
+        page(form, &passkeys)
+    })
+    .await
 }
 
 #[cfg(test)]

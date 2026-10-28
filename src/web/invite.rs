@@ -9,14 +9,13 @@ use axum::http::header::SET_COOKIE;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::{Deserialize, Serialize};
-use webauthn_rs::prelude::{CreationChallengeResponse, RegisterPublicKeyCredential};
 
 use super::access::{Member, SessionCookie, SignedOut, session_cookie};
 use super::pages::fresh;
+use super::registration::{Challenge, DefaultPasskeyName, NewPasskey};
 use super::sign_in::{self, Landing};
 use super::{AppError, AppState, welcome};
-use crate::domain::auth::{AuthError, CeremonyId, LinkToken};
+use crate::domain::auth::{AuthError, LinkToken};
 use crate::domain::members::CREW_NAME;
 use crate::views;
 use crate::views::passkey::CeremonyUrls;
@@ -79,13 +78,6 @@ async fn show(
     }
 }
 
-/// What the browser needs to create the passkey.
-#[derive(Serialize)]
-struct Challenge {
-    ceremony: CeremonyId,
-    options: CreationChallengeResponse,
-}
-
 async fn start(
     State(state): State<AppState>,
     Path(token): Path<String>,
@@ -98,18 +90,12 @@ async fn start(
     Ok(Json(Challenge { ceremony, options }))
 }
 
-/// The passkey the browser created for a [`Challenge`].
-#[derive(Deserialize)]
-struct NewPasskey {
-    ceremony: CeremonyId,
-    credential: RegisterPublicKeyCredential,
-}
-
 async fn finish(
     State(state): State<AppState>,
     Path(token): Path<String>,
     // Signing in elsewhere mid-ceremony mustn't let the link attach a passkey either.
     _: SignedOut,
+    DefaultPasskeyName(name): DefaultPasskeyName,
     Json(body): Json<NewPasskey>,
 ) -> Result<impl IntoResponse, AppError> {
     let joined = state
@@ -118,6 +104,7 @@ async fn finish(
             &LinkToken::from_client(token),
             &body.ceremony,
             &body.credential,
+            &name,
         )
         .await?;
     tracing::info!(member = joined.member.get(), "a new Member joined the Crew");

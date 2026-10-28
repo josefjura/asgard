@@ -396,3 +396,65 @@ a {
 .name-form .note.refused {
   color: var(--danger);
 }
+
+/* The passkey list in settings: each passkey's rename form with its delete button beneath,
+   then the add button and the status line the passkey script writes to. */
+
+.passkey-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.passkey {
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+
+.passkey-rename label {
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.passkey-delete {
+  margin-top: var(--space-2);
+}
+
+.passkeys .note {
+  margin: var(--space-2) 0 0;
+  font-size: 0.875rem;
+}
+
+.passkeys > .note {
+  margin: 0 0 var(--space-3);
+}
+
+.passkeys .note:empty {
+  display: none;
+}
+
+.passkeys .note.refused {
+  color: var(--danger);
+}
+
+.button.quiet {
+  min-height: 2.75rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--danger);
+}
+
+.settings-section .lead-in {
+  margin: 0 0 var(--space-2);
+  color: var(--muted);
+}
+
+.settings-section .status {
+  min-height: 1.5em;
+  margin: var(--space-2) 0 0;
+}

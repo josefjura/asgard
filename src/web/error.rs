@@ -4,7 +4,7 @@ use axum::response::{IntoResponse, Response};
 
 use super::htmx::HX_REDIRECT;
 use super::sign_in;
-use crate::domain::auth::AuthError;
+use crate::domain::auth::{AuthError, PASSKEY_NAME_MAX, PasskeyNameError};
 use crate::domain::members::{DISPLAY_NAME_MAX, NameError};
 
 /// The one error type handlers return.
@@ -65,6 +65,14 @@ fn auth_outcome(err: &AuthError) -> (StatusCode, Option<String>) {
             StatusCode::UNAUTHORIZED,
             "Asgard doesn't know this passkey. Try another one, or ask the Admin for a Device link.",
         ),
+        AuthError::NoSuchPasskey => say(
+            StatusCode::NOT_FOUND,
+            "That passkey no longer exists. Reload the page to see your passkeys.",
+        ),
+        AuthError::LastPasskey => say(
+            StatusCode::CONFLICT,
+            "Your only passkey can't be deleted. Add another one first.",
+        ),
         AuthError::PasskeyRejected(_) => say(
             StatusCode::BAD_REQUEST,
             "Your passkey couldn't be verified. Please try again.",
@@ -83,6 +91,16 @@ pub fn name_message(err: &NameError) -> String {
             format!("Keep the display name to {DISPLAY_NAME_MAX} characters or fewer.")
         }
         NameError::Taken(name) => format!("Someone in the Crew is already called {name}."),
+    }
+}
+
+/// What a person is told when the passkey name they typed can't be used.
+pub fn passkey_name_message(err: &PasskeyNameError) -> String {
+    match err {
+        PasskeyNameError::Blank => "Enter a name for the passkey.".to_owned(),
+        PasskeyNameError::TooLong => {
+            format!("Keep the passkey name to {PASSKEY_NAME_MAX} characters or fewer.")
+        }
     }
 }
 
@@ -120,6 +138,18 @@ mod tests {
         assert_eq!(
             name_message(&NameError::Taken(name("Josef"))),
             "Someone in the Crew is already called Josef."
+        );
+    }
+
+    #[test]
+    fn explains_each_unusable_passkey_name() {
+        assert_eq!(
+            passkey_name_message(&PasskeyNameError::Blank),
+            "Enter a name for the passkey."
+        );
+        assert_eq!(
+            passkey_name_message(&PasskeyNameError::TooLong),
+            "Keep the passkey name to 40 characters or fewer."
         );
     }
 
