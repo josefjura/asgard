@@ -66,6 +66,7 @@ mod tests {
     use super::*;
     use crate::views::assert_html_snapshot;
     use crate::views::display_name;
+    use crate::views::nav::ADMIN_HREF;
     use crate::views::passkeys::{self, fixtures};
 
     const BASE: &str = "/settings/passkeys";
@@ -93,7 +94,7 @@ mod tests {
             &display_name::form("/settings/name", "Josef", None),
             &passkeys::list(BASE, &fixtures::one(), None),
             &add_passkey(),
-            Some("/admin"),
+            Some(ADMIN_HREF),
             "/log-out",
         ));
     }

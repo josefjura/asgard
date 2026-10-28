@@ -10,7 +10,7 @@ use crate::views::admin::{self, Outcome as AdminOutcome};
 use crate::views::brand::header_logo;
 use crate::views::display_name::{self, Outcome};
 use crate::views::layout::document;
-use crate::views::nav::{Place, Tab, bottom_nav};
+use crate::views::nav::{ADMIN_HREF, Place, Tab, bottom_nav};
 use crate::views::passkey::CeremonyUrls;
 use crate::views::passkeys::{self, Outcome as PasskeyOutcome};
 use crate::views::{invite, offline, settings, sign_in, tabs, welcome};
@@ -36,8 +36,6 @@ const SEVERAL_PASSKEYS_HEIGHT: u16 = 1500;
 const ADMIN_SETTINGS_HEIGHT: u16 = 1300;
 /// The admin page's two sections, with a new link or several open ones.
 const ADMIN_HEIGHT: u16 = 1000;
-/// Where the fixture admin page's forms post.
-const ADMIN_BASE: &str = "/admin";
 /// Where the fixture passkey lists' forms post.
 const PASSKEYS_BASE: &str = "/settings/passkeys";
 const DESKTOP_WIDTH: u16 = 1280;
@@ -154,7 +152,7 @@ fn admin_pages() -> Vec<Fixture> {
     .map(|(state, open, outcome)| Fixture {
         component: "Admin page",
         state: state.to_owned(),
-        document: admin::page(&admin::links(ADMIN_BASE, open, outcome)),
+        document: admin::page(&admin::links(ADMIN_HREF, open, outcome)),
         height: ADMIN_HEIGHT,
     })
     .into()
@@ -202,7 +200,7 @@ fn signed_in_pages() -> Vec<Fixture> {
                 start: format!("{PASSKEYS_BASE}/start"),
                 finish: format!("{PASSKEYS_BASE}/finish"),
             },
-            admin.then_some("/admin"),
+            admin.then_some(ADMIN_HREF),
             "/log-out",
         ),
         height,

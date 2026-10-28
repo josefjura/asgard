@@ -1,7 +1,7 @@
 use maud::{Markup, html};
 
 use crate::assets;
-use crate::domain::auth::{LinkId, OpenLink};
+use crate::domain::auth::{LINK_LIFETIME_HOURS, LinkId, OpenLink};
 use crate::domain::members::DisplayName;
 use crate::views::layout::shell;
 use crate::views::nav::Place;
@@ -111,7 +111,7 @@ fn created(name: &DisplayName, url: &str) -> Markup {
     html! {
         div.new-link {
             label for="new-link" {
-                "Send this link to " strong { (name) } ". It works once, for 24 hours."
+                "Send this link to " strong { (name) } ". It works once, for " (LINK_LIFETIME_HOURS) " hours."
             }
             div.field-row {
                 input #new-link type="text" value=(url) readonly;
@@ -127,7 +127,7 @@ fn open_links(base: &str, open: &[OpenLink]) -> Markup {
     let target = format!("#{LINKS_ID}");
     html! {
         @if open.is_empty() {
-            p.lead-in { "No open links. Each link works once, for 24 hours." }
+            p.lead-in { "No open links. Each link works once, for " (LINK_LIFETIME_HOURS) " hours." }
         } @else {
             ul.link-list {
                 @for link in open {

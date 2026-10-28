@@ -86,7 +86,7 @@ impl Auth {
         let now = unix_seconds(self.clock.now());
         let name = sqlx::query_scalar!(
             r#"UPDATE links SET revoked_at = ?1
-               WHERE id = ?2 AND kind = 'invite'
+               WHERE id = ?2 AND kind = 'invite' AND NOT grants_admin
                  AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?1
                RETURNING display_name AS "display_name!""#,
             now,
@@ -192,6 +192,22 @@ mod tests {
         assert_eq!(revoked, Some(name("Ondra")));
         let result = auth.invite(&token).await;
         assert!(matches!(result, Err(AuthError::LinkUnusable)), "{result:?}");
+    }
+
+    #[sqlx::test]
+    async fn the_bootstrap_link_cannot_be_revoked_as_it_is_never_listed(db: SqlitePool) {
+        let auth = auth(db.clone());
+        let token = auth.create_admin_invite(&name("Josef")).await.unwrap();
+        let id: i64 = sqlx::query_scalar("SELECT id FROM links WHERE grants_admin")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            auth.revoke_link(LinkId::from_client(id)).await.unwrap(),
+            None
+        );
+        assert!(auth.invite(&token).await.is_ok());
     }
 
     #[sqlx::test]

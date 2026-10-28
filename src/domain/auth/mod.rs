@@ -30,8 +30,11 @@ use super::members::{
     self, CREW_NAME, DisplayName, Member, MemberError, MemberId, Members, NameError, NewMember,
 };
 
+/// How many hours an Invite or Device link works after it is created.
+pub const LINK_LIFETIME_HOURS: u64 = 24;
+
 /// How long an Invite or Device link works after it is created.
-pub const LINK_LIFETIME: Duration = Duration::from_hours(24);
+pub const LINK_LIFETIME: Duration = Duration::from_hours(LINK_LIFETIME_HOURS);
 
 /// How long a session lasts without being used.
 pub const SESSION_LIFETIME: Duration = Duration::from_hours(90 * 24);
