@@ -242,6 +242,23 @@ impl Auth {
         &self,
         member: MemberId,
     ) -> Result<(CeremonyId, CreationChallengeResponse), AuthError> {
+        let (challenge, registration) = self.start_registration(member).await?;
+        let ceremony = self.adding.insert(
+            self.clock.now(),
+            PendingAdd {
+                member,
+                registration,
+            },
+        );
+        Ok((ceremony, challenge))
+    }
+
+    /// The challenge for another passkey for `member`, under their user handle, excluding the
+    /// passkeys they already have.
+    pub(super) async fn start_registration(
+        &self,
+        member: MemberId,
+    ) -> Result<(CreationChallengeResponse, PasskeyRegistration), AuthError> {
         let member_id = member.get();
         let row = sqlx::query!(
             "SELECT display_name, webauthn_user_id FROM members WHERE id = ?",
@@ -266,14 +283,7 @@ impl Auth {
             .start_passkey_registration(webauthn_user_id, name, name, Some(existing))
             .map_err(AuthError::Webauthn)?;
         require_discoverable(&mut challenge);
-        let ceremony = self.adding.insert(
-            self.clock.now(),
-            PendingAdd {
-                member,
-                registration,
-            },
-        );
-        Ok((ceremony, challenge))
+        Ok((challenge, registration))
     }
 
     /// Verifies the new passkey and stores it under `name` for the Member who started the

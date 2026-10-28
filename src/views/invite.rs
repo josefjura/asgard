@@ -1,6 +1,6 @@
 use maud::{Markup, html};
 
-use crate::domain::auth::LINK_LIFETIME_HOURS;
+use crate::domain::auth::{LINK_LIFETIME_HOURS, LinkKind};
 use crate::domain::members::DisplayName;
 use crate::views::layout::standalone;
 use crate::views::passkey::{self, Ceremony, CeremonyUrls};
@@ -23,18 +23,39 @@ pub fn page(crew: &str, display_name: &DisplayName, ceremony: &CeremonyUrls) -> 
     )
 }
 
-/// What an Invite link opens on a device that is already signed in: who is signed in, and the
-/// way to log out before the link can be used.
+/// What a Device link opens: the Member it is for, and the button that creates a passkey for
+/// them on this device.
 #[must_use]
-pub fn signed_in(member: &DisplayName, log_out: &str) -> Markup {
+pub fn device_page(display_name: &DisplayName, ceremony: &CeremonyUrls) -> Markup {
+    standalone(
+        "Set up this device | Asgard",
+        &html! {
+            h1 { "Set up this device" }
+            p.lead { "You'll sign in as " strong { (display_name) } "." }
+            p {
+                "Create a passkey on this device: the fingerprint, face or screen lock you "
+                "already use on it. Your other passkeys keep working."
+            }
+            (passkey::button("Create a passkey", Ceremony::Register, ceremony))
+        },
+    )
+}
+
+/// What an Invite or Device link opens on a device that is already signed in: who is signed
+/// in, and the way to log out before the link can be used.
+#[must_use]
+pub fn signed_in(member: &DisplayName, kind: LinkKind, log_out: &str) -> Markup {
+    let purpose = match kind {
+        LinkKind::Invite => "This link is for someone joining the Crew.",
+        LinkKind::Device => "This link sets up a new device for a Member of the Crew.",
+    };
     standalone(
         "Already signed in | Asgard",
         &html! {
             h1 { "You're already signed in" }
             p.lead { "This device is signed in as " strong { (member) } "." }
             p {
-                "This link is for someone joining the Crew. If it's meant for you on this "
-                "device, log out first, then use the link."
+                (purpose) " If it's meant for you on this device, log out first, then use the link."
             }
             form method="post" action=(log_out) {
                 button.button type="submit" { "Log out" }
@@ -88,7 +109,28 @@ mod tests {
 
     #[test]
     fn signed_in_page() {
-        assert_html_snapshot!(signed_in(&name("Josef"), "/invite/abc/log-out"));
+        assert_html_snapshot!(signed_in(
+            &name("Josef"),
+            LinkKind::Invite,
+            "/invite/abc/log-out"
+        ));
+    }
+
+    #[test]
+    fn device_link_page() {
+        let urls = CeremonyUrls {
+            start: "/device/abc/start".to_owned(),
+            finish: "/device/abc/finish".to_owned(),
+        };
+        assert_html_snapshot!(device_page(&name("Ondra"), &urls));
+    }
+
+    #[test]
+    fn signed_in_with_a_device_link_says_what_the_link_is_for() {
+        let html = signed_in(&name("Josef"), LinkKind::Device, "/device/abc/log-out").into_string();
+
+        assert!(html.contains("This link sets up a new device for a Member of the Crew."));
+        assert!(html.contains("action=\"/device/abc/log-out\""));
     }
 
     #[test]

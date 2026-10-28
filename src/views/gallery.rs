@@ -4,7 +4,7 @@
 use maud::{DOCTYPE, Markup, html};
 
 use crate::assets;
-use crate::domain::auth::PasskeyName;
+use crate::domain::auth::{LinkKind, PasskeyName};
 use crate::domain::members::{CREW_NAME, DisplayName};
 use crate::views::admin::{self, Outcome as AdminOutcome};
 use crate::views::brand::header_logo;
@@ -90,9 +90,31 @@ pub fn fixtures() -> Vec<Fixture> {
     let signed_in = Fixture {
         component: "Invite page",
         state: "Already signed in".to_owned(),
-        document: invite::signed_in(&name("Josef"), "/invite/fixture/log-out"),
+        document: invite::signed_in(&name("Josef"), LinkKind::Invite, "/invite/fixture/log-out"),
         height: PAGE_HEIGHT,
     };
+    let device = [
+        (
+            "Valid link",
+            invite::device_page(
+                &name("Ondra"),
+                &CeremonyUrls {
+                    start: "/device/fixture/start".to_owned(),
+                    finish: "/device/fixture/finish".to_owned(),
+                },
+            ),
+        ),
+        (
+            "Already signed in",
+            invite::signed_in(&name("Josef"), LinkKind::Device, "/device/fixture/log-out"),
+        ),
+    ]
+    .map(|(state, document)| Fixture {
+        component: "Device link page",
+        state: state.to_owned(),
+        document,
+        height: PAGE_HEIGHT,
+    });
     let sign_in = Fixture {
         component: "Sign-in page",
         state: "Signed out".to_owned(),
@@ -110,6 +132,7 @@ pub fn fixtures() -> Vec<Fixture> {
     };
     nav.chain(pages)
         .chain([brand, offline, invite, signed_in])
+        .chain(device)
         .chain(link_errors)
         .chain([sign_in])
         .chain(signed_in_pages())
@@ -118,26 +141,42 @@ pub fn fixtures() -> Vec<Fixture> {
         .collect()
 }
 
-/// The admin page empty, with open links, and after each thing the Admin can do on it.
+/// The admin page alone in the Crew, with open links, and after each thing the Admin can do
+/// on it.
 fn admin_pages() -> Vec<Fixture> {
     let open = admin::fixtures::several();
+    let crew = admin::fixtures::crew();
     let karel = DisplayName::parse("Karel").expect("fixture names are valid");
     let ondra = DisplayName::parse("Ondra").expect("fixture names are valid");
     let refused = "Someone in the Crew is already called josef.";
     [
-        ("No open links", &[][..], None),
-        ("Open links", &open[..], None),
+        ("Alone in the Crew", &[][..], &[][..], None),
+        ("No open links", &[][..], &crew[..], None),
+        ("Open links", &open[..], &crew[..], None),
         (
             "Link just made",
             &open[..],
+            &crew[..],
             Some(AdminOutcome::Created {
+                kind: LinkKind::Invite,
                 name: &karel,
                 url: admin::fixtures::URL,
             }),
         ),
         (
+            "Device link just made",
+            &open[..],
+            &crew[..],
+            Some(AdminOutcome::Created {
+                kind: LinkKind::Device,
+                name: &ondra,
+                url: admin::fixtures::DEVICE_URL,
+            }),
+        ),
+        (
             "Name refused",
             &[][..],
+            &crew[..],
             Some(AdminOutcome::Refused {
                 value: "josef",
                 message: refused,
@@ -146,13 +185,14 @@ fn admin_pages() -> Vec<Fixture> {
         (
             "Link revoked",
             &open[1..],
-            Some(AdminOutcome::Revoked(&ondra)),
+            &crew[..],
+            Some(AdminOutcome::Revoked(&karel)),
         ),
     ]
-    .map(|(state, open, outcome)| Fixture {
+    .map(|(state, open, members, outcome)| Fixture {
         component: "Admin page",
         state: state.to_owned(),
-        document: admin::page(&admin::links(ADMIN_HREF, open, outcome)),
+        document: admin::page(&admin::links(ADMIN_HREF, open, members, outcome)),
         height: ADMIN_HEIGHT,
     })
     .into()
@@ -348,6 +388,7 @@ mod tests {
             "Brand",
             "Offline page",
             "Invite page",
+            "Device link page",
             "Link error page",
             "Sign-in page",
             "Welcome page",
@@ -386,6 +427,8 @@ mod tests {
             "No open links",
             "Open links",
             "Link just made",
+            "Device link just made",
+            "Alone in the Crew",
             "Name refused",
             "Link revoked",
         ] {

@@ -1,5 +1,5 @@
-//! The admin page, for the Admin only: making Invite links, and listing and revoking the open
-//! ones.
+//! The admin page, for the Admin only: making Invite and Device links, and listing and
+//! revoking the open ones.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -12,9 +12,9 @@ use super::access::Admin;
 use super::error::name_message;
 use super::htmx::Htmx;
 use super::pages::fresh;
-use super::{AppError, AppState, invite};
-use crate::domain::auth::{AuthError, LinkId};
-use crate::domain::members::DisplayName;
+use super::{AppError, AppState, device, invite};
+use crate::domain::auth::{AuthError, LinkId, LinkKind};
+use crate::domain::members::{DisplayName, MemberId};
 use crate::views;
 use crate::views::admin::Outcome;
 use crate::views::nav::ADMIN_HREF;
@@ -23,11 +23,12 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route(ADMIN_HREF, get(show))
         .route("/admin/invites", post(create_invite))
+        .route("/admin/device-links", post(create_device_link))
         .route("/admin/links/{id}/revoke", post(revoke))
 }
 
-async fn show(State(state): State<AppState>, _: Admin) -> Result<Response, AppError> {
-    answer(&state, StatusCode::OK, None, false).await
+async fn show(State(state): State<AppState>, Admin(admin): Admin) -> Result<Response, AppError> {
+    answer(&state, admin.id, StatusCode::OK, None, false).await
 }
 
 #[derive(Deserialize)]
@@ -54,10 +55,11 @@ async fn create_invite(
             tracing::info!(admin = admin.id.get(), "the Admin made an Invite link");
             let url = state.public_origin.url(&invite::path(&token));
             let outcome = Outcome::Created {
+                kind: LinkKind::Invite,
                 name: &name,
                 url: &url,
             };
-            answer(&state, StatusCode::OK, Some(outcome), htmx).await
+            answer(&state, admin.id, StatusCode::OK, Some(outcome), htmx).await
         }
         Err(AuthError::Name(err)) => {
             let message = name_message(&err);
@@ -67,6 +69,7 @@ async fn create_invite(
             };
             answer(
                 &state,
+                admin.id,
                 StatusCode::UNPROCESSABLE_ENTITY,
                 Some(refused),
                 htmx,
@@ -75,6 +78,39 @@ async fn create_invite(
         }
         Err(err) => Err(err.into()),
     }
+}
+
+#[derive(Deserialize)]
+struct DeviceLinkForm {
+    member: i64,
+}
+
+async fn create_device_link(
+    State(state): State<AppState>,
+    Admin(admin): Admin,
+    Htmx(htmx): Htmx,
+    Form(input): Form<DeviceLinkForm>,
+) -> Result<Response, AppError> {
+    let member = MemberId::from_client(input.member);
+    let name = state
+        .members
+        .find(member)
+        .await?
+        .ok_or(AuthError::NoSuchMember)?
+        .display_name;
+    let token = state.auth.create_device_link(member, admin.id).await?;
+    tracing::info!(
+        admin = admin.id.get(),
+        member = member.get(),
+        "the Admin made a Device link"
+    );
+    let url = state.public_origin.url(&device::path(&token));
+    let outcome = Outcome::Created {
+        kind: LinkKind::Device,
+        name: &name,
+        url: &url,
+    };
+    answer(&state, admin.id, StatusCode::OK, Some(outcome), htmx).await
 }
 
 /// Revokes the link if it is still open. One that isn't, say revoked in another tab, just
@@ -90,18 +126,24 @@ async fn revoke(
         tracing::info!(admin = admin.id.get(), "the Admin revoked a link");
     }
     let outcome = revoked.as_ref().map(Outcome::Revoked);
-    answer(&state, StatusCode::OK, outcome, htmx).await
+    answer(&state, admin.id, StatusCode::OK, outcome, htmx).await
 }
 
 /// The links showing `outcome`: alone for htmx, inside the admin page otherwise.
+///
+/// Device links are offered for every Member but the `admin` asking, who can add a passkey
+/// from their own settings.
 async fn answer(
     state: &AppState,
+    admin: MemberId,
     status: StatusCode,
     outcome: Option<Outcome<'_>>,
     htmx: bool,
 ) -> Result<Response, AppError> {
     let open = state.auth.open_links().await?;
-    let links = views::admin::links(ADMIN_HREF, &open, outcome);
+    let mut members = state.members.all().await?;
+    members.retain(|member| member.id != admin);
+    let links = views::admin::links(ADMIN_HREF, &open, &members, outcome);
     let body = if htmx {
         links
     } else {
@@ -366,6 +408,100 @@ mod tests {
         assert!(html.contains("No open links."));
     }
 
+    /// The id the Device link form offers for `name`.
+    fn member_option(html: &str, name: &str) -> String {
+        let at = html
+            .find(&format!("\">{name}</option>"))
+            .expect("the Member is offered");
+        let start = html[..at].rfind("value=\"").unwrap() + "value=\"".len();
+        html[start..at].to_owned()
+    }
+
+    async fn make_device_link(app: &TestApp, cookie: &str, member: &str) -> Response<Body> {
+        post_form(
+            app,
+            "/admin/device-links",
+            cookie,
+            &[("member", member)],
+            true,
+        )
+        .await
+    }
+
+    #[sqlx::test]
+    async fn a_member_gets_back_in_through_the_admins_device_link(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let admin = app.sign_in_new_admin("Josef").await;
+        ondra(&app, &admin).await;
+        let id = member_option(&admin_page(&app, &admin).await, "Ondra");
+
+        let response = make_device_link(&app, &admin, &id).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body_text(response).await;
+        assert!(html.starts_with("<div class=\"admin-links\" id=\"links\">"));
+        assert!(html.contains("Send this link to <strong>Ondra</strong>."));
+        assert!(html.contains("New device for <strong>Ondra</strong>"));
+        let start = html
+            .find(&format!("value=\"{PUBLIC_ORIGIN}/device/"))
+            .unwrap()
+            + "value=\"".len()
+            + PUBLIC_ORIGIN.len();
+        let path = &html[start..start + html[start..].find('"').unwrap()];
+
+        let joined = app.join(path, &mut authenticator()).await;
+
+        assert_eq!(joined.status(), StatusCode::OK);
+        let settings = body_text(app.get_with("/settings", &cookie_pair(&joined)).await).await;
+        assert!(settings.contains("value=\"Ondra\""));
+        assert_eq!(settings.matches("class=\"passkey\"").count(), 2);
+        assert!(admin_page(&app, &admin).await.contains("No open links."));
+    }
+
+    #[sqlx::test]
+    async fn device_links_are_offered_for_everyone_but_the_admin(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let admin = app.sign_in_new_admin("Josef").await;
+
+        assert!(
+            admin_page(&app, &admin)
+                .await
+                .contains("No one else is in the Crew yet.")
+        );
+        ondra(&app, &admin).await;
+        let html = admin_page(&app, &admin).await;
+        assert!(html.contains(">Ondra</option>"));
+        assert!(!html.contains(">Josef</option>"));
+    }
+
+    #[sqlx::test]
+    async fn a_device_link_for_no_member_is_refused(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let admin = app.sign_in_new_admin("Josef").await;
+
+        let response = make_device_link(&app, &admin, "999").await;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(body_text(response).await.contains("isn't in the Crew"));
+        assert!(admin_page(&app, &admin).await.contains("No open links."));
+    }
+
+    #[sqlx::test]
+    async fn a_device_link_can_be_revoked_like_an_invite(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let admin = app.sign_in_new_admin("Josef").await;
+        ondra(&app, &admin).await;
+        let member = member_option(&admin_page(&app, &admin).await, "Ondra");
+        make_device_link(&app, &admin, &member).await;
+        let id = link_id(&app, &admin, "Ondra").await;
+
+        let response = revoke(&app, &admin, &id).await;
+
+        let html = body_text(response).await;
+        assert!(html.contains("Revoked the link for <strong>Ondra</strong>."));
+        assert!(!html.contains("New device for"));
+    }
+
     #[sqlx::test]
     async fn a_member_who_is_not_the_admin_gets_403_on_every_admin_route(db: SqlitePool) {
         let app = TestApp::new(db);
@@ -377,8 +513,9 @@ mod tests {
         let page = app.get_with("/admin", &ondra).await;
         let made = make_link(&app, &ondra, "Mallory").await;
         let revoked = revoke(&app, &ondra, &id).await;
+        let device = make_device_link(&app, &ondra, "1").await;
 
-        for response in [page, made, revoked] {
+        for response in [page, made, revoked, device] {
             assert_eq!(response.status(), StatusCode::FORBIDDEN);
             assert_eq!(body_text(response).await, "Only the Admin can do that.");
         }

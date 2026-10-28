@@ -1,8 +1,8 @@
-//! The Admin's Invite links: creating them, listing the open ones and revoking them.
+//! The Admin's Invite and Device links: creating them, listing the open ones and revoking them.
 
 use jiff::civil::DateTime;
 
-use super::{Auth, AuthError, LinkToken};
+use super::{Auth, AuthError, LINK_LIFETIME, LinkToken};
 use crate::domain::clock::{crew_time_of_unix_seconds, unix_seconds};
 use crate::domain::members::{DisplayName, MemberId};
 
@@ -23,11 +23,33 @@ impl LinkId {
     }
 }
 
-/// An Invite link that is unused, unexpired and unrevoked, as the admin page lists it.
+/// Whom a link is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkKind {
+    /// A new person, who joins the Crew through it.
+    Invite,
+    /// An existing Member, who registers a passkey on a new device through it.
+    Device,
+}
+
+impl LinkKind {
+    fn from_stored(kind: &str) -> Result<Self, sqlx::Error> {
+        match kind {
+            "invite" => Ok(Self::Invite),
+            "device" => Ok(Self::Device),
+            other => Err(sqlx::Error::Decode(
+                format!("unknown link kind {other:?}").into(),
+            )),
+        }
+    }
+}
+
+/// A link that is unused, unexpired and unrevoked, as the admin page lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenLink {
     pub id: LinkId,
-    /// The name the new Member will join under.
+    pub kind: LinkKind,
+    /// The name the new Member will join under, or the Member a Device link is for.
     pub display_name: DisplayName,
     /// When it stops working, on the clock in the Crew's time zone.
     pub expires: DateTime,
@@ -48,8 +70,43 @@ impl Auth {
         self.insert_invite(name, false, Some(created_by)).await
     }
 
-    /// The Invite links that still work, oldest first. The bootstrap Admin link is left out:
-    /// it stopped working when the Admin joined.
+    /// A Device link the Admin `created_by` made, which registers a passkey for `member` on
+    /// whichever device opens it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AuthError::NoSuchMember`] if there is no Member `member`.
+    pub async fn create_device_link(
+        &self,
+        member: MemberId,
+        created_by: MemberId,
+    ) -> Result<LinkToken, AuthError> {
+        if self.members.find(member).await?.is_none() {
+            return Err(AuthError::NoSuchMember);
+        }
+        let token = LinkToken::generate();
+        let hash = token.hash();
+        let member = member.get();
+        let created_by = created_by.get();
+        let now = self.clock.now();
+        let created_at = unix_seconds(now);
+        let expires_at = unix_seconds(now + LINK_LIFETIME);
+        sqlx::query!(
+            "INSERT INTO links (token_hash, kind, member_id, created_by, created_at, expires_at)
+             VALUES (?, 'device', ?, ?, ?, ?)",
+            hash,
+            member,
+            created_by,
+            created_at,
+            expires_at,
+        )
+        .execute(&self.db)
+        .await?;
+        Ok(token)
+    }
+
+    /// The Invite and Device links that still work, oldest first. The bootstrap Admin link is
+    /// left out: it stopped working when the Admin joined.
     ///
     /// # Errors
     ///
@@ -57,23 +114,27 @@ impl Auth {
     pub async fn open_links(&self) -> Result<Vec<OpenLink>, sqlx::Error> {
         let now = unix_seconds(self.clock.now());
         let rows = sqlx::query!(
-            r#"SELECT id AS "id!", display_name AS "display_name!", expires_at
-               FROM links
-               WHERE kind = 'invite' AND NOT grants_admin
-                 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?
-               ORDER BY created_at, id"#,
+            r#"SELECT links.id AS "id!", links.kind,
+                      COALESCE(links.display_name, members.display_name) AS "display_name!: String",
+                      links.expires_at
+               FROM links LEFT JOIN members ON members.id = links.member_id
+               WHERE NOT links.grants_admin
+                 AND links.used_at IS NULL AND links.revoked_at IS NULL AND links.expires_at > ?
+               ORDER BY links.created_at, links.id"#,
             now,
         )
         .fetch_all(&self.db)
         .await?;
-        Ok(rows
-            .into_iter()
-            .map(|row| OpenLink {
-                id: LinkId(row.id),
-                display_name: DisplayName::from_stored(row.display_name),
-                expires: crew_time_of_unix_seconds(row.expires_at),
+        rows.into_iter()
+            .map(|row| {
+                Ok(OpenLink {
+                    id: LinkId(row.id),
+                    kind: LinkKind::from_stored(&row.kind)?,
+                    display_name: DisplayName::from_stored(row.display_name),
+                    expires: crew_time_of_unix_seconds(row.expires_at),
+                })
             })
-            .collect())
+            .collect()
     }
 
     /// Stops an open link working, and returns the name it was for. A link that is no longer
@@ -86,9 +147,12 @@ impl Auth {
         let now = unix_seconds(self.clock.now());
         let name = sqlx::query_scalar!(
             r#"UPDATE links SET revoked_at = ?1
-               WHERE id = ?2 AND kind = 'invite' AND NOT grants_admin
+               WHERE id = ?2 AND NOT grants_admin
                  AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?1
-               RETURNING display_name AS "display_name!""#,
+               RETURNING COALESCE(
+                   display_name,
+                   (SELECT members.display_name FROM members WHERE members.id = links.member_id)
+               ) AS "display_name!: String""#,
             now,
             id.0,
         )
@@ -105,7 +169,6 @@ mod tests {
     use sqlx::SqlitePool;
 
     use super::*;
-    use crate::domain::auth::LINK_LIFETIME;
     use crate::domain::auth::tests::{auth, auth_with_clock};
     use crate::domain::members::NameError;
     use crate::domain::members::fixtures::{add_member, name};
@@ -192,6 +255,98 @@ mod tests {
         assert_eq!(revoked, Some(name("Ondra")));
         let result = auth.invite(&token).await;
         assert!(matches!(result, Err(AuthError::LinkUnusable)), "{result:?}");
+    }
+
+    #[sqlx::test]
+    async fn a_device_link_offers_a_new_passkey_to_its_member(db: SqlitePool) {
+        let admin = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let auth = auth(db);
+
+        let token = auth.create_device_link(ondra, admin).await.unwrap();
+
+        let link = auth.device_link(&token).await.unwrap();
+        assert_eq!(link.member, ondra);
+        assert_eq!(link.display_name, name("Ondra"));
+    }
+
+    #[sqlx::test]
+    async fn a_device_link_needs_a_member(db: SqlitePool) {
+        let admin = add_member(&db, "Josef", true).await;
+        let auth = auth(db);
+
+        let result = auth
+            .create_device_link(MemberId::from_client(999), admin)
+            .await;
+
+        assert!(matches!(result, Err(AuthError::NoSuchMember)), "{result:?}");
+        assert_eq!(auth.open_links().await.unwrap(), []);
+    }
+
+    #[sqlx::test]
+    async fn invite_and_device_links_cannot_stand_in_for_each_other(db: SqlitePool) {
+        let admin = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let auth = auth(db);
+        let invite = auth.create_invite(&name("Karel"), admin).await.unwrap();
+        let device = auth.create_device_link(ondra, admin).await.unwrap();
+
+        let as_device = auth.device_link(&invite).await;
+        let as_invite = auth.invite(&device).await;
+
+        assert!(
+            matches!(as_device, Err(AuthError::LinkUnusable)),
+            "{as_device:?}"
+        );
+        assert!(
+            matches!(as_invite, Err(AuthError::LinkUnusable)),
+            "{as_invite:?}"
+        );
+    }
+
+    #[sqlx::test]
+    async fn lists_device_links_under_their_members_name(db: SqlitePool) {
+        let admin = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let auth = auth(db);
+        auth.create_invite(&name("Karel"), admin).await.unwrap();
+        auth.create_device_link(ondra, admin).await.unwrap();
+
+        let links = auth.open_links().await.unwrap();
+
+        assert_eq!(names(&links), ["Karel", "Ondra"]);
+        assert_eq!(links[0].kind, LinkKind::Invite);
+        assert_eq!(links[1].kind, LinkKind::Device);
+    }
+
+    #[sqlx::test]
+    async fn a_revoked_device_link_stops_working(db: SqlitePool) {
+        let admin = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let auth = auth(db);
+        let token = auth.create_device_link(ondra, admin).await.unwrap();
+        let id = auth.open_links().await.unwrap()[0].id;
+
+        let revoked = auth.revoke_link(id).await.unwrap();
+
+        assert_eq!(revoked, Some(name("Ondra")));
+        let result = auth.device_link(&token).await;
+        assert!(matches!(result, Err(AuthError::LinkUnusable)), "{result:?}");
+        assert_eq!(auth.open_links().await.unwrap(), []);
+    }
+
+    #[sqlx::test]
+    async fn a_device_link_expires_like_an_invite(db: SqlitePool) {
+        let (auth, clock) = auth_with_clock(db.clone());
+        let admin = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let token = auth.create_device_link(ondra, admin).await.unwrap();
+
+        clock.advance(LINK_LIFETIME);
+
+        let result = auth.device_link(&token).await;
+        assert!(matches!(result, Err(AuthError::LinkUnusable)), "{result:?}");
+        assert_eq!(auth.open_links().await.unwrap(), []);
     }
 
     #[sqlx::test]

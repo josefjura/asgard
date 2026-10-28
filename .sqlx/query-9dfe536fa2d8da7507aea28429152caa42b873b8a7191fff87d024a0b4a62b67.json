@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT members.id AS \"member_id!\", members.display_name\n               FROM links JOIN members ON members.id = links.member_id\n               WHERE links.token_hash = ? AND links.kind = 'device'\n                 AND links.used_at IS NULL AND links.revoked_at IS NULL AND links.expires_at > ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "member_id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "display_name",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "9dfe536fa2d8da7507aea28429152caa42b873b8a7191fff87d024a0b4a62b67"
+}

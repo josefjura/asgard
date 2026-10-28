@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE links SET revoked_at = ?1\n               WHERE id = ?2 AND NOT grants_admin\n                 AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?1\n               RETURNING COALESCE(\n                   display_name,\n                   (SELECT members.display_name FROM members WHERE members.id = links.member_id)\n               ) AS \"display_name!: String\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "display_name!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "1dfc70bdfb239be5b50b7e58644db7629c613acefd7f64c72afb22a518ba7250"
+}

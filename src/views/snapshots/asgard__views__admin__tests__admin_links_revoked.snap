@@ -1,6 +1,6 @@
 ---
 source: src/views/admin.rs
-expression: "links(BASE, &several(),\nSome(Outcome::Revoked(&name))).into_string().replace(\"><\", \">\\n<\")"
+expression: "links(BASE, &several()[1..], &crew(),\nSome(Outcome::Revoked(&name))).into_string().replace(\"><\", \">\\n<\")"
 ---
 <div class="admin-links" id="links">
 <section class="settings-section" aria-labelledby="admin-invite">
@@ -14,28 +14,33 @@ expression: "links(BASE, &several(),\nSome(Outcome::Revoked(&name))).into_string
 <p class="note" id="invite-name-note" role="status">The name they'll appear under. They can change it after joining.</p>
 </form>
 </section>
+<section class="settings-section" aria-labelledby="admin-device">
+<h2 id="admin-device">Set up a new device</h2>
+<form class="name-form" method="post" action="/admin/device-links" hx-post="/admin/device-links" hx-target="#links" hx-swap="outerHTML">
+<label for="device-member">Member</label>
+<div class="field-row">
+<select id="device-member" name="member" required aria-describedby="device-member-note">
+<option value="2">Ondra</option>
+<option value="3">Šimon</option>
+</select>
+<button class="button" type="submit">Make link</button>
+</div>
+<p class="note" id="device-member-note">For a Member with no device to sign in on. The link adds a passkey on the device that opens it; their other passkeys keep working.</p>
+</form>
+</section>
 <section class="settings-section" aria-labelledby="admin-open">
 <h2 id="admin-open">Open links</h2>
 <ul class="link-list">
 <li class="open-link">
-<p>Invite for <strong>Ondra</strong>
-<br>
-<span class="expires">Works until 29 October, 09:05</span>
-</p>
-<form method="post" action="/admin/links/1/revoke" hx-post="/admin/links/1/revoke" hx-target="#links" hx-swap="outerHTML" hx-confirm="Revoke the link for Ondra? It will stop working.">
-<button class="button quiet" type="submit">Revoke</button>
-</form>
-</li>
-<li class="open-link">
-<p>Invite for <strong>Karel</strong>
+<p>New device for <strong>Ondra</strong>
 <br>
 <span class="expires">Works until 29 October, 14:05</span>
 </p>
-<form method="post" action="/admin/links/2/revoke" hx-post="/admin/links/2/revoke" hx-target="#links" hx-swap="outerHTML" hx-confirm="Revoke the link for Karel? It will stop working.">
+<form method="post" action="/admin/links/2/revoke" hx-post="/admin/links/2/revoke" hx-target="#links" hx-swap="outerHTML" hx-confirm="Revoke the link for Ondra? It will stop working.">
 <button class="button quiet" type="submit">Revoke</button>
 </form>
 </li>
 </ul>
-<p class="note" role="status">Revoked the link for <strong>Ondra</strong>. It no longer works.</p>
+<p class="note" role="status">Revoked the link for <strong>Karel</strong>. It no longer works.</p>
 </section>
 </div>

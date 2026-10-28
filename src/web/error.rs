@@ -64,6 +64,10 @@ fn auth_outcome(err: &AuthError) -> (StatusCode, Option<String>) {
         ),
         AuthError::AdminExists => say(StatusCode::CONFLICT, "The Crew already has an Admin."),
         AuthError::Name(err) => (StatusCode::UNPROCESSABLE_ENTITY, Some(name_message(err))),
+        AuthError::NoSuchMember => say(
+            StatusCode::NOT_FOUND,
+            "That Member isn't in the Crew. Reload the page to see who is.",
+        ),
         AuthError::CeremonyExpired => say(
             StatusCode::BAD_REQUEST,
             "That took too long. Please try again.",
