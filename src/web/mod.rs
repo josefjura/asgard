@@ -11,6 +11,7 @@ mod origin;
 mod pages;
 mod sign_in;
 mod static_files;
+pub mod welcome;
 
 use axum::Router;
 use axum::middleware;
@@ -74,7 +75,8 @@ fn routes() -> Router<AppState> {
         )
         .route(assets::MANIFEST.url, get(static_files::manifest))
         .merge(sign_in::routes())
-        .merge(invite::routes());
+        .merge(invite::routes())
+        .merge(welcome::routes());
     for tab in Tab::ALL {
         router = router.route(tab.href(), pages::tab(tab));
     }
@@ -331,18 +333,23 @@ pub(crate) mod test_support {
             }
         }
 
-        /// Bootstraps an Admin called `name` and returns their browser's session cookie.
+        /// Bootstraps an Admin called `name` who has been through the welcome page, and returns
+        /// their browser's session cookie.
         pub async fn sign_in_new_admin(&self, name: &str) -> String {
             self.join_as_admin(name, &mut authenticator()).await
         }
 
-        /// Bootstraps an Admin called `name` whose passkey is on `authenticator`, and returns
-        /// the session cookie of the browser they joined from.
+        /// Bootstraps an Admin called `name` whose passkey is on `authenticator`, presses "Got
+        /// it" on the welcome page, and returns the session cookie of the browser they joined
+        /// from.
         pub async fn join_as_admin(&self, name: &str, authenticator: &mut Authenticator) -> String {
             let invite = self.admin_invite(name).await;
             let response = self.join(&invite, authenticator).await;
             assert_eq!(response.status(), StatusCode::OK, "joining failed");
-            cookie_pair(&response)
+            let cookie = cookie_pair(&response);
+            let got_it = self.post_with("/welcome/done", &cookie).await;
+            assert_eq!(got_it.status(), StatusCode::SEE_OTHER, "\"Got it\" failed");
+            cookie
         }
 
         /// Signs in with `authenticator`'s passkey, the way the sign-in page's script does,

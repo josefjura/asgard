@@ -95,6 +95,8 @@ pub struct Member {
     pub is_admin: bool,
     /// From this date on, Expenses are shared with the Member.
     pub joined_on: Date,
+    /// Whether they have pressed "Got it" on the welcome page.
+    pub welcomed: bool,
 }
 
 /// Everything a new Member starts with.
@@ -143,7 +145,8 @@ impl Members {
     /// Fails if the database does.
     pub async fn find(&self, id: MemberId) -> Result<Option<Member>, sqlx::Error> {
         let row = sqlx::query!(
-            r#"SELECT id, display_name, is_admin AS "is_admin: bool", joined_on
+            r#"SELECT id, display_name, is_admin AS "is_admin: bool", joined_on,
+                      welcomed AS "welcomed: bool"
                FROM members WHERE id = ?"#,
             id.0
         )
@@ -155,6 +158,7 @@ impl Members {
                 display_name: DisplayName(row.display_name),
                 is_admin: row.is_admin,
                 joined_on: parse_date(&row.joined_on)?,
+                welcomed: row.welcomed,
             })
         })
         .transpose()
@@ -172,6 +176,43 @@ impl Members {
         .fetch_optional(&self.db)
         .await?;
         Ok(name.map(DisplayName::from_stored))
+    }
+
+    /// Changes a Member's display name. Their own name in another case is still theirs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NameError::Taken`] if another Member has the name, ignoring case, or a
+    /// database error.
+    pub async fn rename(&self, id: MemberId, name: &DisplayName) -> Result<(), MemberError> {
+        let key = name.key();
+        let result = sqlx::query!(
+            "UPDATE members SET display_name = ?, display_name_key = ? WHERE id = ?",
+            name.0,
+            key,
+            id.0,
+        )
+        .execute(&self.db)
+        .await;
+        match result {
+            Ok(_) => Ok(()),
+            Err(sqlx::Error::Database(err)) if err.is_unique_violation() => {
+                Err(NameError::Taken(name.clone()).into())
+            }
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// Remembers that the Member pressed "Got it", so the welcome page doesn't show again.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the database does.
+    pub async fn mark_welcomed(&self, id: MemberId) -> Result<(), sqlx::Error> {
+        sqlx::query!("UPDATE members SET welcomed = TRUE WHERE id = ?", id.0)
+            .execute(&self.db)
+            .await?;
+        Ok(())
     }
 }
 
@@ -342,6 +383,7 @@ mod tests {
                 display_name: name("Josef"),
                 is_admin: true,
                 joined_on: date(2026, 3, 14),
+                welcomed: false,
             }
         );
     }
@@ -355,5 +397,55 @@ mod tests {
         add_member(&db, "Josef", true).await;
 
         assert_eq!(members.admin_name().await.unwrap(), Some(name("Josef")));
+    }
+
+    #[sqlx::test]
+    async fn renames_a_member(db: SqlitePool) {
+        let id = add_member(&db, "Ondra", false).await;
+        let members = Members::new(db);
+
+        members.rename(id, &name("Ondřej")).await.unwrap();
+
+        let member = members.find(id).await.unwrap().unwrap();
+        assert_eq!(member.display_name, name("Ondřej"));
+        members.check_available(&name("Ondra")).await.unwrap();
+    }
+
+    #[sqlx::test]
+    async fn renaming_refuses_another_members_name_ignoring_case(db: SqlitePool) {
+        add_member(&db, "Josef", true).await;
+        let id = add_member(&db, "Ondra", false).await;
+        let members = Members::new(db);
+
+        let result = members.rename(id, &name("JOSEF")).await;
+
+        assert!(
+            matches!(result, Err(MemberError::Name(NameError::Taken(ref taken))) if taken.as_str() == "JOSEF"),
+            "{result:?}"
+        );
+        let member = members.find(id).await.unwrap().unwrap();
+        assert_eq!(member.display_name, name("Ondra"));
+    }
+
+    #[sqlx::test]
+    async fn a_member_may_change_the_case_of_their_own_name(db: SqlitePool) {
+        let id = add_member(&db, "ondra", false).await;
+        let members = Members::new(db);
+
+        members.rename(id, &name("Ondra")).await.unwrap();
+
+        let member = members.find(id).await.unwrap().unwrap();
+        assert_eq!(member.display_name, name("Ondra"));
+    }
+
+    #[sqlx::test]
+    async fn a_member_is_welcomed_once_marked(db: SqlitePool) {
+        let id = add_member(&db, "Ondra", false).await;
+        let members = Members::new(db);
+        assert!(!members.find(id).await.unwrap().unwrap().welcomed);
+
+        members.mark_welcomed(id).await.unwrap();
+
+        assert!(members.find(id).await.unwrap().unwrap().welcomed);
     }
 }

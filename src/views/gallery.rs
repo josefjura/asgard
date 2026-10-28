@@ -6,10 +6,11 @@ use maud::{DOCTYPE, Markup, html};
 use crate::assets;
 use crate::domain::members::{CREW_NAME, DisplayName};
 use crate::views::brand::header_logo;
+use crate::views::display_name::{self, Outcome};
 use crate::views::layout::document;
 use crate::views::nav::{Tab, bottom_nav};
 use crate::views::passkey::CeremonyUrls;
-use crate::views::{invite, offline, sign_in, tabs};
+use crate::views::{invite, offline, sign_in, tabs, welcome};
 
 /// One component in one state, rendered as a complete document.
 pub struct Fixture {
@@ -22,6 +23,8 @@ pub struct Fixture {
 
 const PHONE_WIDTH: u16 = 390;
 const PAGE_HEIGHT: u16 = 720;
+/// The welcome page is long: its sections stack on a phone.
+const WELCOME_HEIGHT: u16 = 1500;
 const DESKTOP_WIDTH: u16 = 1280;
 
 /// # Panics
@@ -86,6 +89,31 @@ pub fn fixtures() -> Vec<Fixture> {
         }),
         height: PAGE_HEIGHT,
     };
+    let welcome = Fixture {
+        component: "Welcome page",
+        state: "Just joined".to_owned(),
+        document: welcome::page(
+            CREW_NAME,
+            &display_name::form("/welcome/name", "Ondra", None),
+            "/welcome/done",
+        ),
+        height: WELCOME_HEIGHT,
+    };
+    let refused = "Someone in the Crew is already called Josef.";
+    let name_forms = [
+        ("Unchanged", "Ondra", None),
+        ("Saved", "Ondřej", Some(Outcome::Saved)),
+        ("Refused", "Josef", Some(Outcome::Refused(refused))),
+    ]
+    .map(|(state, value, outcome)| Fixture {
+        component: "Display name form",
+        state: state.to_owned(),
+        document: document(
+            "Display name form",
+            &html! { main.standalone { (display_name::form("/welcome/name", value, outcome)) } },
+        ),
+        height: 260,
+    });
     let brand = Fixture {
         component: "Brand",
         state: "Logos on every background".to_owned(),
@@ -95,7 +123,8 @@ pub fn fixtures() -> Vec<Fixture> {
     nav.chain(pages)
         .chain([brand, offline, invite, signed_in])
         .chain(link_errors)
-        .chain([sign_in])
+        .chain([sign_in, welcome])
+        .chain(name_forms)
         .collect()
 }
 
@@ -192,6 +221,8 @@ mod tests {
             "Invite page",
             "Link error page",
             "Sign-in page",
+            "Welcome page",
+            "Display name form",
         ] {
             assert!(
                 html.contains(&format!("<h2>{component}</h2>")),
@@ -210,6 +241,10 @@ mod tests {
             "Naming the Admin",
             "Before there is an Admin",
             "Signed out",
+            "Just joined",
+            "Unchanged",
+            "Saved",
+            "Refused",
         ] {
             assert!(html.contains(&format!("<h3>{state}</h3>")), "{state}");
         }

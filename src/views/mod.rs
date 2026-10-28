@@ -1,6 +1,7 @@
 //! Maud components and pages: pure functions from data to HTML, no DB access.
 
 pub mod brand;
+pub mod display_name;
 #[cfg(debug_assertions)]
 pub mod gallery;
 pub mod invite;
@@ -10,6 +11,7 @@ pub mod offline;
 pub mod passkey;
 pub mod sign_in;
 pub mod tabs;
+pub mod welcome;
 
 /// Snapshots markup one tag per line, with asset hashes masked so a CSS edit doesn't churn
 /// every page snapshot.
