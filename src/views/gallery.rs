@@ -74,7 +74,7 @@ pub fn fixtures() -> Vec<Fixture> {
     let signed_in = Fixture {
         component: "Invite page",
         state: "Already signed in".to_owned(),
-        document: invite::signed_in(&name("Josef"), "/invite/fixture/sign-out"),
+        document: invite::signed_in(&name("Josef"), "/invite/fixture/log-out"),
         height: PAGE_HEIGHT,
     };
     let sign_in = Fixture {

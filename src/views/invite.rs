@@ -25,7 +25,7 @@ pub fn page(crew: &str, display_name: &DisplayName, ceremony: &CeremonyUrls) -> 
 /// What an Invite link opens on a device that is already signed in: who is signed in, and the
 /// way to log out before the link can be used.
 #[must_use]
-pub fn signed_in(member: &DisplayName, sign_out: &str) -> Markup {
+pub fn signed_in(member: &DisplayName, log_out: &str) -> Markup {
     standalone(
         "Already signed in | Asgard",
         &html! {
@@ -35,7 +35,7 @@ pub fn signed_in(member: &DisplayName, sign_out: &str) -> Markup {
                 "This link is for someone joining the Crew. If it's meant for you on this "
                 "device, log out first, then use the link."
             }
-            form method="post" action=(sign_out) {
+            form method="post" action=(log_out) {
                 button.button type="submit" { "Log out" }
             }
         },
@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn signed_in_page() {
-        assert_html_snapshot!(signed_in(&name("Josef"), "/invite/abc/sign-out"));
+        assert_html_snapshot!(signed_in(&name("Josef"), "/invite/abc/log-out"));
     }
 
     #[test]

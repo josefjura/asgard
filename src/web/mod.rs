@@ -136,7 +136,14 @@ pub(crate) mod test_support {
     /// signed, so the server's checks run unchanged.
     pub struct Authenticator {
         soft: WebauthnAuthenticator<SoftPasskey>,
-        discoverable: Vec<(Base64UrlSafeData, Base64UrlSafeData)>,
+        discoverable: Vec<Discoverable>,
+    }
+
+    /// A credential as a discoverable passkey keeps it on the device.
+    #[derive(Clone)]
+    struct Discoverable {
+        credential_id: Base64UrlSafeData,
+        user_handle: Base64UrlSafeData,
     }
 
     impl Authenticator {
@@ -154,8 +161,10 @@ pub(crate) mod test_support {
                 .soft
                 .do_registration(Url::parse(origin).unwrap(), options)
                 .unwrap();
-            self.discoverable
-                .push((credential.raw_id.clone(), user_handle));
+            self.discoverable.push(Discoverable {
+                credential_id: credential.raw_id.clone(),
+                user_handle,
+            });
             credential
         }
 
@@ -165,11 +174,18 @@ pub(crate) mod test_support {
             origin: &str,
             mut options: RequestChallengeResponse,
         ) -> PublicKeyCredential {
-            let (credential_id, user_handle) = self
+            let Discoverable {
+                credential_id,
+                user_handle,
+            } = self
                 .discoverable
                 .last()
                 .expect("the authenticator has a passkey")
                 .clone();
+            assert!(
+                options.public_key.allow_credentials.is_empty(),
+                "signing in lets the device choose its passkey"
+            );
             options.public_key.allow_credentials = vec![AllowCredentials {
                 type_: "public-key".to_owned(),
                 id: credential_id,
@@ -332,6 +348,16 @@ pub(crate) mod test_support {
         /// Signs in with `authenticator`'s passkey, the way the sign-in page's script does,
         /// and returns the last response.
         pub async fn sign_in(&self, authenticator: &mut Authenticator) -> Response<Body> {
+            let assertion = self.sign_in_assertion(authenticator).await;
+            self.post_json("/sign-in/finish", &assertion).await
+        }
+
+        /// Starts signing in and answers with `authenticator`'s passkey: the body the script
+        /// would send to finish.
+        pub async fn sign_in_assertion(
+            &self,
+            authenticator: &mut Authenticator,
+        ) -> serde_json::Value {
             let response = self
                 .post_json("/sign-in/start", &serde_json::json!({}))
                 .await;
@@ -339,11 +365,7 @@ pub(crate) mod test_support {
             let body: serde_json::Value = serde_json::from_str(&body_text(response).await).unwrap();
             let options = serde_json::from_value(body["options"].clone()).unwrap();
             let credential = authenticator.authenticate(PUBLIC_ORIGIN, options);
-            self.post_json(
-                "/sign-in/finish",
-                &serde_json::json!({ "ceremony": body["ceremony"], "credential": credential }),
-            )
-            .await
+            serde_json::json!({ "ceremony": body["ceremony"], "credential": credential })
         }
     }
 

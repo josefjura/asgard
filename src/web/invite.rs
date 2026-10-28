@@ -28,6 +28,11 @@ pub fn path(token: &LinkToken) -> String {
     format!("/invite/{}", token.as_str())
 }
 
+/// Where a browser that is already signed in logs out before using the link.
+fn log_out_path(token: &LinkToken) -> String {
+    format!("{}/log-out", path(token))
+}
+
 /// Where the invite page's script starts and finishes registering a passkey.
 fn ceremony_urls(token: &LinkToken) -> CeremonyUrls {
     let invite = path(token);
@@ -42,7 +47,7 @@ pub fn routes() -> Router<AppState> {
         .route("/invite/{token}", get(show))
         .route("/invite/{token}/start", post(start))
         .route("/invite/{token}/finish", post(finish))
-        .route("/invite/{token}/sign-out", post(sign_out))
+        .route("/invite/{token}/log-out", post(log_out))
 }
 
 async fn show(
@@ -54,7 +59,7 @@ async fn show(
     match state.auth.invite(&token).await {
         Ok(_) if let Some(Member(member)) = member => Ok(fresh(views::invite::signed_in(
             &member.display_name,
-            &format!("{}/sign-out", path(&token)),
+            &log_out_path(&token),
         ))
         .into_response()),
         Ok(invite) => Ok(fresh(views::invite::page(
@@ -107,8 +112,13 @@ struct NewPasskey {
 async fn finish(
     State(state): State<AppState>,
     Path(token): Path<String>,
+    member: Option<Member>,
     Json(body): Json<NewPasskey>,
 ) -> Result<impl IntoResponse, AppError> {
+    // Signing in elsewhere mid-ceremony mustn't let the link attach a passkey either.
+    if member.is_some() {
+        return Err(AppError::AlreadySignedIn);
+    }
     let joined = state
         .auth
         .finish_joining(
@@ -127,7 +137,7 @@ async fn finish(
 }
 
 /// Logs this device out and opens the Invite link again, now ready to join.
-async fn sign_out(
+async fn log_out(
     State(state): State<AppState>,
     Path(token): Path<String>,
     session: SessionCookie,
@@ -141,7 +151,7 @@ mod tests {
     use std::time::Duration;
 
     use axum::body::Body;
-    use axum::http::header::{CACHE_CONTROL, COOKIE, LOCATION, SET_COOKIE};
+    use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE};
     use axum::http::{Method, Response, StatusCode};
     use cookie::{Cookie, SameSite};
     use jiff::civil::date;
@@ -407,7 +417,7 @@ mod tests {
         let html = body_text(response).await;
         assert!(html.contains("signed in as <strong>Josef</strong>"));
         assert!(html.contains(&format!(
-            "<form method=\"post\" action=\"{invite}/sign-out\">"
+            "<form method=\"post\" action=\"{invite}/log-out\">"
         )));
         assert!(!html.contains("data-passkey"));
         assert!(!html.contains("Ondra"));
@@ -432,11 +442,43 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn signing_in_mid_ceremony_stops_the_link_attaching_a_passkey(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let token = app
+            .state
+            .auth
+            .create_test_invite(&DisplayName::parse("Ondra").unwrap())
+            .await;
+        let invite = super::path(&token);
+        let started = start(&app, &invite).await;
+        let cookie = app.sign_in_new_admin("Josef").await;
+
+        let credential = authenticator().register(PUBLIC_ORIGIN, started.options);
+        let mut finish = request(
+            Method::POST,
+            &format!("{invite}/finish"),
+            Some(PUBLIC_ORIGIN),
+        );
+        finish.headers_mut().insert(COOKIE, cookie.parse().unwrap());
+        finish
+            .headers_mut()
+            .insert(CONTENT_TYPE, "application/json".parse().unwrap());
+        *finish.body_mut() = Body::from(
+            serde_json::json!({ "ceremony": started.ceremony, "credential": credential })
+                .to_string(),
+        );
+        let response = app.send(finish).await;
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(app.get(&invite).await.status(), StatusCode::OK);
+    }
+
+    #[sqlx::test]
     async fn logging_out_from_an_invite_link_reopens_it_ready_to_join(db: SqlitePool) {
         let app = TestApp::new(db);
         let (cookie, invite) = signed_in_with_an_invite(&app).await;
 
-        let response = app.post_with(&format!("{invite}/sign-out"), &cookie).await;
+        let response = app.post_with(&format!("{invite}/log-out"), &cookie).await;
 
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
         assert_eq!(response.headers()[LOCATION], invite.as_str());

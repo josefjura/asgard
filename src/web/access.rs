@@ -106,7 +106,7 @@ impl OptionalFromRequestParts<AppState> for Member {
         if session.renewed
             && let Some(renewed) = parts.extensions.get::<Renewed>()
         {
-            // A second extractor in the same request finds the slot already filled.
+            // A second extractor in the same request finds the token already recorded.
             let _ = renewed.0.set(token);
         }
         Ok(Some(Self(session.member)))

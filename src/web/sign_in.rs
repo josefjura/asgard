@@ -23,14 +23,14 @@ const START_PATH: &str = "/sign-in/start";
 const FINISH_PATH: &str = "/sign-in/finish";
 
 /// Where a Member logs out of this device.
-pub const SIGN_OUT_PATH: &str = "/sign-out";
+pub const LOG_OUT_PATH: &str = "/log-out";
 
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route(PATH, get(show))
         .route(START_PATH, post(start))
         .route(FINISH_PATH, post(finish))
-        .route(SIGN_OUT_PATH, post(sign_out))
+        .route(LOG_OUT_PATH, post(log_out))
 }
 
 /// The sign-in page, or Finance for a Member who is already signed in.
@@ -86,7 +86,7 @@ async fn finish(
     ))
 }
 
-async fn sign_out(
+async fn log_out(
     State(state): State<AppState>,
     session: SessionCookie,
 ) -> Result<Response, AppError> {
@@ -177,7 +177,7 @@ mod tests {
         let second = cookie_pair(&app.sign_in(&mut phone).await);
 
         assert_ne!(first, second);
-        app.post_with("/sign-out", &first).await;
+        app.post_with("/log-out", &first).await;
         assert_eq!(
             app.get_with("/", &first).await.status(),
             StatusCode::SEE_OTHER
@@ -211,13 +211,7 @@ mod tests {
         let app = TestApp::new(db);
         let mut phone = authenticator();
         app.join_as_admin("Josef", &mut phone).await;
-        let start = app
-            .post_json("/sign-in/start", &serde_json::json!({}))
-            .await;
-        let body: serde_json::Value = serde_json::from_str(&body_text(start).await).unwrap();
-        let options = serde_json::from_value(body["options"].clone()).unwrap();
-        let credential = phone.authenticate(PUBLIC_ORIGIN, options);
-        let finish = serde_json::json!({ "ceremony": body["ceremony"], "credential": credential });
+        let finish = app.sign_in_assertion(&mut phone).await;
 
         let first = app.post_json("/sign-in/finish", &finish).await;
         let replayed = app.post_json("/sign-in/finish", &finish).await;
@@ -231,7 +225,7 @@ mod tests {
         let app = TestApp::new(db);
         let cookie = app.sign_in_new_admin("Josef").await;
 
-        let response = app.post_with("/sign-out", &cookie).await;
+        let response = app.post_with("/log-out", &cookie).await;
 
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
         assert_eq!(response.headers()[LOCATION], "/sign-in");
@@ -246,7 +240,7 @@ mod tests {
     #[sqlx::test]
     async fn logging_out_without_a_session_still_lands_on_sign_in(db: SqlitePool) {
         let response = TestApp::new(db)
-            .post_with("/sign-out", "asgard_session=made-up")
+            .post_with("/log-out", "asgard_session=made-up")
             .await;
 
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
@@ -257,7 +251,7 @@ mod tests {
     async fn logging_out_needs_our_origin(db: SqlitePool) {
         let app = TestApp::new(db);
         let cookie = app.sign_in_new_admin("Josef").await;
-        let mut foreign = request(Method::POST, "/sign-out", Some("https://evil.example"));
+        let mut foreign = request(Method::POST, "/log-out", Some("https://evil.example"));
         foreign
             .headers_mut()
             .insert(COOKIE, cookie.parse().unwrap());

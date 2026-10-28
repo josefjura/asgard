@@ -1,6 +1,6 @@
 ---
 source: src/views/invite.rs
-expression: "signed_in(&name(\"Josef\"),\n\"/invite/abc/sign-out\").into_string().replace(\"><\", \">\\n<\")"
+expression: "signed_in(&name(\"Josef\"),\n\"/invite/abc/log-out\").into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -31,7 +31,7 @@ expression: "signed_in(&name(\"Josef\"),\n\"/invite/abc/sign-out\").into_string(
 <h1>You're already signed in</h1>
 <p class="lead">This device is signed in as <strong>Josef</strong>.</p>
 <p>This link is for someone joining the Crew. If it's meant for you on this device, log out first, then use the link.</p>
-<form method="post" action="/invite/abc/sign-out">
+<form method="post" action="/invite/abc/log-out">
 <button class="button" type="submit">Log out</button>
 </form>
 </main>
