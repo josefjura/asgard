@@ -2,10 +2,7 @@ use maud::{Markup, html};
 
 use crate::views::layout::standalone;
 use crate::views::nav::Tab;
-
-/// Where the "enable notifications on this device" control goes. The Reminders and push spec
-/// fills it in.
-pub const PUSH_SLOT_ID: &str = "push-control";
+use crate::views::push;
 
 /// What a new Member sees once, right after joining: their display name to fix, how to install
 /// Asgard, a line on each tab, and "Got it", which posts to `got_it`.
@@ -42,9 +39,7 @@ pub fn page(crew: &str, name_form: &Markup, got_it: &str) -> Markup {
 
             section.welcome-section aria-labelledby="welcome-push" {
                 h2 #welcome-push { "Notifications" }
-                div.placeholder #(PUSH_SLOT_ID) {
-                    "Turning on notifications for this device is coming soon."
-                }
+                (push::control())
             }
 
             section.welcome-section aria-labelledby="welcome-tour" {
@@ -92,6 +87,6 @@ mod tests {
     fn marks_the_place_for_the_push_control() {
         let html = page("Asgard", &html! {}, "/welcome/done").into_string();
 
-        assert!(html.contains(&format!("id=\"{PUSH_SLOT_ID}\"")));
+        assert!(html.contains(&format!("id=\"{}\"", push::CONTROL_ID)));
     }
 }

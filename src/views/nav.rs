@@ -61,16 +61,51 @@ impl Tab {
     }
 }
 
-/// The navigation between the four tabs, with `active` marked as the current page.
+/// Where a Member changes their display name and logs out.
+pub const SETTINGS_HREF: &str = "/settings";
+
+/// A page inside the app shell: one of the tabs, or settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Place {
+    Tab(Tab),
+    Settings,
+}
+
+impl Place {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Tab(tab) => tab.label(),
+            Self::Settings => "Settings",
+        }
+    }
+}
+
+/// The navigation between the four tabs, with the tab at `current` marked as the current page.
 #[must_use]
-pub fn bottom_nav(active: Tab) -> Markup {
+pub fn bottom_nav(current: Place) -> Markup {
     html! {
         nav.tabs aria-label="Sections" {
             @for tab in Tab::ALL {
-                a.tab href=(tab.href()) aria-current=[(tab == active).then_some("page")] {
+                a.tab href=(tab.href()) aria-current=[(current == Place::Tab(tab)).then_some("page")] {
                     (tab.icon())
                     span { (tab.label()) }
                 }
+            }
+        }
+    }
+}
+
+/// The header's way into settings, marked when `current` is settings.
+#[must_use]
+pub fn settings_link(current: Place) -> Markup {
+    html! {
+        a.settings-link href=(SETTINGS_HREF) aria-label="Settings"
+            aria-current=[(current == Place::Settings).then_some("page")] {
+            // Feather's "settings" cog; colour and stroke come from the stylesheet.
+            svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" {
+                circle cx="12" cy="12" r="3" {}
+                path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" {}
             }
         }
     }
@@ -84,7 +119,7 @@ mod tests {
     #[test]
     fn bottom_nav_marks_only_the_active_tab() {
         for active in Tab::ALL {
-            let html = bottom_nav(active).into_string();
+            let html = bottom_nav(Place::Tab(active)).into_string();
 
             assert_eq!(html.matches("aria-current=\"page\"").count(), 1);
             assert!(html.contains(&format!("href=\"{}\" aria-current=\"page\"", active.href())));
@@ -96,8 +131,27 @@ mod tests {
         for tab in Tab::ALL {
             assert_html_snapshot!(
                 format!("bottom_nav_{}", tab.label().to_lowercase()),
-                super::bottom_nav(tab)
+                super::bottom_nav(Place::Tab(tab))
             );
         }
+    }
+
+    #[test]
+    fn on_settings_no_tab_is_current() {
+        let html = bottom_nav(Place::Settings).into_string();
+
+        assert!(!html.contains("aria-current"));
+    }
+
+    #[test]
+    fn the_settings_link_is_marked_only_on_settings() {
+        let on_settings = settings_link(Place::Settings).into_string();
+        let on_a_tab = settings_link(Place::Tab(Tab::Finance)).into_string();
+
+        assert!(
+            on_settings
+                .contains("href=\"/settings\" aria-label=\"Settings\" aria-current=\"page\"")
+        );
+        assert!(!on_a_tab.contains("aria-current"));
     }
 }

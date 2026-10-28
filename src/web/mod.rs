@@ -7,8 +7,10 @@ mod gallery;
 mod health;
 mod htmx;
 pub mod invite;
+mod name_form;
 mod origin;
 mod pages;
+mod settings;
 mod sign_in;
 mod static_files;
 pub mod welcome;
@@ -76,7 +78,8 @@ fn routes() -> Router<AppState> {
         .route(assets::MANIFEST.url, get(static_files::manifest))
         .merge(sign_in::routes())
         .merge(invite::routes())
-        .merge(welcome::routes());
+        .merge(welcome::routes())
+        .merge(settings::routes());
     for tab in Tab::ALL {
         router = router.route(tab.href(), pages::tab(tab));
     }
