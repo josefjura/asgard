@@ -1,6 +1,7 @@
-//! Invite links, passkeys and sessions: passkey-only, invite-only sign-in (ADR 0005).
+//! Invite and Device links, passkeys and sessions: passkey-only, invite-only sign-in (ADR 0005).
 
 mod ceremonies;
+mod devices;
 mod links;
 mod passkeys;
 mod tokens;
@@ -18,11 +19,13 @@ use webauthn_rs::prelude::{
 use webauthn_rs_proto::ResidentKeyRequirement;
 
 pub use ceremonies::{CEREMONY_LIFETIME, CeremonyId};
-pub use links::{LinkId, OpenLink};
+pub use devices::DeviceLink;
+pub use links::{LinkId, LinkKind, OpenLink};
 pub use passkeys::{PASSKEY_NAME_MAX, PasskeyId, PasskeyName, PasskeyNameError, PasskeySummary};
 pub use tokens::{LinkToken, SessionToken};
 
 use ceremonies::Ceremonies;
+use devices::PendingDeviceSetup;
 use passkeys::PendingAdd;
 
 use super::clock::{Clock, unix_seconds};
@@ -58,7 +61,8 @@ pub struct Session {
     pub renewed: bool,
 }
 
-/// A new Member, signed in on the device they joined from.
+/// A Member signed in through a link, on the device it was opened on: a new Member for an
+/// Invite link, an existing one for a Device link.
 #[derive(Debug)]
 pub struct Joined {
     pub member: MemberId,
@@ -74,6 +78,9 @@ pub enum AuthError {
     AdminExists,
     #[error(transparent)]
     Name(#[from] NameError),
+    /// A Device link was asked for a Member who doesn't exist.
+    #[error("no such Member")]
+    NoSuchMember,
     #[error("the ceremony is unknown or expired")]
     CeremonyExpired,
     /// No Member has this passkey: it was never registered here, or has been deleted.
@@ -121,6 +128,7 @@ pub struct Auth {
     joining: Arc<Ceremonies<PendingJoin>>,
     signing_in: Arc<Ceremonies<DiscoverableAuthentication>>,
     adding: Arc<Ceremonies<PendingAdd>>,
+    setting_up: Arc<Ceremonies<PendingDeviceSetup>>,
 }
 
 impl Auth {
@@ -147,6 +155,7 @@ impl Auth {
             joining: Arc::new(Ceremonies::new()),
             signing_in: Arc::new(Ceremonies::new()),
             adding: Arc::new(Ceremonies::new()),
+            setting_up: Arc::new(Ceremonies::new()),
         })
     }
 

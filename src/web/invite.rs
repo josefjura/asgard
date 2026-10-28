@@ -15,7 +15,7 @@ use super::pages::fresh;
 use super::registration::{Challenge, DefaultPasskeyName, NewPasskey};
 use super::sign_in::{self, Landing};
 use super::{AppError, AppState, welcome};
-use crate::domain::auth::{AuthError, LinkToken};
+use crate::domain::auth::{AuthError, LinkKind, LinkToken};
 use crate::domain::members::CREW_NAME;
 use crate::views;
 use crate::views::passkey::CeremonyUrls;
@@ -57,6 +57,7 @@ async fn show(
     match state.auth.invite(&token).await {
         Ok(_) if let Some(Member(member)) = member => Ok(fresh(views::invite::signed_in(
             &member.display_name,
+            LinkKind::Invite,
             &log_out_path(&token),
         ))
         .into_response()),

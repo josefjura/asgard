@@ -19,6 +19,12 @@ impl MemberId {
         Self(id)
     }
 
+    /// An id a client sent back. Nothing about it is trusted until the Member is found.
+    #[must_use]
+    pub const fn from_client(id: i64) -> Self {
+        Self(id)
+    }
+
     #[must_use]
     pub const fn get(self) -> i64 {
         self.0
@@ -99,6 +105,13 @@ pub struct Member {
     pub welcomed: bool,
 }
 
+/// A Member as a list of the Crew names them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemberName {
+    pub id: MemberId,
+    pub display_name: DisplayName,
+}
+
 /// Everything a new Member starts with.
 pub struct NewMember<'a> {
     pub display_name: &'a DisplayName,
@@ -162,6 +175,24 @@ impl Members {
             })
         })
         .transpose()
+    }
+
+    /// Every Member, in the order they joined.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the database does.
+    pub async fn all(&self) -> Result<Vec<MemberName>, sqlx::Error> {
+        let rows = sqlx::query!(r#"SELECT id AS "id!", display_name FROM members ORDER BY id"#)
+            .fetch_all(&self.db)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| MemberName {
+                id: MemberId(row.id),
+                display_name: DisplayName(row.display_name),
+            })
+            .collect())
     }
 
     /// The Admin's display name, once there is an Admin.
@@ -397,6 +428,28 @@ mod tests {
         add_member(&db, "Josef", true).await;
 
         assert_eq!(members.admin_name().await.unwrap(), Some(name("Josef")));
+    }
+
+    #[sqlx::test]
+    async fn lists_every_member_in_the_order_they_joined(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+
+        let all = Members::new(db).all().await.unwrap();
+
+        assert_eq!(
+            all,
+            [
+                MemberName {
+                    id: josef,
+                    display_name: name("Josef"),
+                },
+                MemberName {
+                    id: ondra,
+                    display_name: name("Ondra"),
+                },
+            ]
+        );
     }
 
     #[sqlx::test]

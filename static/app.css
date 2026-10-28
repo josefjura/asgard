@@ -372,7 +372,8 @@ a {
   gap: var(--space-2);
 }
 
-.field-row input {
+.field-row input,
+.field-row select {
   flex: 1;
   min-width: 0;
   min-height: 3rem;

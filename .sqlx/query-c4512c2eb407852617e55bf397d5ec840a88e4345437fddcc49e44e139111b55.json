@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO links (token_hash, kind, member_id, created_by, created_at, expires_at)\n             VALUES (?, 'device', ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "c4512c2eb407852617e55bf397d5ec840a88e4345437fddcc49e44e139111b55"
+}

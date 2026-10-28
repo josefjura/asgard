@@ -2,6 +2,7 @@
 
 mod access;
 mod admin;
+mod device;
 mod error;
 #[cfg(debug_assertions)]
 mod gallery;
@@ -81,6 +82,7 @@ fn routes() -> Router<AppState> {
         .route(assets::MANIFEST.url, get(static_files::manifest))
         .merge(sign_in::routes())
         .merge(invite::routes())
+        .merge(device::routes())
         .merge(welcome::routes())
         .merge(settings::routes())
         .merge(passkeys::routes())

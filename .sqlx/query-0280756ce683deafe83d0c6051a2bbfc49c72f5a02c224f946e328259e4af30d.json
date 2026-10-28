@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT links.id AS \"id!\", links.kind,\n                      COALESCE(links.display_name, members.display_name) AS \"display_name!: String\",\n                      links.expires_at\n               FROM links LEFT JOIN members ON members.id = links.member_id\n               WHERE NOT links.grants_admin\n                 AND links.used_at IS NULL AND links.revoked_at IS NULL AND links.expires_at > ?\n               ORDER BY links.created_at, links.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "kind",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "display_name!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "expires_at",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "0280756ce683deafe83d0c6051a2bbfc49c72f5a02c224f946e328259e4af30d"
+}
