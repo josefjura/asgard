@@ -1,12 +1,8 @@
 //! A Member's passkeys in settings: adding another while signed in, renaming and deleting.
 
-use std::convert::Infallible;
-use std::future::ready;
-
-use axum::extract::{FromRequestParts, Path, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::http::header::{SET_COOKIE, USER_AGENT};
-use axum::http::request::Parts;
+use axum::http::header::SET_COOKIE;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Form, Json, Router};
@@ -16,8 +12,8 @@ use serde::Deserialize;
 use super::access::{Member, SessionCookie, removed_session_cookie};
 use super::error::passkey_name_message;
 use super::htmx::Htmx;
-use super::invite::{Challenge, NewPasskey};
 use super::pages::fresh;
+use super::registration::{Challenge, DefaultPasskeyName, NewPasskey};
 use super::settings;
 use super::sign_in::Landing;
 use super::{AppError, AppState};
@@ -46,25 +42,6 @@ pub fn ceremony_urls() -> CeremonyUrls {
     CeremonyUrls {
         start: START_PATH.to_owned(),
         finish: FINISH_PATH.to_owned(),
-    }
-}
-
-/// What a passkey made by the requesting browser is called until its Member renames it.
-pub struct DefaultPasskeyName(pub PasskeyName);
-
-impl<S: Sync> FromRequestParts<S> for DefaultPasskeyName {
-    type Rejection = Infallible;
-
-    fn from_request_parts(
-        parts: &mut Parts,
-        _: &S,
-    ) -> impl Future<Output = Result<Self, Infallible>> + Send {
-        let user_agent = parts
-            .headers
-            .get(USER_AGENT)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_default();
-        ready(Ok(Self(PasskeyName::from_user_agent(user_agent))))
     }
 }
 

@@ -77,6 +77,7 @@ pub enum AuthError {
     /// The Member has no such passkey: it is another Member's, or already deleted.
     #[error("the Member has no such passkey")]
     NoSuchPasskey,
+    /// Deleting it would leave the Member no way to sign in.
     #[error("a Member's last passkey can't be deleted")]
     LastPasskey,
     #[error("the passkey didn't verify")]

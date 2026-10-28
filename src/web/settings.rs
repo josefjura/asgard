@@ -56,7 +56,12 @@ async fn rename(
     Htmx(htmx): Htmx,
     Form(input): Form<NameForm>,
 ) -> Result<Response, AppError> {
-    let passkeys = passkeys::list(&state, &member, None).await?;
+    // htmx gets the form alone, so only a plain form post needs the passkeys for the page.
+    let passkeys = if htmx {
+        Markup::default()
+    } else {
+        passkeys::list(&state, &member, None).await?
+    };
     name_form::submit(&state, &member, &input, NAME_PATH, htmx, |form| {
         page(form, &passkeys)
     })

@@ -11,6 +11,7 @@ mod name_form;
 mod origin;
 mod pages;
 mod passkeys;
+mod registration;
 mod settings;
 mod sign_in;
 mod static_files;

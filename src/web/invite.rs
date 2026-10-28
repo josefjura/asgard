@@ -9,15 +9,13 @@ use axum::http::header::SET_COOKIE;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::{Deserialize, Serialize};
-use webauthn_rs::prelude::{CreationChallengeResponse, RegisterPublicKeyCredential};
 
 use super::access::{Member, SessionCookie, SignedOut, session_cookie};
 use super::pages::fresh;
-use super::passkeys::DefaultPasskeyName;
+use super::registration::{Challenge, DefaultPasskeyName, NewPasskey};
 use super::sign_in::{self, Landing};
 use super::{AppError, AppState, welcome};
-use crate::domain::auth::{AuthError, CeremonyId, LinkToken};
+use crate::domain::auth::{AuthError, LinkToken};
 use crate::domain::members::CREW_NAME;
 use crate::views;
 use crate::views::passkey::CeremonyUrls;
@@ -80,13 +78,6 @@ async fn show(
     }
 }
 
-/// What the browser needs to create a passkey.
-#[derive(Serialize)]
-pub struct Challenge {
-    pub ceremony: CeremonyId,
-    pub options: CreationChallengeResponse,
-}
-
 async fn start(
     State(state): State<AppState>,
     Path(token): Path<String>,
@@ -97,13 +88,6 @@ async fn start(
         .start_joining(&LinkToken::from_client(token))
         .await?;
     Ok(Json(Challenge { ceremony, options }))
-}
-
-/// The passkey the browser created for a [`Challenge`].
-#[derive(Deserialize)]
-pub struct NewPasskey {
-    pub ceremony: CeremonyId,
-    pub credential: RegisterPublicKeyCredential,
 }
 
 async fn finish(

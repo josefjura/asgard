@@ -29,7 +29,9 @@ const PAGE_HEIGHT: u16 = 720;
 const WELCOME_HEIGHT: u16 = 1500;
 /// Settings stacks its sections under the app shell's header.
 const SETTINGS_HEIGHT: u16 = 1150;
+/// Each extra passkey adds a card to the settings page.
 const SEVERAL_PASSKEYS_HEIGHT: u16 = 1500;
+/// Where the fixture passkey lists' forms post.
 const PASSKEYS_BASE: &str = "/settings/passkeys";
 const DESKTOP_WIDTH: u16 = 1280;
 
