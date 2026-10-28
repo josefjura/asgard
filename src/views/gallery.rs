@@ -4,12 +4,14 @@
 use maud::{DOCTYPE, Markup, html};
 
 use crate::assets;
+use crate::domain::auth::PasskeyName;
 use crate::domain::members::{CREW_NAME, DisplayName};
 use crate::views::brand::header_logo;
 use crate::views::display_name::{self, Outcome};
 use crate::views::layout::document;
 use crate::views::nav::{Place, Tab, bottom_nav};
 use crate::views::passkey::CeremonyUrls;
+use crate::views::passkeys::{self, Outcome as PasskeyOutcome};
 use crate::views::{invite, offline, settings, sign_in, tabs, welcome};
 
 /// One component in one state, rendered as a complete document.
@@ -26,7 +28,9 @@ const PAGE_HEIGHT: u16 = 720;
 /// The welcome page is long: its sections stack on a phone.
 const WELCOME_HEIGHT: u16 = 1500;
 /// Settings stacks its sections under the app shell's header.
-const SETTINGS_HEIGHT: u16 = 1000;
+const SETTINGS_HEIGHT: u16 = 1150;
+const SEVERAL_PASSKEYS_HEIGHT: u16 = 1500;
+const PASSKEYS_BASE: &str = "/settings/passkeys";
 const DESKTOP_WIDTH: u16 = 1280;
 
 /// # Panics
@@ -102,6 +106,7 @@ pub fn fixtures() -> Vec<Fixture> {
         .chain(link_errors)
         .chain([sign_in])
         .chain(signed_in_pages())
+        .chain(passkey_lists())
         .collect()
 }
 
@@ -117,15 +122,28 @@ fn signed_in_pages() -> Vec<Fixture> {
         ),
         height: WELCOME_HEIGHT,
     };
-    let settings = Fixture {
+    let settings = [
+        ("One passkey", passkeys::fixtures::one(), SETTINGS_HEIGHT),
+        (
+            "Several passkeys",
+            passkeys::fixtures::several(),
+            SEVERAL_PASSKEYS_HEIGHT,
+        ),
+    ]
+    .map(|(state, passkeys, height)| Fixture {
         component: "Settings page",
-        state: "Signed in".to_owned(),
+        state: state.to_owned(),
         document: settings::page(
             &display_name::form("/settings/name", "Ondra", None),
+            &passkeys::list(PASSKEYS_BASE, &passkeys, None),
+            &CeremonyUrls {
+                start: format!("{PASSKEYS_BASE}/start"),
+                finish: format!("{PASSKEYS_BASE}/finish"),
+            },
             "/log-out",
         ),
-        height: SETTINGS_HEIGHT,
-    };
+        height,
+    });
     let refused = "Someone in the Crew is already called Josef.";
     let name_forms = [
         ("Unchanged", "Ondra", None),
@@ -141,7 +159,41 @@ fn signed_in_pages() -> Vec<Fixture> {
         ),
         height: 260,
     });
-    [welcome, settings].into_iter().chain(name_forms).collect()
+    std::iter::once(welcome)
+        .chain(settings)
+        .chain(name_forms)
+        .collect()
+}
+
+/// The passkey list after each thing a Member can do to it.
+fn passkey_lists() -> Vec<Fixture> {
+    let passkeys = passkeys::fixtures::several();
+    let lost = PasskeyName::parse("Lost phone").expect("fixture names are valid");
+    let refused = "Enter a name for the passkey.";
+    [
+        ("Renamed", Some(PasskeyOutcome::Renamed(passkeys[1].id))),
+        (
+            "Rename refused",
+            Some(PasskeyOutcome::RenameRefused {
+                id: passkeys[1].id,
+                value: "",
+                message: refused,
+            }),
+        ),
+        ("Deleted", Some(PasskeyOutcome::Deleted(&lost))),
+    ]
+    .map(|(state, outcome)| Fixture {
+        component: "Passkey list",
+        state: state.to_owned(),
+        document: document(
+            "Passkey list",
+            &html! {
+                main.standalone { (passkeys::list(PASSKEYS_BASE, &passkeys, outcome)) }
+            },
+        ),
+        height: 640,
+    })
+    .into()
 }
 
 /// Each logo on every background it was drawn for, whatever scheme the viewer's browser is in.
@@ -240,6 +292,7 @@ mod tests {
             "Welcome page",
             "Settings page",
             "Display name form",
+            "Passkey list",
         ] {
             assert!(
                 html.contains(&format!("<h2>{component}</h2>")),
@@ -259,7 +312,11 @@ mod tests {
             "Before there is an Admin",
             "Signed out",
             "Just joined",
-            "Signed in",
+            "One passkey",
+            "Several passkeys",
+            "Renamed",
+            "Rename refused",
+            "Deleted",
             "Unchanged",
             "Saved",
             "Refused",

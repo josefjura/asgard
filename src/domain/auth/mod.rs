@@ -1,6 +1,7 @@
 //! Invite links, passkeys and sessions: passkey-only, invite-only sign-in (ADR 0005).
 
 mod ceremonies;
+mod passkeys;
 mod tokens;
 
 use std::sync::Arc;
@@ -16,9 +17,11 @@ use webauthn_rs::prelude::{
 use webauthn_rs_proto::ResidentKeyRequirement;
 
 pub use ceremonies::{CEREMONY_LIFETIME, CeremonyId};
+pub use passkeys::{PASSKEY_NAME_MAX, PasskeyId, PasskeyName, PasskeyNameError, PasskeySummary};
 pub use tokens::{LinkToken, SessionToken};
 
 use ceremonies::Ceremonies;
+use passkeys::PendingAdd;
 
 use super::clock::{Clock, unix_seconds};
 use super::members::{
@@ -34,9 +37,6 @@ pub const SESSION_LIFETIME: Duration = Duration::from_hours(90 * 24);
 /// How often using a session moves its expiry forward, so a request isn't a write every time.
 /// A session therefore ends between 89 and 90 days after it was last used.
 pub const SESSION_RENEWAL_INTERVAL: Duration = Duration::from_hours(24);
-
-/// What a passkey is called until its Member renames it.
-const DEFAULT_PASSKEY_NAME: &str = "Passkey";
 
 /// What an unused, unexpired Invite link offers.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +74,11 @@ pub enum AuthError {
     /// No Member has this passkey: it was never registered here, or has been deleted.
     #[error("the passkey is unknown")]
     UnknownPasskey,
+    /// The Member has no such passkey: it is another Member's, or already deleted.
+    #[error("the Member has no such passkey")]
+    NoSuchPasskey,
+    #[error("a Member's last passkey can't be deleted")]
+    LastPasskey,
     #[error("the passkey didn't verify")]
     PasskeyRejected(#[source] WebauthnError),
     #[error("WebAuthn failed")]
@@ -109,6 +114,7 @@ pub struct Auth {
     webauthn: Arc<Webauthn>,
     joining: Arc<Ceremonies<PendingJoin>>,
     signing_in: Arc<Ceremonies<DiscoverableAuthentication>>,
+    adding: Arc<Ceremonies<PendingAdd>>,
 }
 
 impl Auth {
@@ -134,6 +140,7 @@ impl Auth {
             webauthn: Arc::new(webauthn),
             joining: Arc::new(Ceremonies::new()),
             signing_in: Arc::new(Ceremonies::new()),
+            adding: Arc::new(Ceremonies::new()),
         })
     }
 
@@ -223,11 +230,7 @@ impl Auth {
             .webauthn
             .start_passkey_registration(webauthn_user_id, name, name, None)
             .map_err(AuthError::Webauthn)?;
-        // Signing in has no username field, so the passkey must be discoverable.
-        if let Some(selection) = challenge.public_key.authenticator_selection.as_mut() {
-            selection.resident_key = Some(ResidentKeyRequirement::Required);
-            selection.require_resident_key = true;
-        }
+        require_discoverable(&mut challenge);
         let ceremony = self.joining.insert(
             self.clock.now(),
             PendingJoin {
@@ -240,7 +243,7 @@ impl Auth {
     }
 
     /// Verifies the new passkey, then in one transaction consumes the link, creates the Member
-    /// (joined today), stores the passkey and starts a session.
+    /// (joined today), stores the passkey under `name` and starts a session.
     ///
     /// # Errors
     ///
@@ -252,6 +255,7 @@ impl Auth {
         token: &LinkToken,
         ceremony: &CeremonyId,
         credential: &RegisterPublicKeyCredential,
+        name: &PasskeyName,
     ) -> Result<Joined, AuthError> {
         let now = self.clock.now();
         let joining = self
@@ -290,7 +294,7 @@ impl Auth {
             },
         )
         .await?;
-        let passkey = insert_passkey(&mut tx, member, &passkey, now).await?;
+        let passkey = insert_passkey(&mut tx, member, &passkey, name, now).await?;
         let session = insert_session(&mut tx, member, passkey, now).await?;
         tx.commit().await?;
         Ok(Joined { member, session })
@@ -366,7 +370,8 @@ impl Auth {
         .execute(&mut *tx)
         .await?;
         let member = MemberId::from_stored(stored.member_id);
-        let session = insert_session(&mut tx, member, PasskeyId(stored.id), now).await?;
+        let session =
+            insert_session(&mut tx, member, PasskeyId::from_stored(stored.id), now).await?;
         tx.commit().await?;
         Ok(session)
     }
@@ -434,32 +439,38 @@ fn renewal_interval_secs() -> i64 {
     i64::try_from(SESSION_RENEWAL_INTERVAL.as_secs()).unwrap_or(i64::MAX)
 }
 
-/// A stored passkey, which the sessions it starts point back at.
-#[derive(Debug, Clone, Copy)]
-struct PasskeyId(i64);
+/// Signing in has no username field, so every passkey must be discoverable.
+const fn require_discoverable(challenge: &mut CreationChallengeResponse) {
+    if let Some(selection) = challenge.public_key.authenticator_selection.as_mut() {
+        selection.resident_key = Some(ResidentKeyRequirement::Required);
+        selection.require_resident_key = true;
+    }
+}
 
 async fn insert_passkey(
     conn: &mut SqliteConnection,
     member: MemberId,
     passkey: &Passkey,
+    name: &PasskeyName,
     now: i64,
 ) -> Result<PasskeyId, AuthError> {
     let member = member.get();
     let credential_id = passkey.cred_id().as_ref();
     let credential = serde_json::to_string(passkey)?;
+    let name = name.as_str();
     let id = sqlx::query!(
         "INSERT INTO passkeys (member_id, credential_id, credential, name, added_at)
          VALUES (?, ?, ?, ?, ?)",
         member,
         credential_id,
         credential,
-        DEFAULT_PASSKEY_NAME,
+        name,
         now,
     )
     .execute(conn)
     .await?
     .last_insert_rowid();
-    Ok(PasskeyId(id))
+    Ok(PasskeyId::from_stored(id))
 }
 
 async fn insert_session(
@@ -471,13 +482,14 @@ async fn insert_session(
     let token = SessionToken::generate();
     let hash = token.hash();
     let member = member.get();
+    let passkey = passkey.get();
     let expires_at = now.saturating_add_unsigned(SESSION_LIFETIME.as_secs());
     sqlx::query!(
         "INSERT INTO sessions (token_hash, member_id, passkey_id, created_at, expires_at)
          VALUES (?, ?, ?, ?, ?)",
         hash,
         member,
-        passkey.0,
+        passkey,
         now,
         expires_at,
     )
@@ -492,7 +504,7 @@ mod tests {
     use crate::domain::clock::ManualClock;
     use crate::domain::members::fixtures::{add_member, name};
 
-    fn auth(db: SqlitePool) -> Auth {
+    pub(super) fn auth(db: SqlitePool) -> Auth {
         let clock = ManualClock::starting_at(std::time::SystemTime::UNIX_EPOCH);
         let members = Members::new(db.clone());
         Auth::new(

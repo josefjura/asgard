@@ -9,6 +9,7 @@ pub mod layout;
 pub mod nav;
 pub mod offline;
 pub mod passkey;
+pub mod passkeys;
 pub mod push;
 pub mod settings;
 pub mod sign_in;

@@ -14,6 +14,7 @@ use webauthn_rs::prelude::{CreationChallengeResponse, RegisterPublicKeyCredentia
 
 use super::access::{Member, SessionCookie, SignedOut, session_cookie};
 use super::pages::fresh;
+use super::passkeys::DefaultPasskeyName;
 use super::sign_in::{self, Landing};
 use super::{AppError, AppState, welcome};
 use crate::domain::auth::{AuthError, CeremonyId, LinkToken};
@@ -79,11 +80,11 @@ async fn show(
     }
 }
 
-/// What the browser needs to create the passkey.
+/// What the browser needs to create a passkey.
 #[derive(Serialize)]
-struct Challenge {
-    ceremony: CeremonyId,
-    options: CreationChallengeResponse,
+pub struct Challenge {
+    pub ceremony: CeremonyId,
+    pub options: CreationChallengeResponse,
 }
 
 async fn start(
@@ -100,9 +101,9 @@ async fn start(
 
 /// The passkey the browser created for a [`Challenge`].
 #[derive(Deserialize)]
-struct NewPasskey {
-    ceremony: CeremonyId,
-    credential: RegisterPublicKeyCredential,
+pub struct NewPasskey {
+    pub ceremony: CeremonyId,
+    pub credential: RegisterPublicKeyCredential,
 }
 
 async fn finish(
@@ -110,6 +111,7 @@ async fn finish(
     Path(token): Path<String>,
     // Signing in elsewhere mid-ceremony mustn't let the link attach a passkey either.
     _: SignedOut,
+    DefaultPasskeyName(name): DefaultPasskeyName,
     Json(body): Json<NewPasskey>,
 ) -> Result<impl IntoResponse, AppError> {
     let joined = state
@@ -118,6 +120,7 @@ async fn finish(
             &LinkToken::from_client(token),
             &body.ceremony,
             &body.credential,
+            &name,
         )
         .await?;
     tracing::info!(member = joined.member.get(), "a new Member joined the Crew");

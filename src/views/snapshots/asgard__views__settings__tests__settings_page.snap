@@ -1,6 +1,6 @@
 ---
 source: src/views/settings.rs
-expression: "page(&display_name::form(\"/settings/name\", \"Ondra\", None),\n\"/log-out\").into_string().replace(\"><\", \">\\n<\")"
+expression: "with_passkeys(&fixtures::one()).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -53,7 +53,26 @@ expression: "page(&display_name::form(\"/settings/name\", \"Ondra\", None),\n\"/
 </section>
 <section class="settings-section" aria-labelledby="settings-passkeys">
 <h2 id="settings-passkeys">Passkeys</h2>
-<div class="placeholder" id="passkeys">Adding, renaming and deleting passkeys is coming soon.</div>
+<div class="passkeys" id="passkeys">
+<ul class="passkey-list">
+<li class="passkey">
+<form class="passkey-rename" method="post" action="/settings/passkeys/1/name" hx-post="/settings/passkeys/1/name" hx-target="#passkeys" hx-swap="outerHTML">
+<label for="passkey-1-name">Passkey added 14 March 2026</label>
+<div class="field-row">
+<input id="passkey-1-name" type="text" name="name" value="iPhone Safari" required autocomplete="off">
+<button class="button" type="submit">Rename</button>
+</div>
+</form>
+</li>
+</ul>
+<p class="note" role="status">Your only passkey can't be deleted. Add another one first.</p>
+</div>
+<p class="lead-in">Add a passkey on each device you sign in from, unless your passkeys already sync to it.</p>
+<button class="button" type="button" data-passkey="register" data-passkey-start="/settings/passkeys/start" data-passkey-finish="/settings/passkeys/finish" aria-describedby="passkey-status">Add a passkey</button>
+<p class="status" id="passkey-status" role="status">
+</p>
+<script type="module" src="/static/passkey.[hash].js">
+</script>
 </section>
 <section class="settings-section" aria-labelledby="settings-push">
 <h2 id="settings-push">Notifications</h2>
