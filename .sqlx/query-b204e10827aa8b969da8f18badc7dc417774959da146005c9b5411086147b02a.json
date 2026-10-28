@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, display_name, is_admin AS \"is_admin: bool\", joined_on\n               FROM members WHERE id = ?",
+  "query": "SELECT id, display_name, is_admin AS \"is_admin: bool\", joined_on,\n                      welcomed AS \"welcomed: bool\"\n               FROM members WHERE id = ?",
   "describe": {
     "columns": [
       {
@@ -22,6 +22,11 @@
         "name": "joined_on",
         "ordinal": 3,
         "type_info": "Text"
+      },
+      {
+        "name": "welcomed: bool",
+        "ordinal": 4,
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -31,8 +36,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "15443c5b385af356d9e4c55129e18ed36f4c3c4dd0efa2b466276dfaa336cb27"
+  "hash": "b204e10827aa8b969da8f18badc7dc417774959da146005c9b5411086147b02a"
 }

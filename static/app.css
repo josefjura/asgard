@@ -12,6 +12,7 @@
   --band-ink: #eee9da;
   --active: #3e5b2b;
   --amber: #d9a021;
+  --danger: #a3301f;
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -33,6 +34,7 @@
     --band-ink: #eee9da;
     --active: #a9c97f;
     --amber: #e3ae36;
+    --danger: #f08a75;
   }
 }
 
@@ -279,4 +281,78 @@ a {
 
 .status:empty {
   visibility: hidden;
+}
+
+/* The welcome page: its sections, the install and tour lists, and the push placeholder. */
+
+.welcome-section {
+  max-width: 28rem;
+  margin-bottom: var(--space-4);
+}
+
+.welcome-section h2 {
+  margin: 0 0 var(--space-2);
+  font-size: 1.125rem;
+  line-height: 1.3;
+}
+
+.install,
+.tour {
+  margin: 0;
+}
+
+.install dt,
+.tour dt {
+  font-weight: 600;
+}
+
+.install dd,
+.tour dd {
+  margin: 0 0 var(--space-2);
+  color: var(--muted);
+}
+
+.placeholder {
+  padding: var(--space-3);
+  border: 2px dashed var(--line);
+  border-radius: 0.5rem;
+  color: var(--muted);
+}
+
+/* Forms: a label, the field and its button on one row, and a note beneath. */
+
+.name-form label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-weight: 600;
+}
+
+.field-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.field-row input {
+  flex: 1;
+  min-width: 0;
+  min-height: 3rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.field-row input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.name-form .note {
+  margin: var(--space-2) 0 0;
+  font-size: 0.875rem;
+}
+
+.name-form .note.refused {
+  color: var(--danger);
 }

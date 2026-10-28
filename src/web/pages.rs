@@ -1,16 +1,22 @@
 use axum::http::header::CACHE_CONTROL;
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Redirect};
 use axum::routing::{MethodRouter, get};
 use maud::Markup;
 
-use super::AppState;
 use super::access::Member;
+use super::{AppState, welcome};
 use crate::views;
 use crate::views::nav::Tab;
 
-/// A tab's page, for signed-in Members only.
+/// A tab's page, for signed-in Members only. Finance, the home page, sends a Member to the
+/// welcome page until they have pressed "Got it" there.
 pub fn tab(tab: Tab) -> MethodRouter<AppState> {
-    get(move |_: Member| async move { fresh(views::tabs::page(tab)) })
+    get(move |Member(member): Member| async move {
+        if tab == Tab::Finance && !member.welcomed {
+            return Redirect::to(welcome::PATH).into_response();
+        }
+        fresh(views::tabs::page(tab)).into_response()
+    })
 }
 
 /// The page the service worker caches and shows when there is no network.

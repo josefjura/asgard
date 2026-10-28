@@ -17,6 +17,7 @@ expression: "super::shell(Tab::Shopping, &html!\n{ p { \"Content\" } }).into_str
 <link rel="icon" type="image/svg+xml" href="/static/icon.[hash].svg">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.[hash].png">
 <link rel="stylesheet" href="/static/app.[hash].css">
+<meta name="htmx-config" content="{&quot;responseHandling&quot;:[{&quot;code&quot;:&quot;204&quot;,&quot;swap&quot;:false},{&quot;code&quot;:&quot;[23]..&quot;,&quot;swap&quot;:true},{&quot;code&quot;:&quot;422&quot;,&quot;swap&quot;:true},{&quot;code&quot;:&quot;[45]..&quot;,&quot;swap&quot;:false,&quot;error&quot;:true},{&quot;code&quot;:&quot;...&quot;,&quot;swap&quot;:false}]}">
 <script src="/static/htmx-2.0.11.min.[hash].js" defer>
 </script>
 <script type="module" src="/static/register-sw.[hash].js">

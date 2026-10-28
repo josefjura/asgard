@@ -1,0 +1,12 @@
+---
+source: src/views/display_name.rs
+expression: "form(\"/welcome/name\", \"Ondra\", None).into_string().replace(\"><\", \">\\n<\")"
+---
+<form class="name-form" method="post" action="/welcome/name" hx-post="/welcome/name" hx-swap="outerHTML">
+<label for="display-name">Display name</label>
+<div class="field-row">
+<input id="display-name" type="text" name="display_name" value="Ondra" required autocomplete="nickname" aria-describedby="display-name-note">
+<button class="button" type="submit">Save</button>
+</div>
+<p class="note" id="display-name-note" role="status">This is how the Crew sees you.</p>
+</form>

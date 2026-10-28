@@ -4,6 +4,10 @@ use crate::assets;
 use crate::views::brand::{header_logo, hero_logo};
 use crate::views::nav::{Tab, bottom_nav};
 
+/// htmx's default response handling, except that a 422 is swapped in too: it is a form
+/// answering with what to fix.
+const HTMX_CONFIG: &str = r#"{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}"#;
+
 /// A complete HTML document with the shared head: stylesheet, scripts, icons and manifest.
 #[must_use]
 pub fn document(title: &str, body: &Markup) -> Markup {
@@ -23,6 +27,7 @@ pub fn document(title: &str, body: &Markup) -> Markup {
                 link rel="icon" type="image/svg+xml" href=(assets::ICON_SVG.url);
                 link rel="apple-touch-icon" href=(assets::APPLE_TOUCH_ICON.url);
                 link rel="stylesheet" href=(assets::APP_CSS.url);
+                meta name="htmx-config" content=(HTMX_CONFIG);
                 script src=(assets::HTMX.url) defer {}
                 script type="module" src=(assets::REGISTER_SW.url) {}
             }

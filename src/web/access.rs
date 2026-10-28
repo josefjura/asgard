@@ -13,7 +13,7 @@ use axum::response::Response;
 use cookie::time::Duration;
 use cookie::{Cookie, CookieBuilder, SameSite};
 
-use super::htmx::HX_REQUEST;
+use super::htmx::Htmx;
 use super::{AppError, AppState};
 use crate::domain::auth::{SESSION_LIFETIME, SessionToken};
 use crate::domain::members;
@@ -82,7 +82,7 @@ impl FromRequestParts<AppState> for Member {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
-        let htmx = parts.headers.contains_key(HX_REQUEST);
+        let Ok(Htmx(htmx)) = Htmx::from_request_parts(parts, state).await;
         <Self as OptionalFromRequestParts<AppState>>::from_request_parts(parts, state)
             .await?
             .ok_or(AppError::SignInRequired { htmx })

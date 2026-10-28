@@ -15,11 +15,10 @@ use webauthn_rs::prelude::{CreationChallengeResponse, RegisterPublicKeyCredentia
 use super::access::{Member, SessionCookie, SignedOut, session_cookie};
 use super::pages::fresh;
 use super::sign_in::{self, Landing};
-use super::{AppError, AppState};
+use super::{AppError, AppState, welcome};
 use crate::domain::auth::{AuthError, CeremonyId, LinkToken};
 use crate::domain::members::CREW_NAME;
 use crate::views;
-use crate::views::nav::Tab;
 use crate::views::passkey::CeremonyUrls;
 
 /// Where an Invite link points.
@@ -125,7 +124,7 @@ async fn finish(
     Ok((
         [(SET_COOKIE, session_cookie(&joined.session))],
         Json(Landing {
-            redirect: Tab::Finance.href(),
+            redirect: welcome::PATH,
         }),
     ))
 }
@@ -188,7 +187,7 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn joining_signs_the_new_admin_in_and_lands_on_finance(db: SqlitePool) {
+    async fn joining_signs_the_new_admin_in_and_lands_on_the_welcome_page(db: SqlitePool) {
         let app = TestApp::new(db);
         let invite = app.admin_invite("Josef").await;
 
@@ -196,10 +195,14 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         let cookie = cookie_pair(&response);
-        assert_eq!(body_text(response).await, r#"{"redirect":"/"}"#);
-        let finance = app.get_with("/", &cookie).await;
-        assert_eq!(finance.status(), StatusCode::OK);
-        assert!(body_text(finance).await.contains("<h1>Finance</h1>"));
+        assert_eq!(body_text(response).await, r#"{"redirect":"/welcome"}"#);
+        let welcome = app.get_with("/welcome", &cookie).await;
+        assert_eq!(welcome.status(), StatusCode::OK);
+        assert!(
+            body_text(welcome)
+                .await
+                .contains("<h1>Welcome to Asgard</h1>")
+        );
 
         let token = SessionToken::from_client(cookie.split_once('=').unwrap().1.to_owned());
         let member = app
