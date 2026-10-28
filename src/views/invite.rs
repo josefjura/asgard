@@ -23,15 +23,15 @@ pub fn page(crew: &str, display_name: &DisplayName, ceremony: &CeremonyUrls) -> 
     )
 }
 
-/// What a Device link opens: the Member it is for, and the button that creates a passkey for
-/// them on this device.
+/// What a Device link opens: whose Crew it is, the Member it is for, and the button that
+/// creates a passkey for them on this device.
 #[must_use]
-pub fn device_page(display_name: &DisplayName, ceremony: &CeremonyUrls) -> Markup {
+pub fn device_page(crew: &str, display_name: &DisplayName, ceremony: &CeremonyUrls) -> Markup {
     standalone(
         "Set up this device | Asgard",
         &html! {
             h1 { "Set up this device" }
-            p.lead { "You'll sign in as " strong { (display_name) } "." }
+            p.lead { "You'll sign in to " (crew) " as " strong { (display_name) } "." }
             p {
                 "Create a passkey on this device: the fingerprint, face or screen lock you "
                 "already use on it. Your other passkeys keep working."
@@ -122,7 +122,7 @@ mod tests {
             start: "/device/abc/start".to_owned(),
             finish: "/device/abc/finish".to_owned(),
         };
-        assert_html_snapshot!(device_page(&name("Ondra"), &urls));
+        assert_html_snapshot!(device_page("Asgard", &name("Ondra"), &urls));
     }
 
     #[test]

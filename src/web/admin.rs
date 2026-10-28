@@ -92,13 +92,7 @@ async fn create_device_link(
     Form(input): Form<DeviceLinkForm>,
 ) -> Result<Response, AppError> {
     let member = MemberId::from_client(input.member);
-    let name = state
-        .members
-        .find(member)
-        .await?
-        .ok_or(AuthError::NoSuchMember)?
-        .display_name;
-    let token = state.auth.create_device_link(member, admin.id).await?;
+    let (token, name) = state.auth.create_device_link(member, admin.id).await?;
     tracing::info!(
         admin = admin.id.get(),
         member = member.get(),

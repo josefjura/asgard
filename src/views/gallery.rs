@@ -97,6 +97,7 @@ pub fn fixtures() -> Vec<Fixture> {
         (
             "Valid link",
             invite::device_page(
+                CREW_NAME,
                 &name("Ondra"),
                 &CeremonyUrls {
                     start: "/device/fixture/start".to_owned(),

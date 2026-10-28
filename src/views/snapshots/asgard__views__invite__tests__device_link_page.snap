@@ -1,6 +1,6 @@
 ---
 source: src/views/invite.rs
-expression: "device_page(&name(\"Ondra\"), &urls).into_string().replace(\"><\", \">\\n<\")"
+expression: "device_page(\"Asgard\", &name(\"Ondra\"),\n&urls).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -30,7 +30,7 @@ expression: "device_page(&name(\"Ondra\"), &urls).into_string().replace(\"><\", 
 <img src="/static/logo-hero-light.[hash].svg" alt="" width="180" height="180">
 </picture>
 <h1>Set up this device</h1>
-<p class="lead">You'll sign in as <strong>Ondra</strong>.</p>
+<p class="lead">You'll sign in to Asgard as <strong>Ondra</strong>.</p>
 <p>Create a passkey on this device: the fingerprint, face or screen lock you already use on it. Your other passkeys keep working.</p>
 <button class="button" type="button" data-passkey="register" data-passkey-start="/device/abc/start" data-passkey-finish="/device/abc/finish" aria-describedby="passkey-status">Create a passkey</button>
 <p class="status" id="passkey-status" role="status">

@@ -17,6 +17,7 @@ use super::registration::{Challenge, DefaultPasskeyName, NewPasskey};
 use super::sign_in::{self, Landing};
 use super::{AppError, AppState};
 use crate::domain::auth::{AuthError, LinkKind, LinkToken};
+use crate::domain::members::CREW_NAME;
 use crate::views;
 use crate::views::nav::Tab;
 use crate::views::passkey::CeremonyUrls;
@@ -63,6 +64,7 @@ async fn show(
         ))
         .into_response()),
         Ok(link) => Ok(fresh(views::invite::device_page(
+            CREW_NAME,
             &link.display_name,
             &ceremony_urls(&token),
         ))
@@ -86,7 +88,7 @@ async fn start(
 ) -> Result<Json<Challenge>, AppError> {
     let (ceremony, options) = state
         .auth
-        .start_recovering(&LinkToken::from_client(token))
+        .start_device_setup(&LinkToken::from_client(token))
         .await?;
     Ok(Json(Challenge { ceremony, options }))
 }
@@ -99,21 +101,18 @@ async fn finish(
     DefaultPasskeyName(name): DefaultPasskeyName,
     Json(body): Json<NewPasskey>,
 ) -> Result<impl IntoResponse, AppError> {
-    let recovered = state
+    let set_up = state
         .auth
-        .finish_recovering(
+        .finish_device_setup(
             &LinkToken::from_client(token),
             &body.ceremony,
             &body.credential,
             &name,
         )
         .await?;
-    tracing::info!(
-        member = recovered.member.get(),
-        "a Member set up a new device"
-    );
+    tracing::info!(member = set_up.member.get(), "a Member set up a new device");
     Ok((
-        [(SET_COOKIE, session_cookie(&recovered.session))],
+        [(SET_COOKIE, session_cookie(&set_up.session))],
         Json(Landing {
             redirect: Tab::Finance.href(),
         }),
@@ -182,7 +181,7 @@ mod tests {
     /// The path of a fresh Device link for Ondra, made by the Admin.
     async fn device_link(app: &TestApp, crew: &Crew) -> String {
         let admin = member(app, &crew.admin).await;
-        let token = app
+        let (token, _) = app
             .state
             .auth
             .create_device_link(crew.ondra.id, admin.id)
@@ -210,7 +209,7 @@ mod tests {
         assert_eq!(response.headers()[CACHE_CONTROL], "no-cache");
         let html = body_text(response).await;
         assert!(html.contains("<h1>Set up this device</h1>"));
-        assert!(html.contains("You'll sign in as <strong>Ondra</strong>."));
+        assert!(html.contains("You'll sign in to Asgard as <strong>Ondra</strong>."));
         assert!(html.contains(&format!("data-passkey-start=\"{link}/start\"")));
         assert!(html.contains(&format!("data-passkey-finish=\"{link}/finish\"")));
     }

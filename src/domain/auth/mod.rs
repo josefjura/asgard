@@ -25,7 +25,7 @@ pub use passkeys::{PASSKEY_NAME_MAX, PasskeyId, PasskeyName, PasskeyNameError, P
 pub use tokens::{LinkToken, SessionToken};
 
 use ceremonies::Ceremonies;
-use devices::PendingRecovery;
+use devices::PendingDeviceSetup;
 use passkeys::PendingAdd;
 
 use super::clock::{Clock, unix_seconds};
@@ -128,7 +128,7 @@ pub struct Auth {
     joining: Arc<Ceremonies<PendingJoin>>,
     signing_in: Arc<Ceremonies<DiscoverableAuthentication>>,
     adding: Arc<Ceremonies<PendingAdd>>,
-    recovering: Arc<Ceremonies<PendingRecovery>>,
+    setting_up: Arc<Ceremonies<PendingDeviceSetup>>,
 }
 
 impl Auth {
@@ -155,7 +155,7 @@ impl Auth {
             joining: Arc::new(Ceremonies::new()),
             signing_in: Arc::new(Ceremonies::new()),
             adding: Arc::new(Ceremonies::new()),
-            recovering: Arc::new(Ceremonies::new()),
+            setting_up: Arc::new(Ceremonies::new()),
         })
     }
 

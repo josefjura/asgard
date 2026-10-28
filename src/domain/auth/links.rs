@@ -71,7 +71,7 @@ impl Auth {
     }
 
     /// A Device link the Admin `created_by` made, which registers a passkey for `member` on
-    /// whichever device opens it.
+    /// whichever device opens it, and the name of the Member it is for.
     ///
     /// # Errors
     ///
@@ -80,10 +80,13 @@ impl Auth {
         &self,
         member: MemberId,
         created_by: MemberId,
-    ) -> Result<LinkToken, AuthError> {
-        if self.members.find(member).await?.is_none() {
-            return Err(AuthError::NoSuchMember);
-        }
+    ) -> Result<(LinkToken, DisplayName), AuthError> {
+        let name = self
+            .members
+            .find(member)
+            .await?
+            .ok_or(AuthError::NoSuchMember)?
+            .display_name;
         let token = LinkToken::generate();
         let hash = token.hash();
         let member = member.get();
@@ -102,7 +105,7 @@ impl Auth {
         )
         .execute(&self.db)
         .await?;
-        Ok(token)
+        Ok((token, name))
     }
 
     /// The Invite and Device links that still work, oldest first. The bootstrap Admin link is
@@ -263,8 +266,9 @@ mod tests {
         let ondra = add_member(&db, "Ondra", false).await;
         let auth = auth(db);
 
-        let token = auth.create_device_link(ondra, admin).await.unwrap();
+        let (token, named) = auth.create_device_link(ondra, admin).await.unwrap();
 
+        assert_eq!(named, name("Ondra"));
         let link = auth.device_link(&token).await.unwrap();
         assert_eq!(link.member, ondra);
         assert_eq!(link.display_name, name("Ondra"));
@@ -289,7 +293,7 @@ mod tests {
         let ondra = add_member(&db, "Ondra", false).await;
         let auth = auth(db);
         let invite = auth.create_invite(&name("Karel"), admin).await.unwrap();
-        let device = auth.create_device_link(ondra, admin).await.unwrap();
+        let (device, _) = auth.create_device_link(ondra, admin).await.unwrap();
 
         let as_device = auth.device_link(&invite).await;
         let as_invite = auth.invite(&device).await;
@@ -324,7 +328,7 @@ mod tests {
         let admin = add_member(&db, "Josef", true).await;
         let ondra = add_member(&db, "Ondra", false).await;
         let auth = auth(db);
-        let token = auth.create_device_link(ondra, admin).await.unwrap();
+        let (token, _) = auth.create_device_link(ondra, admin).await.unwrap();
         let id = auth.open_links().await.unwrap()[0].id;
 
         let revoked = auth.revoke_link(id).await.unwrap();
@@ -340,7 +344,7 @@ mod tests {
         let (auth, clock) = auth_with_clock(db.clone());
         let admin = add_member(&db, "Josef", true).await;
         let ondra = add_member(&db, "Ondra", false).await;
-        let token = auth.create_device_link(ondra, admin).await.unwrap();
+        let (token, _) = auth.create_device_link(ondra, admin).await.unwrap();
 
         clock.advance(LINK_LIFETIME);
 

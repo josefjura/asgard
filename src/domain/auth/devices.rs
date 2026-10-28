@@ -19,7 +19,7 @@ pub struct DeviceLink {
 }
 
 /// A passkey being registered through a Device link, waiting for the browser's new credential.
-pub(super) struct PendingRecovery {
+pub(super) struct PendingDeviceSetup {
     link_hash: Vec<u8>,
     registration: PasskeyRegistration,
 }
@@ -33,7 +33,7 @@ impl Auth {
     pub async fn device_link(&self, token: &LinkToken) -> Result<DeviceLink, AuthError> {
         let hash = token.hash();
         let now = unix_seconds(self.clock.now());
-        // The same conditions as the UPDATE in `finish_recovering`; `query!` needs each as a
+        // The same conditions as the UPDATE in `finish_device_setup`; `query!` needs each as a
         // literal.
         let link = sqlx::query!(
             r#"SELECT members.id AS "member_id!", members.display_name
@@ -58,15 +58,15 @@ impl Auth {
     /// # Errors
     ///
     /// Returns [`AuthError::LinkUnusable`] if the link no longer works.
-    pub async fn start_recovering(
+    pub async fn start_device_setup(
         &self,
         token: &LinkToken,
     ) -> Result<(CeremonyId, CreationChallengeResponse), AuthError> {
         let link = self.device_link(token).await?;
         let (challenge, registration) = self.start_registration(link.member).await?;
-        let ceremony = self.recovering.insert(
+        let ceremony = self.setting_up.insert(
             self.clock.now(),
-            PendingRecovery {
+            PendingDeviceSetup {
                 link_hash: token.hash(),
                 registration,
             },
@@ -83,7 +83,7 @@ impl Auth {
     /// Returns [`AuthError::CeremonyExpired`] for an unknown, expired or mismatched ceremony,
     /// [`AuthError::PasskeyRejected`] if the credential doesn't verify, and
     /// [`AuthError::LinkUnusable`] if the link stopped working meanwhile.
-    pub async fn finish_recovering(
+    pub async fn finish_device_setup(
         &self,
         token: &LinkToken,
         ceremony: &CeremonyId,
@@ -91,14 +91,14 @@ impl Auth {
         name: &PasskeyName,
     ) -> Result<Joined, AuthError> {
         let now = self.clock.now();
-        let recovering = self
-            .recovering
+        let setting_up = self
+            .setting_up
             .take(ceremony, now)
-            .filter(|recovering| recovering.link_hash == token.hash())
+            .filter(|setting_up| setting_up.link_hash == token.hash())
             .ok_or(AuthError::CeremonyExpired)?;
         let passkey = self
             .webauthn
-            .finish_passkey_registration(credential, &recovering.registration)
+            .finish_passkey_registration(credential, &setting_up.registration)
             .map_err(AuthError::PasskeyRejected)?;
 
         let now = unix_seconds(now);
@@ -111,7 +111,7 @@ impl Auth {
                  AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?1
                RETURNING member_id AS "member_id!""#,
             now,
-            recovering.link_hash,
+            setting_up.link_hash,
         )
         .fetch_optional(&mut *tx)
         .await?
