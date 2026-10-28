@@ -5,13 +5,17 @@ use crate::views::nav::Place;
 use crate::views::passkey::{self, Ceremony, CeremonyUrls};
 use crate::views::push;
 
-/// A Member's settings: their display name, their passkeys and a button that adds one through
-/// `add_passkey`, notifications on this device, and logging out of it, which posts to `log_out`.
+/// A Member's settings page.
+///
+/// It holds their display name, their passkeys and a button that adds one through
+/// `add_passkey`, notifications on this device, the way to the `admin` page for the Admin
+/// only, and logging out of this device, which posts to `log_out`.
 #[must_use]
 pub fn page(
     name_form: &Markup,
     passkeys: &Markup,
     add_passkey: &CeremonyUrls,
+    admin: Option<&str>,
     log_out: &str,
 ) -> Markup {
     shell(
@@ -36,6 +40,14 @@ pub fn page(
             section.settings-section aria-labelledby="settings-push" {
                 h2 #settings-push { "Notifications" }
                 (push::control())
+            }
+
+            @if let Some(admin) = admin {
+                section.settings-section aria-labelledby="settings-admin" {
+                    h2 #settings-admin { "Admin" }
+                    p.lead-in { "Bring someone into the Crew with an Invite link." }
+                    a.button href=(admin) { "Invite links" }
+                }
             }
 
             section.settings-section aria-labelledby="settings-device" {
@@ -70,8 +82,28 @@ mod tests {
             &display_name::form("/settings/name", "Ondra", None),
             &passkeys::list(BASE, passkeys, None),
             &add_passkey(),
+            None,
             "/log-out",
         )
+    }
+
+    #[test]
+    fn settings_page_for_the_admin() {
+        assert_html_snapshot!(page(
+            &display_name::form("/settings/name", "Josef", None),
+            &passkeys::list(BASE, &fixtures::one(), None),
+            &add_passkey(),
+            Some("/admin"),
+            "/log-out",
+        ));
+    }
+
+    #[test]
+    fn only_the_admin_is_shown_the_way_to_the_admin_page() {
+        let member = with_passkeys(&fixtures::one()).into_string();
+
+        assert!(!member.contains("href=\"/admin\""));
+        assert!(!member.contains("<h2 id=\"settings-admin\">"));
     }
 
     #[test]
@@ -102,7 +134,7 @@ mod tests {
 
     #[test]
     fn marks_settings_as_the_current_page() {
-        let html = page(&html! {}, &html! {}, &add_passkey(), "/log-out").into_string();
+        let html = page(&html! {}, &html! {}, &add_passkey(), None, "/log-out").into_string();
 
         assert!(html.contains("<title>Settings | Asgard</title>"));
         assert!(html.contains("href=\"/settings\" aria-label=\"Settings\" aria-current=\"page\""));

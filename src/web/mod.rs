@@ -1,6 +1,7 @@
 //! Routes, extractors, forms and htmx helpers: parse input, call a service, render a view.
 
 mod access;
+mod admin;
 mod error;
 #[cfg(debug_assertions)]
 mod gallery;
@@ -82,7 +83,8 @@ fn routes() -> Router<AppState> {
         .merge(invite::routes())
         .merge(welcome::routes())
         .merge(settings::routes())
-        .merge(passkeys::routes());
+        .merge(passkeys::routes())
+        .merge(admin::routes());
     for tab in Tab::ALL {
         router = router.route(tab.href(), pages::tab(tab));
     }

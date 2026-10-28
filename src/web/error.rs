@@ -23,6 +23,9 @@ pub enum AppError {
     /// the wrong Member.
     #[error("already signed in")]
     AlreadySignedIn,
+    /// A signed-in Member who isn't the Admin asked for an admin route.
+    #[error("Admin only")]
+    AdminOnly,
     #[error(transparent)]
     Auth(#[from] AuthError),
 }
@@ -43,6 +46,10 @@ impl AppError {
                         .to_owned(),
                 ),
             ),
+            Self::AdminOnly => (
+                StatusCode::FORBIDDEN,
+                Some("Only the Admin can do that.".to_owned()),
+            ),
             Self::Auth(err) => auth_outcome(err),
         }
     }
@@ -53,7 +60,7 @@ fn auth_outcome(err: &AuthError) -> (StatusCode, Option<String>) {
     match err {
         AuthError::LinkUnusable => say(
             StatusCode::GONE,
-            "This link has expired or was already used. Ask the Admin for a new one.",
+            "This link has expired, was already used or was revoked. Ask the Admin for a new one.",
         ),
         AuthError::AdminExists => say(StatusCode::CONFLICT, "The Crew already has an Admin."),
         AuthError::Name(err) => (StatusCode::UNPROCESSABLE_ENTITY, Some(name_message(err))),

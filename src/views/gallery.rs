@@ -6,6 +6,7 @@ use maud::{DOCTYPE, Markup, html};
 use crate::assets;
 use crate::domain::auth::PasskeyName;
 use crate::domain::members::{CREW_NAME, DisplayName};
+use crate::views::admin::{self, Outcome as AdminOutcome};
 use crate::views::brand::header_logo;
 use crate::views::display_name::{self, Outcome};
 use crate::views::layout::document;
@@ -31,6 +32,12 @@ const WELCOME_HEIGHT: u16 = 1500;
 const SETTINGS_HEIGHT: u16 = 1150;
 /// Each extra passkey adds a card to the settings page.
 const SEVERAL_PASSKEYS_HEIGHT: u16 = 1500;
+/// The Admin's settings have one more section.
+const ADMIN_SETTINGS_HEIGHT: u16 = 1300;
+/// The admin page's two sections, with a new link or several open ones.
+const ADMIN_HEIGHT: u16 = 1000;
+/// Where the fixture admin page's forms post.
+const ADMIN_BASE: &str = "/admin";
 /// Where the fixture passkey lists' forms post.
 const PASSKEYS_BASE: &str = "/settings/passkeys";
 const DESKTOP_WIDTH: u16 = 1280;
@@ -109,7 +116,48 @@ pub fn fixtures() -> Vec<Fixture> {
         .chain([sign_in])
         .chain(signed_in_pages())
         .chain(passkey_lists())
+        .chain(admin_pages())
         .collect()
+}
+
+/// The admin page empty, with open links, and after each thing the Admin can do on it.
+fn admin_pages() -> Vec<Fixture> {
+    let open = admin::fixtures::several();
+    let karel = DisplayName::parse("Karel").expect("fixture names are valid");
+    let ondra = DisplayName::parse("Ondra").expect("fixture names are valid");
+    let refused = "Someone in the Crew is already called josef.";
+    [
+        ("No open links", &[][..], None),
+        ("Open links", &open[..], None),
+        (
+            "Link just made",
+            &open[..],
+            Some(AdminOutcome::Created {
+                name: &karel,
+                url: admin::fixtures::URL,
+            }),
+        ),
+        (
+            "Name refused",
+            &[][..],
+            Some(AdminOutcome::Refused {
+                value: "josef",
+                message: refused,
+            }),
+        ),
+        (
+            "Link revoked",
+            &open[1..],
+            Some(AdminOutcome::Revoked(&ondra)),
+        ),
+    ]
+    .map(|(state, open, outcome)| Fixture {
+        component: "Admin page",
+        state: state.to_owned(),
+        document: admin::page(&admin::links(ADMIN_BASE, open, outcome)),
+        height: ADMIN_HEIGHT,
+    })
+    .into()
 }
 
 /// The pages a signed-in Member changes their display name on, and the form itself.
@@ -125,14 +173,26 @@ fn signed_in_pages() -> Vec<Fixture> {
         height: WELCOME_HEIGHT,
     };
     let settings = [
-        ("One passkey", passkeys::fixtures::one(), SETTINGS_HEIGHT),
+        (
+            "One passkey",
+            passkeys::fixtures::one(),
+            false,
+            SETTINGS_HEIGHT,
+        ),
         (
             "Several passkeys",
             passkeys::fixtures::several(),
+            false,
             SEVERAL_PASSKEYS_HEIGHT,
         ),
+        (
+            "The Admin's",
+            passkeys::fixtures::one(),
+            true,
+            ADMIN_SETTINGS_HEIGHT,
+        ),
     ]
-    .map(|(state, passkeys, height)| Fixture {
+    .map(|(state, passkeys, admin, height)| Fixture {
         component: "Settings page",
         state: state.to_owned(),
         document: settings::page(
@@ -142,6 +202,7 @@ fn signed_in_pages() -> Vec<Fixture> {
                 start: format!("{PASSKEYS_BASE}/start"),
                 finish: format!("{PASSKEYS_BASE}/finish"),
             },
+            admin.then_some("/admin"),
             "/log-out",
         ),
         height,
@@ -295,6 +356,7 @@ mod tests {
             "Settings page",
             "Display name form",
             "Passkey list",
+            "Admin page",
         ] {
             assert!(
                 html.contains(&format!("<h2>{component}</h2>")),
@@ -322,6 +384,12 @@ mod tests {
             "Unchanged",
             "Saved",
             "Refused",
+            "The Admin's",
+            "No open links",
+            "Open links",
+            "Link just made",
+            "Name refused",
+            "Link revoked",
         ] {
             assert!(html.contains(&format!("<h3>{state}</h3>")), "{state}");
         }

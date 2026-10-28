@@ -458,3 +458,66 @@ a {
   min-height: 1.5em;
   margin: var(--space-2) 0 0;
 }
+
+/* The admin page: the link just made with its copy button, then the open links, each with its
+   revoke button beside it. */
+
+a.button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.new-link {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+
+.new-link label {
+  display: block;
+  margin-bottom: var(--space-2);
+}
+
+.new-link input {
+  font-size: 0.875rem;
+}
+
+.admin-links .note {
+  margin: var(--space-2) 0 0;
+  font-size: 0.875rem;
+}
+
+.admin-links .note:empty {
+  display: none;
+}
+
+.link-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.open-link {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+
+.open-link p {
+  margin: 0;
+}
+
+.open-link .expires {
+  color: var(--muted);
+  font-size: 0.875rem;
+}

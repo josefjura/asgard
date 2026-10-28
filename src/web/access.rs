@@ -113,6 +113,25 @@ impl OptionalFromRequestParts<AppState> for Member {
     }
 }
 
+/// The signed-in Admin. Without a valid session, the request is sent to sign in; a Member who
+/// isn't the Admin is refused with [`AppError::AdminOnly`].
+#[derive(Debug, Clone)]
+pub struct Admin(pub members::Member);
+
+impl FromRequestParts<AppState> for Admin {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
+        let Member(member) =
+            <Member as FromRequestParts<AppState>>::from_request_parts(parts, state).await?;
+        if member.is_admin {
+            Ok(Self(member))
+        } else {
+            Err(AppError::AdminOnly)
+        }
+    }
+}
+
 /// A browser with no valid session, for routes that must not act on a signed-in Member's
 /// behalf. A signed-in request is refused with [`AppError::AlreadySignedIn`].
 #[derive(Debug)]

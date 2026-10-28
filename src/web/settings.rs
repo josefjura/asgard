@@ -17,7 +17,7 @@ use super::{AppError, AppState};
 use crate::domain::members;
 use crate::views;
 use crate::views::display_name;
-use crate::views::nav::SETTINGS_HREF;
+use crate::views::nav::{ADMIN_HREF, SETTINGS_HREF};
 
 const NAME_PATH: &str = "/settings/name";
 
@@ -32,7 +32,7 @@ async fn show(
     Member(member): Member,
 ) -> Result<impl IntoResponse, AppError> {
     let passkeys = passkeys::list(&state, &member, None).await?;
-    Ok(fresh(page(&name_form(&member), &passkeys)))
+    Ok(fresh(page(&member, &name_form(&member), &passkeys)))
 }
 
 /// The display-name form showing the Member's current name.
@@ -40,12 +40,13 @@ pub fn name_form(member: &members::Member) -> Markup {
     display_name::form(NAME_PATH, member.display_name.as_str(), None)
 }
 
-/// The settings page around the display-name form and the passkey list.
-pub fn page(name_form: &Markup, passkeys: &Markup) -> Markup {
+/// `member`'s settings page around the display-name form and the passkey list.
+pub fn page(member: &members::Member, name_form: &Markup, passkeys: &Markup) -> Markup {
     views::settings::page(
         name_form,
         passkeys,
         &passkeys::ceremony_urls(),
+        member.is_admin.then_some(ADMIN_HREF),
         LOG_OUT_PATH,
     )
 }
@@ -63,7 +64,7 @@ async fn rename(
         passkeys::list(&state, &member, None).await?
     };
     name_form::submit(&state, &member, &input, NAME_PATH, htmx, |form| {
-        page(form, &passkeys)
+        page(&member, form, &passkeys)
     })
     .await
 }

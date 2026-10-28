@@ -47,6 +47,11 @@ const HASHED: &[Hashed] = &[
         content_type: JAVASCRIPT,
     },
     Hashed {
+        constant: "COPY_LINK",
+        file: "copy-link.js",
+        content_type: JAVASCRIPT,
+    },
+    Hashed {
         constant: "ICON_SVG",
         file: "icon.svg",
         content_type: "image/svg+xml",

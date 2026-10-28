@@ -162,7 +162,7 @@ async fn answer(
     let body = if htmx {
         list
     } else {
-        settings::page(&settings::name_form(member), &list)
+        settings::page(member, &settings::name_form(member), &list)
     };
     Ok((status, fresh(body)).into_response())
 }

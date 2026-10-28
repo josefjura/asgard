@@ -30,7 +30,7 @@ expression: "link_error(None).into_string().replace(\"><\", \">\\n<\")"
 <img src="/static/logo-hero-light.[hash].svg" alt="" width="180" height="180">
 </picture>
 <h1>This link no longer works</h1>
-<p>Each link works once, for 24 hours. This one has expired or was already used.</p>
+<p>Each link works once, for 24 hours. This one has expired, was already used or was revoked.</p>
 <p>Ask the Admin to send you a new one.</p>
 </main>
 </body>
