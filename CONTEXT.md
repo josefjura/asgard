@@ -2,11 +2,21 @@
 
 The shared app of a small home-brewery crew: their common money, shopping, reminders and quotes in one place.
 
+## Names
+
+**Runa**:
+The brewery: the real-world thing the Crew runs, with its own public site outside Asgard. Asgard's logo and icons are Runa's.
+_Avoid_: Asgard (that's the app)
+
+**Asgard**:
+The Crew's private app at `asgard.joseforge.cz`. It is for Members only and is not the brewery's public face.
+_Avoid_: Runa (that's the brewery), the site
+
 ## People
 
 **Crew**:
 The closed group of people who brew together and share costs. There is exactly one Crew.
-_Avoid_: brewery (the real-world thing, not the group), guild, server
+_Avoid_: brewery (that's Runa, not the group), guild, server
 
 **Member**:
 A person in the Crew.
