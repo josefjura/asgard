@@ -4,4 +4,5 @@
 
 pub mod auth;
 pub mod clock;
+pub mod finance;
 pub mod members;

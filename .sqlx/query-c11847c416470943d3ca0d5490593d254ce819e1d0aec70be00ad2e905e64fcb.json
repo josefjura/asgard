@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT expenses.id AS \"id!\", members.display_name AS payer, amount, description,\n                      expense_date\n               FROM expenses JOIN members ON members.id = expenses.payer_id\n               WHERE deleted_at IS NULL\n               ORDER BY logged_at DESC, expenses.id DESC\n               LIMIT ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "payer",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "amount",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "description",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "expense_date",
+        "ordinal": 4,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c11847c416470943d3ca0d5490593d254ce819e1d0aec70be00ad2e905e64fcb"
+}

@@ -1,0 +1,28 @@
+---
+source: src/views/finance.rs
+expression: "expense_form(ACTION, &crew(), &empty_values(&today),\n&ExpenseProblems::default(), TODAY).into_string().replace(\"><\", \">\\n<\")"
+---
+<form class="entry-form" method="post" action="/expenses" hx-post="/expenses" hx-swap="outerHTML">
+<div class="field">
+<label for="expense-amount">Amount in Kč</label>
+<input id="expense-amount" type="text" inputmode="numeric" name="amount" value="" required autocomplete="off" autofocus>
+</div>
+<div class="field">
+<label for="expense-description">What for</label>
+<input id="expense-description" type="text" name="description" value="" required maxlength="500" autocomplete="off">
+</div>
+<div class="field">
+<label for="expense-payer">Paid by</label>
+<select id="expense-payer" name="payer">
+<option value="1">Josef</option>
+<option value="2" selected>Ondra</option>
+<option value="3">Šimon</option>
+</select>
+</div>
+<details class="field expense-date">
+<summary>Spent today</summary>
+<label for="expense-date">Expense date</label>
+<input id="expense-date" type="date" name="expense_date" value="2026-10-30" max="2026-10-30" required>
+</details>
+<button class="button button-large" type="submit">Log Expense</button>
+</form>

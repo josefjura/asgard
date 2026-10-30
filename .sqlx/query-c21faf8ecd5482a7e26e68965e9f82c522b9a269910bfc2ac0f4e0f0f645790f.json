@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO expenses (payer_id, amount, description, expense_date, logged_by, logged_at)\n             VALUES (?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "c21faf8ecd5482a7e26e68965e9f82c522b9a269910bfc2ac0f4e0f0f645790f"
+}

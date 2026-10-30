@@ -278,7 +278,7 @@ pub async fn insert(
     }
 }
 
-fn parse_date(value: &str) -> Result<Date, sqlx::Error> {
+pub(in crate::domain) fn parse_date(value: &str) -> Result<Date, sqlx::Error> {
     value
         .parse()
         .map_err(|err: jiff::Error| sqlx::Error::Decode(err.into()))

@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT payer_id, amount, expense_date FROM expenses WHERE deleted_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "payer_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "amount",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "expense_date",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d680d148083a9b8a3f683169c7be876cf7e5e4b1109f4b3c4ea8b2f096c20315"
+}
