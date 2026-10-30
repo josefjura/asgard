@@ -14,9 +14,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && mkdir -p /data/backups
 
 # Static binary only: CA certificates and tzdata come with the base, no shell.
-FROM gcr.io/distroless/static-debian12:nonroot
+# uid 10001 is the VPS's default for app containers, so the chart needs no override.
+FROM gcr.io/distroless/static-debian12
 COPY --from=builder /asgard /usr/local/bin/asgard
-COPY --from=builder --chown=nonroot:nonroot /data /data
+COPY --from=builder --chown=10001:10001 /data /data
+USER 10001:10001
 ENV DATABASE_URL=sqlite:/data/asgard.db \
     BACKUP_DIR=/data/backups \
     PORT=8080

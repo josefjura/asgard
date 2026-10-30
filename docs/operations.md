@@ -4,9 +4,10 @@ Asgard runs as a single-replica Deployment in the MicroK8s cluster on our VPS, a
 
 ## Build and deploy
 
-- A multi-stage `Dockerfile` builds a static musl binary with the `dist` profile (LTO, stripped) and copies it onto `gcr.io/distroless/static-debian12:nonroot`. The image runs as `nonroot` (uid 65532), has no shell, and owns `/data`, where `DATABASE_URL` and `BACKUP_DIR` point by default. A volume mounted at `/data` hides that ownership, so the Deployment sets `securityContext.fsGroup: 65532`.
-- Kubernetes manifests live in `deploy/` and are applied with Kustomize (`kubectl apply -k deploy/`) into the namespace `asgard`: Namespace, PVC, Deployment, Service, Ingress. `secret.example.yaml` lists the Secret's keys only; it is not part of the Kustomization, and the real Secret is created by hand.
-- The Deployment uses `replicas: 1` and `strategy: Recreate` (ADR 0004). Liveness checks `/health/live`, readiness `/health/ready`. The root filesystem is read-only; only `/data` (the PVC) and `/tmp` (an `emptyDir` for SQLite's temporary files) are writable.
+- A multi-stage `Dockerfile` builds a static musl binary with the `dist` profile (LTO, stripped) and copies it onto `gcr.io/distroless/static-debian12`, built for `linux/amd64`. The image runs as uid/gid 10001, the VPS's default, has no shell, and owns `/data`, where `DATABASE_URL` and `BACKUP_DIR` point by default.
+- The VPS defines every app with one values file rendered by a shared Helm chart. Asgard's is `deploy/asgard.yaml`; the operator deploys it into the namespace `asgard` with `./deploy.sh apply asgard`. The chart enforces a non-root user, a read-only root filesystem and no capabilities, and adds the Ingress with a Let's Encrypt certificate.
+- The chart runs exactly one replica and stops the old pod before starting the new one (ADR 0004). Both probes check `/health/ready`. Only `/data` (the volume) and `/tmp` (for SQLite's temporary files) are writable.
+- `deploy/asgard-secret.example.yaml` lists the Secret's keys only. The real Secret is sent to the operator encrypted (see [Secrets](#secrets)).
 
 ### Releases
 
@@ -14,9 +15,9 @@ Nobody tags or bumps the version by hand. `.github/workflows/release.yml` runs o
 
 1. Each squash-merged PR lands on `master` with its Conventional Commits title. Release Please opens or updates its release PR, which bumps `Cargo.toml` and `Cargo.lock` and adds the `CHANGELOG.md` entry. `feat:` bumps the minor version and `fix:` the patch. Before 1.0, a breaking change also bumps only the minor version.
 2. Merging the release PR creates the `vX.Y.Z` tag and the GitHub Release.
-3. The same workflow run then builds the image and pushes `ghcr.io/josefjura/asgard:X.Y.Z` and `:latest`. It can't be a separate `on: push: tags` workflow, because a tag pushed with `GITHUB_TOKEN` never triggers another workflow.
+3. The same workflow run then builds the image and pushes `ghcr.io/josefjura/asgard:X.Y.Z`. There is no `:latest`: the deploy tooling rejects it, and a tag is never overwritten. It can't be a separate `on: push: tags` workflow, because a tag pushed with `GITHUB_TOKEN` never triggers another workflow.
 
-To deploy, set the new `X.Y.Z` in the Deployment's image (see [Upgrade](#upgrade)).
+To deploy, set the new `X.Y.Z` in `deploy/asgard.yaml` (see [Upgrade](#upgrade)).
 
 Things to know:
 
@@ -27,17 +28,23 @@ Things to know:
 
 ### Running the image locally
 
+These flags match the restrictions the VPS enforces, so an image that runs this way runs there too:
+
 ```sh
-docker build -t asgard .
-docker run --rm -p 8080:8080 \
+docker build --platform linux/amd64 -t asgard .
+docker run --rm --name asgard -p 8080:8080 \
+  --read-only --tmpfs /tmp \
+  --cap-drop ALL --security-opt no-new-privileges \
+  -v asgard-data:/data \
   -e PUBLIC_URL=http://localhost:8080 \
   -e VAPID_PRIVATE_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \
   asgard
 curl http://localhost:8080/health/live
 curl http://localhost:8080/health/ready
+docker stop asgard    # exits within a second or two: SIGTERM is handled
 ```
 
-The all-zero VAPID key is only good enough to pass startup validation. To keep the database between runs, mount a volume at `/data`.
+The all-zero VAPID key is only good enough to pass startup validation. The named volume `asgard-data` takes the image's ownership of `/data` on first use and keeps the database between runs; `docker volume rm asgard-data` starts over. To test a release against real data, mount a directory owned by 10001 that holds a copy of the production database instead (`-v "$PWD/testdata:/data"`).
 
 ### VAPID key
 
@@ -54,51 +61,49 @@ The DER encoding puts the 32-byte private key right after a 7-byte header, which
 
 Generate it once and keep a copy in the password manager. Every push subscription is tied to this key: a new key silently stops notifications until each Member subscribes again.
 
+### Secrets
+
+Asgard's only secret is `VAPID_PRIVATE_KEY`, in the Secret `asgard-secret` under the key `vapid-private-key`. It can't be generated by the operator: it must be the key from the password manager, or every push subscription stops working. Encrypt it with [sops](https://github.com/getsops/sops) and the VPS's public age key, so only the server can decrypt it. Work outside the repository, so the plain value never lands in it:
+
+```sh
+cp deploy/asgard-secret.example.yaml ~/asgard-secret.yaml
+# Paste the VAPID key between the quotes of vapid-private-key, then:
+sops encrypt --in-place \
+  --age age1gn5uyezusudmlcue7wtgfxnar6mntqfdp65ez5spveck42hghy5qaqctnc \
+  --encrypted-regex '^(data|stringData)$' \
+  ~/asgard-secret.yaml
+grep ENC ~/asgard-secret.yaml    # the value must now look like ENC[AES256_GCM,...]
+```
+
+The encrypted file is safe to hand over. Secrets are read at startup, so changing one means restarting the pod.
+
 ### First deploy
 
-Run these on the VPS from a clone of the repository. The commands say `kubectl`; there it is `microk8s kubectl`, unless it is aliased.
+The operator deploys from the VPS's own repository, with the values file and the encrypted Secret. The commands say `kubectl`; on the VPS it is `microk8s kubectl`, unless it is aliased.
 
 1. **Check the prerequisites.**
-   - The image tag in `deploy/deployment.yaml` has been released: `ghcr.io/josefjura/asgard:X.Y.Z` exists.
-   - `asgard.joseforge.cz` resolves to the cluster's ingress IP: `dig +short asgard.joseforge.cz`.
-2. **Create the namespace and the Secrets.** The package on ghcr.io is private, so the pod pulls the image with `ghcr-secret`, like the other apps. Secrets belong to one namespace, so Asgard needs its own copy. Use a GitHub personal access token (classic) with the `read:packages` scope. Paste the token, then the VAPID key from the password manager (see [VAPID key](#vapid-key)), when `read` asks, so neither lands in the shell history:
+   - The tag in `deploy/asgard.yaml` has been released: `ghcr.io/josefjura/asgard:X.Y.Z` exists.
+   - `asgard.joseforge.cz` resolves to the VPS: `dig +short asgard.joseforge.cz`.
+   - The encrypted Secret is ready (see [Secrets](#secrets)).
+2. **Hand over** `deploy/asgard.yaml` and the encrypted `asgard-secret.yaml`. The operator creates the namespace `asgard`, loads the Secret and runs `./deploy.sh apply asgard`. Notes for the operator:
+   - SQLite at `/data/asgard.db`, under 1 GB. Single instance only.
+   - Migrations run on start, before the server listens.
+   - The first Admin is created with a one-off `kubectl exec` (step 5).
+3. **Watch the pod start.** If it crashes, the log names the missing or invalid variable:
 
    ```sh
-   kubectl apply -f deploy/namespace.yaml
-   read -rs GHCR_TOKEN
-   kubectl -n asgard create secret docker-registry ghcr-secret \
-     --docker-server=ghcr.io --docker-username=josefjura \
-     --docker-password="$GHCR_TOKEN"
-   read -rs VAPID_PRIVATE_KEY
-   kubectl -n asgard create secret generic asgard-secrets \
-     --from-literal=VAPID_PRIVATE_KEY="$VAPID_PRIVATE_KEY"
-   unset GHCR_TOKEN VAPID_PRIVATE_KEY
-   ```
-
-   If the pod later shows `ImagePullBackOff`, the token is wrong or has expired: delete `ghcr-secret`, create it again, and delete the pod.
-
-3. **Apply the manifests and wait for the pod:**
-
-   ```sh
-   kubectl apply -k deploy/
    kubectl -n asgard rollout status deploy/asgard
+   kubectl -n asgard logs deploy/asgard
    ```
 
-   If the pod crashes, `kubectl -n asgard logs deploy/asgard` names the missing or invalid variable.
-4. **Wait for the certificate.** cert-manager requests it when the Ingress appears; `READY` turns `True` within a minute or two:
-
-   ```sh
-   kubectl -n asgard get certificate asgard-prod-tls
-   ```
-
-5. **Check it from outside.** This must print `ok` without `-k`, which proves the Let's Encrypt certificate is valid:
+4. **Check it from outside.** cert-manager requests the certificate when the Ingress appears, which takes a minute or two. This must print `ok` without `-k`, which proves the Let's Encrypt certificate is valid:
 
    ```sh
    curl https://asgard.joseforge.cz/health/ready
    ```
 
-6. **Create the first Admin** as described in [The first Admin](#the-first-admin), and sign in.
-7. **Check that data survives a restart.** Delete the pod, wait for the new one, and sign in again: the Admin and the passkey are still there.
+5. **Create the first Admin** as described in [The first Admin](#the-first-admin), and sign in.
+6. **Check that data survives a restart.** Delete the pod, wait for the new one, and sign in again: the Admin and the passkey are still there.
 
    ```sh
    kubectl -n asgard delete pod -l app=asgard
@@ -108,30 +113,21 @@ Run these on the VPS from a clone of the repository. The commands say `kubectl`;
 ### Upgrade
 
 1. Merge the release PR and wait for the release workflow's image job to push `ghcr.io/josefjura/asgard:X.Y.Z`.
-2. Set the image tag in `deploy/deployment.yaml` to `X.Y.Z` and merge that change, so `master` always shows what is running.
-3. Apply it and wait:
+2. Test the new image against a copy of the production database (see [Running the image locally](#running-the-image-locally)). The old pod stops before the new one starts, so a release that fails to start means downtime.
+3. Set `image.tag` in `deploy/asgard.yaml` to `X.Y.Z` and merge that change, so `master` always shows what is running.
+4. Hand the new tag to the operator, together with any new variable or Secret key. New configuration must be in place before the image that needs it. The operator runs `./deploy.sh apply asgard`; then check:
 
    ```sh
-   kubectl apply -k deploy/
-   kubectl -n asgard rollout status deploy/asgard
    curl https://asgard.joseforge.cz/health/ready
    ```
 
-`Recreate` stops the old pod before the new one starts, so Asgard is down for a few seconds. Migrations run when the new pod starts. Watch it with `kubectl -n asgard get pods -w`: the old pod is `Terminating` and gone before the new one is `ContainerCreating`.
+Asgard is down for a few seconds while the old pod stops and the new one starts. Migrations run when the new pod starts.
 
-**Rolling back:** set the previous tag and apply again. That works only if the newer release added no migration: an older binary refuses to start on a database with a migration it doesn't know. In that case, restore the last nightly snapshot from before the upgrade (see [Backups and restore](#backups-and-restore)) together with the older tag. Nightly snapshots arrive with #13; until then, the only way back across a migration is a fix-forward release.
+**Rolling back:** set the previous tag and deploy again. That works only if the newer release added no migration: an older binary refuses to start on a database with a migration it doesn't know. In that case, restore the database from the last backup before the upgrade (see [Backups and restore](#backups-and-restore)) together with the older tag. Data entered since that backup is lost.
 
 ## Ingress and HTTPS
 
-HTTPS is required for passkeys, Web Push and service workers.
-
-- **Controller:** MicroK8s's ingress addon, ingress-nginx (`nginx-ingress-microk8s-controller` in namespace `ingress`). IngressClasses `nginx` and `public` both point to it. MetalLB provides LoadBalancer IPs.
-- **Certificates:** the cert-manager addon (namespace `cert-manager`) with the ClusterIssuer `letsencrypt-prod`, using Let's Encrypt production and the HTTP-01 challenge. Certificates renew automatically.
-- **Asgard's Ingress**, like every other app's, needs:
-  - annotation `cert-manager.io/cluster-issuer: "letsencrypt-prod"`
-  - `ingressClassName: nginx`
-  - a `tls:` block for `asgard.joseforge.cz` with `secretName: asgard-prod-tls`
-- **Caveat:** the issuer's challenge ingress uses class `public` while apps use `nginx`. This works only because both classes go to the same controller. If a second controller is ever added, switch the solver to `nginx`.
+HTTPS is required for passkeys, Web Push and service workers. The chart renders Asgard's Ingress from `host` in `deploy/asgard.yaml`: ingress-nginx terminates TLS with a Let's Encrypt certificate from cert-manager, redirects HTTP to HTTPS, and passes plain HTTP to the pod. Asgard doesn't depend on the request's scheme: its cookies are always `Secure`, and its origin comes from `PUBLIC_URL`.
 
 ## Configuration
 
@@ -139,7 +135,7 @@ Environment variables, validated at startup. Secrets come from a Kubernetes Secr
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | SQLite file on the PVC |
+| `DATABASE_URL` | SQLite file on the volume |
 | `PUBLIC_URL` | `https://asgard.joseforge.cz`; also the WebAuthn relying party, never change it (ADR 0005) |
 | `VAPID_PRIVATE_KEY` | Web Push signing key |
 | `BACKUP_DIR` | Where nightly snapshots are written |
@@ -159,7 +155,7 @@ It prints a link that works once, for 24 hours. Opening it registers a passkey a
 ## Health
 
 - `/health/live`: the process is up.
-- `/health/ready`: the database answers.
+- `/health/ready`: the database answers. The chart uses it for both the liveness and readiness probes.
 
 ## Backups and restore
 
