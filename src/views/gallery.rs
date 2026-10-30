@@ -212,7 +212,7 @@ fn finance_pages() -> Vec<Fixture> {
 
     const NEW_EXPENSE: &str = "/expenses/new";
     let homes = [
-        ("Owing", JOSEF, overview()),
+        ("Owes", JOSEF, overview()),
         ("Owed", ONDRA, overview()),
         ("Even", SIMON, overview()),
         ("Nothing logged", JOSEF, fresh()),
@@ -224,12 +224,7 @@ fn finance_pages() -> Vec<Fixture> {
         height: FINANCE_HEIGHT,
     });
     let today = TODAY.to_string();
-    let empty = ExpenseValues {
-        amount: "",
-        description: "",
-        payer: ONDRA,
-        expense_date: &today,
-    };
+    let empty = ExpenseValues::blank(ONDRA, &today);
     let mistaken = ExpenseValues {
         amount: "12,50",
         description: "",
@@ -506,7 +501,7 @@ mod tests {
             "Alone in the Crew",
             "Name refused",
             "Link revoked",
-            "Owing",
+            "Owes",
             "Owed",
             "Even",
             "Nothing logged",

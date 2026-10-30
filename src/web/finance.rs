@@ -11,16 +11,15 @@ use maud::Markup;
 use serde::Deserialize;
 
 use super::access::Member;
+use super::error::{amount_message, description_message};
 use super::htmx::{HX_REDIRECT, Htmx};
 use super::pages::fresh;
 use super::{AppError, AppState, welcome};
-use crate::domain::finance::money::{AMOUNT_MAX, AMOUNT_MIN, Amount, AmountError};
-use crate::domain::finance::{
-    DESCRIPTION_MAX, Description, DescriptionError, ExpenseError, NewExpense,
-};
+use crate::domain::finance::money::Amount;
+use crate::domain::finance::{Description, ExpenseError, NewExpense};
 use crate::domain::members::{self, MemberId};
 use crate::views;
-use crate::views::finance::{ExpenseProblems, ExpenseValues, crowns};
+use crate::views::finance::{ExpenseProblems, ExpenseValues};
 use crate::views::nav::Tab;
 
 /// Where the "+ Expense" button leads.
@@ -52,12 +51,7 @@ async fn new_expense(
     Member(member): Member,
 ) -> Result<impl IntoResponse, AppError> {
     let today = state.finance.today().to_string();
-    let values = ExpenseValues {
-        amount: "",
-        description: "",
-        payer: member.id,
-        expense_date: &today,
-    };
+    let values = ExpenseValues::blank(member.id, &today);
     let form = expense_form(&state, &values, &ExpenseProblems::default()).await?;
     Ok(fresh(views::finance::expense_page(&form)))
 }
@@ -145,26 +139,6 @@ fn parse(input: &ExpenseForm, payer: MemberId) -> Result<NewExpense, ExpenseProb
     }
 }
 
-fn amount_message(err: AmountError) -> String {
-    match err {
-        AmountError::NotWholeCrowns => "Enter the amount in whole crowns.".to_owned(),
-        AmountError::OutOfRange => format!(
-            "Enter an amount from {} to {}.",
-            crowns(AMOUNT_MIN),
-            crowns(AMOUNT_MAX)
-        ),
-    }
-}
-
-fn description_message(err: DescriptionError) -> String {
-    match err {
-        DescriptionError::Blank => "Say what the money was for.".to_owned(),
-        DescriptionError::TooLong => {
-            format!("Keep the description to {DESCRIPTION_MAX} characters or fewer.")
-        }
-    }
-}
-
 /// The Expense form showing `values` and `problems`, with every Member to choose the Payer from.
 async fn expense_form(
     state: &AppState,
@@ -192,6 +166,7 @@ mod tests {
     use url::form_urlencoded;
 
     use crate::domain::finance::DESCRIPTION_MAX;
+    use crate::domain::finance::money::Crowns;
     use crate::views::finance::crowns;
     use crate::web::htmx::{HX_REDIRECT, HX_REQUEST};
     use crate::web::test_support::{PUBLIC_ORIGIN, TestApp, body_text, request};
@@ -330,7 +305,7 @@ mod tests {
         assert!(html.contains("<span class=\"entry-what\">Malt</span>"));
         assert!(html.contains("Josef paid · 1 January 2026"));
         let html = page(&app, "/", &ondra).await;
-        assert!(html.contains("<section class=\"my-balance owing\""));
+        assert!(html.contains("<section class=\"my-balance owes\""));
         assert!(html.contains("You owe the Crew this."));
     }
 
@@ -353,8 +328,8 @@ mod tests {
         let (josef, _) = josef_and_ondra(&app).await;
         let range = format!(
             "Enter an amount from {} to {}.",
-            crowns(1),
-            crowns(1_000_000)
+            crowns(Crowns::new(1)),
+            crowns(Crowns::new(1_000_000))
         );
         let too_long = "x".repeat(DESCRIPTION_MAX + 1);
         let cases = [

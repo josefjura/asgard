@@ -28,6 +28,28 @@ impl Crowns {
     pub const fn is_even(self) -> bool {
         self.0.abs() <= 1
     }
+
+    /// Where a Member with a Balance this size stands with the Crew.
+    #[must_use]
+    pub const fn standing(self) -> Standing {
+        if self.is_even() {
+            Standing::Even
+        } else if self.0 > 0 {
+            Standing::Owed
+        } else {
+            Standing::Owes
+        }
+    }
+}
+
+/// Where a Member stands with the Crew, by their Balance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Standing {
+    /// The Crew owes them.
+    Owed,
+    /// They owe the Crew.
+    Owes,
+    Even,
 }
 
 /// What an Expense is for: from [`AMOUNT_MIN`] to [`AMOUNT_MAX`] whole crowns.
@@ -139,6 +161,18 @@ mod tests {
         }
         for crowns in [-2, 2, 1240] {
             assert!(!Crowns::new(crowns).is_even(), "{crowns}");
+        }
+    }
+
+    #[test]
+    fn a_balance_says_who_owes_whom() {
+        for (crowns, standing) in [
+            (-2, Standing::Owes),
+            (-1, Standing::Even),
+            (1, Standing::Even),
+            (2, Standing::Owed),
+        ] {
+            assert_eq!(Crowns::new(crowns).standing(), standing, "{crowns}");
         }
     }
 }

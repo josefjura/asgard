@@ -51,7 +51,7 @@ expression: "home(ONDRA, &overview(), NEW_EXPENSE).into_string().replace(\"><\",
 <section class="finance-section" aria-labelledby="crew-balances">
 <h2 id="crew-balances">Crew Balances</h2>
 <ul class="balance-list">
-<li class="owing">
+<li class="owes">
 <span class="balance-name">Josef</span>
 <span class="balance-amount">−4 160 Kč</span>
 </li>

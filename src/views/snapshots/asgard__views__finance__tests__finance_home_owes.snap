@@ -40,7 +40,7 @@ expression: "home(JOSEF, &overview(), NEW_EXPENSE).into_string().replace(\"><\",
 </header>
 <main class="shell-main">
 <h1>Finance</h1>
-<section class="my-balance owing" aria-labelledby="my-balance">
+<section class="my-balance owes" aria-labelledby="my-balance">
 <h2 id="my-balance">Your Balance</h2>
 <p class="balance-figure">−4 160 Kč</p>
 <p class="balance-says">You owe the Crew this.</p>
@@ -51,7 +51,7 @@ expression: "home(JOSEF, &overview(), NEW_EXPENSE).into_string().replace(\"><\",
 <section class="finance-section" aria-labelledby="crew-balances">
 <h2 id="crew-balances">Crew Balances</h2>
 <ul class="balance-list">
-<li class="owing">
+<li class="owes">
 <span class="balance-name">Josef (you)</span>
 <span class="balance-amount">−4 160 Kč</span>
 </li>

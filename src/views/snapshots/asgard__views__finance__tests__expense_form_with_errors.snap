@@ -20,7 +20,7 @@ expression: "expense_form(ACTION, &crew(), &values, &problems,\nTODAY).into_stri
 <option value="2">Ondra</option>
 <option value="3" selected>Šimon</option>
 </select>
-<p class="field-problem" id="expense-payer-problem">The Payer wasn't in the Crew yet on that date.</p>
+<p class="field-problem" id="expense-payer-problem">They weren't in the Crew yet on that date.</p>
 </div>
 <details class="field expense-date" open>
 <summary>Spent on 2 November 2026</summary>

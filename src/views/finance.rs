@@ -3,7 +3,7 @@
 use jiff::civil::Date;
 use maud::{Markup, html};
 
-use crate::domain::finance::money::Crowns;
+use crate::domain::finance::money::{Crowns, Standing};
 use crate::domain::finance::{DESCRIPTION_MAX, ExpenseEntry, Overview};
 use crate::domain::members::{MemberId, MemberName};
 use crate::views::layout::shell;
@@ -12,8 +12,8 @@ use crate::views::nav::{Place, Tab};
 /// `crowns` the way the Crew reads money: thousands grouped by a space that never breaks, and
 /// "Kč". A negative amount gets a true minus sign.
 #[must_use]
-pub fn crowns(crowns: i64) -> String {
-    let digits = crowns.unsigned_abs().to_string();
+pub fn crowns(crowns: Crowns) -> String {
+    let digits = crowns.get().unsigned_abs().to_string();
     let mut grouped = String::new();
     for (index, digit) in digits.chars().enumerate() {
         if index > 0 && (digits.len() - index).is_multiple_of(3) {
@@ -21,27 +21,26 @@ pub fn crowns(crowns: i64) -> String {
         }
         grouped.push(digit);
     }
-    let sign = if crowns < 0 { "\u{2212}" } else { "" };
+    let sign = if crowns.get() < 0 { "\u{2212}" } else { "" };
     format!("{sign}{grouped}\u{a0}Kč")
 }
 
-/// A Balance with its sign spelled out, so owing and being owed never look alike.
-fn signed(balance: Crowns) -> String {
-    if balance.get() > 0 {
-        format!("+{}", crowns(balance.get()))
-    } else {
-        crowns(balance.get())
+/// A Balance as the Crew list shows it: Even, or with its sign spelled out so owing and being
+/// owed never look alike.
+fn balance_text(balance: Crowns) -> String {
+    match balance.standing() {
+        Standing::Even => "Even".to_owned(),
+        Standing::Owed => format!("+{}", crowns(balance)),
+        Standing::Owes => crowns(balance),
     }
 }
 
-/// Whether a Balance is owed, owing or Even, as a class the stylesheet colours.
-const fn standing(balance: Crowns) -> &'static str {
-    if balance.is_even() {
-        "even"
-    } else if balance.get() > 0 {
-        "owed"
-    } else {
-        "owing"
+/// Where a Member stands, as a class the stylesheet colours.
+const fn standing_class(balance: Crowns) -> &'static str {
+    match balance.standing() {
+        Standing::Owed => "owed",
+        Standing::Owes => "owes",
+        Standing::Even => "even",
     }
 }
 
@@ -60,16 +59,15 @@ pub fn home(me: MemberId, overview: &Overview, new_expense: &str) -> Markup {
         &html! {
             h1 { "Finance" }
 
-            section.my-balance.(standing(mine)) aria-labelledby="my-balance" {
+            section.my-balance.(standing_class(mine)) aria-labelledby="my-balance" {
                 h2 #my-balance { "Your Balance" }
-                @if mine.is_even() {
-                    p.balance-figure { "Even" }
-                    p.balance-says { "Nobody owes you and you owe nobody." }
-                } @else {
-                    p.balance-figure { (signed(mine)) }
-                    p.balance-says {
-                        @if mine.get() > 0 { "The Crew owes you this." } @else { "You owe the Crew this." }
-                    }
+                p.balance-figure { (balance_text(mine)) }
+                p.balance-says {
+                    (match mine.standing() {
+                        Standing::Owed => "The Crew owes you this.",
+                        Standing::Owes => "You owe the Crew this.",
+                        Standing::Even => "Nobody owes you and you owe nobody.",
+                    })
                 }
             }
 
@@ -81,14 +79,12 @@ pub fn home(me: MemberId, overview: &Overview, new_expense: &str) -> Markup {
                 h2 #crew-balances { "Crew Balances" }
                 ul.balance-list {
                     @for balance in &overview.balances {
-                        li.(standing(balance.balance)) {
+                        li.(standing_class(balance.balance)) {
                             span.balance-name {
                                 (balance.member.display_name)
                                 @if balance.member.id == me { " (you)" }
                             }
-                            span.balance-amount {
-                                @if balance.balance.is_even() { "Even" } @else { (signed(balance.balance)) }
-                            }
+                            span.balance-amount { (balance_text(balance.balance)) }
                         }
                     }
                 }
@@ -119,7 +115,7 @@ pub fn entry_row(entry: &ExpenseEntry) -> Markup {
                 span.entry-what { (entry.description.as_str()) }
                 span.entry-meta { (entry.payer) " paid · " (day(entry.expense_date)) }
             }
-            span.entry-amount { (crowns(entry.amount.get())) }
+            span.entry-amount { (crowns(entry.amount.crowns())) }
         }
     }
 }
@@ -133,6 +129,19 @@ pub struct ExpenseValues<'a> {
     pub expense_date: &'a str,
 }
 
+impl<'a> ExpenseValues<'a> {
+    /// A new Expense paid by `payer` on `expense_date`, with nothing typed yet.
+    #[must_use]
+    pub const fn blank(payer: MemberId, expense_date: &'a str) -> Self {
+        Self {
+            amount: "",
+            description: "",
+            payer,
+            expense_date,
+        }
+    }
+}
+
 /// Why each field of the Expense form was refused, if it was.
 #[derive(Debug, Clone, Default)]
 pub struct ExpenseProblems {
@@ -140,16 +149,6 @@ pub struct ExpenseProblems {
     pub description: Option<String>,
     pub payer: Option<String>,
     pub expense_date: Option<String>,
-}
-
-impl ExpenseProblems {
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.amount.is_none()
-            && self.description.is_none()
-            && self.payer.is_none()
-            && self.expense_date.is_none()
-    }
 }
 
 /// The page around the Expense form.
@@ -370,12 +369,7 @@ mod tests {
     const ACTION: &str = "/expenses";
 
     fn empty_values(today: &str) -> ExpenseValues<'_> {
-        ExpenseValues {
-            amount: "",
-            description: "",
-            payer: ONDRA,
-            expense_date: today,
-        }
+        ExpenseValues::blank(ONDRA, today)
     }
 
     #[test]
@@ -389,12 +383,16 @@ mod tests {
             (1_000_000, "1 000 000 Kč"),
             (-4_160, "−4 160 Kč"),
         ] {
-            assert_eq!(crowns(amount), shown.replace(' ', "\u{a0}"), "{amount}");
+            assert_eq!(
+                crowns(Crowns::new(amount)),
+                shown.replace(' ', "\u{a0}"),
+                "{amount}"
+            );
         }
     }
 
     #[test]
-    fn finance_home_owing() {
+    fn finance_home_owes() {
         assert_html_snapshot!(home(JOSEF, &overview(), NEW_EXPENSE));
     }
 
@@ -441,7 +439,7 @@ mod tests {
         let problems = ExpenseProblems {
             amount: Some("Enter an amount from 1 to 1 000 000 Kč.".to_owned()),
             description: Some("Say what the money was for.".to_owned()),
-            payer: Some("The Payer wasn't in the Crew yet on that date.".to_owned()),
+            payer: Some("They weren't in the Crew yet on that date.".to_owned()),
             expense_date: Some("The Expense date can't be in the future.".to_owned()),
         };
         assert_html_snapshot!(expense_form(ACTION, &crew(), &values, &problems, TODAY));

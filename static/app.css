@@ -524,7 +524,7 @@ a.button {
 }
 
 /* Finance: the Member's own Balance up top, the big "+ Expense" button, then the Crew's
-   Balances and the latest entries. Owed is green, owing is red, Even is muted. */
+   Balances and the latest entries. Owed is green, owes is red, Even is muted. */
 
 .my-balance {
   margin-bottom: var(--space-4);
@@ -559,8 +559,8 @@ a.button {
   color: var(--active);
 }
 
-.owing .balance-figure,
-.owing .balance-amount {
+.owes .balance-figure,
+.owes .balance-amount {
   color: var(--danger);
 }
 

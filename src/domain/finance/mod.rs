@@ -380,12 +380,14 @@ mod tests {
             .await
             .unwrap();
 
-        let (payer, logger): (i64, i64) =
-            sqlx::query_as("SELECT payer_id, logged_by FROM expenses")
-                .fetch_one(&db)
-                .await
-                .unwrap();
-        assert_eq!((payer, logger), (ondra.get(), josef.get()));
+        let row = sqlx::query!("SELECT payer_id, logged_by FROM expenses")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(
+            (row.payer_id, row.logged_by),
+            (ondra.get(), Some(josef.get()))
+        );
     }
 
     #[sqlx::test]

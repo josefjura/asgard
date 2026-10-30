@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT payer_id, logged_by FROM expenses",
+  "describe": {
+    "columns": [
+      {
+        "name": "payer_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "logged_by",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "65d27e3dbe898accc5f99f4039de81eb09b5b487ec1d84853aaeffe5de9981a6"
+}
