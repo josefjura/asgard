@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/josefjura/asgard/compare/v0.2.0...v0.3.0) (2026-10-30)
+
+
+### Features
+
+* Kubernetes manifests and deploy docs for asgard.joseforge.cz ([#46](https://github.com/josefjura/asgard/issues/46)) ([72344a5](https://github.com/josefjura/asgard/commit/72344a55fca660fb45088480834d1399856f32c6))
+* log an Expense and see Balances on Finance ([#54](https://github.com/josefjura/asgard/issues/54)) ([89f17bd](https://github.com/josefjura/asgard/commit/89f17bdd2e3ec0709d68b392476c8b38172e0f30))
+
 ## [0.2.0](https://github.com/josefjura/asgard/compare/v0.1.0...v0.2.0) (2026-10-28)
 
 
