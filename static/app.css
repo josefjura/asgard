@@ -522,3 +522,160 @@ a.button {
   color: var(--muted);
   font-size: 0.875rem;
 }
+
+/* Finance: the Member's own Balance up top, the big "+ Expense" button, then the Crew's
+   Balances and the latest entries. Owed is green, owes is red, Even is muted. */
+
+.my-balance {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+
+.my-balance h2 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.balance-figure {
+  margin: var(--space-1) 0 0;
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.balance-says {
+  margin: var(--space-1) 0 0;
+  color: var(--muted);
+}
+
+.owed .balance-figure,
+.owed .balance-amount {
+  color: var(--active);
+}
+
+.owes .balance-figure,
+.owes .balance-amount {
+  color: var(--danger);
+}
+
+.even .balance-amount {
+  color: var(--muted);
+}
+
+.button-large {
+  width: 100%;
+  min-height: 3.5rem;
+  justify-content: center;
+  font-size: 1.125rem;
+}
+
+.finance-actions {
+  margin-bottom: var(--space-5);
+}
+
+.finance-section {
+  margin-bottom: var(--space-5);
+}
+
+.finance-section h2 {
+  margin: 0 0 var(--space-2);
+  font-size: 1.125rem;
+  line-height: 1.3;
+}
+
+.finance-section .lead-in {
+  margin: 0;
+  color: var(--muted);
+}
+
+.balance-list,
+.entry-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.balance-list li,
+.entry {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  justify-content: space-between;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.balance-amount,
+.entry-amount {
+  flex: none;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.entry-main {
+  display: grid;
+  min-width: 0;
+}
+
+.entry-what {
+  overflow-wrap: anywhere;
+}
+
+.entry-meta {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* The Expense form: one field under another, each with its problem beneath it. The Expense
+   date folds away while it is today. */
+
+.entry-form {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 28rem;
+}
+
+.entry-form label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-weight: 600;
+}
+
+.entry-form input,
+.entry-form select {
+  width: 100%;
+  min-height: 3rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.entry-form [aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.field-problem {
+  margin: var(--space-1) 0 0;
+  color: var(--danger);
+  font-size: 0.875rem;
+}
+
+.expense-date summary {
+  min-height: 2.75rem;
+  padding: var(--space-2) 0;
+  color: var(--active);
+  cursor: pointer;
+}
+
+.expense-date[open] summary {
+  margin-bottom: var(--space-1);
+}

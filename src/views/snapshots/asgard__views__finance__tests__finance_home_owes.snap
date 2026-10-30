@@ -1,0 +1,137 @@
+---
+source: src/views/finance.rs
+expression: "home(JOSEF, &overview(), NEW_EXPENSE).into_string().replace(\"><\", \">\\n<\")"
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Finance | Asgard</title>
+<meta name="theme-color" content="#3E5B2B" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#263820" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Asgard">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="/static/icon.[hash].svg">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.[hash].png">
+<link rel="stylesheet" href="/static/app.[hash].css">
+<meta name="htmx-config" content="{&quot;responseHandling&quot;:[{&quot;code&quot;:&quot;204&quot;,&quot;swap&quot;:false},{&quot;code&quot;:&quot;[23]..&quot;,&quot;swap&quot;:true},{&quot;code&quot;:&quot;422&quot;,&quot;swap&quot;:true},{&quot;code&quot;:&quot;[45]..&quot;,&quot;swap&quot;:false,&quot;error&quot;:true},{&quot;code&quot;:&quot;...&quot;,&quot;swap&quot;:false}]}">
+<script src="/static/htmx-2.0.11.min.[hash].js" defer>
+</script>
+<script type="module" src="/static/register-sw.[hash].js">
+</script>
+</head>
+<body>
+<div class="shell">
+<header class="shell-header">
+<a class="logo" href="/">
+<img src="/static/logo-header.[hash].svg" alt="Asgard" width="128" height="32">
+</a>
+<a class="settings-link" href="/settings" aria-label="Settings">
+<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+<circle cx="12" cy="12" r="3">
+</circle>
+<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z">
+</path>
+</svg>
+</a>
+</header>
+<main class="shell-main">
+<h1>Finance</h1>
+<section class="my-balance owes" aria-labelledby="my-balance">
+<h2 id="my-balance">Your Balance</h2>
+<p class="balance-figure">−4 160 Kč</p>
+<p class="balance-says">You owe the Crew this.</p>
+</section>
+<div class="finance-actions">
+<a class="button button-large" href="/expenses/new">+ Expense</a>
+</div>
+<section class="finance-section" aria-labelledby="crew-balances">
+<h2 id="crew-balances">Crew Balances</h2>
+<ul class="balance-list">
+<li class="owes">
+<span class="balance-name">Josef (you)</span>
+<span class="balance-amount">−4 160 Kč</span>
+</li>
+<li class="owed">
+<span class="balance-name">Ondra</span>
+<span class="balance-amount">+4 161 Kč</span>
+</li>
+<li class="even">
+<span class="balance-name">Šimon</span>
+<span class="balance-amount">Even</span>
+</li>
+</ul>
+</section>
+<section class="finance-section" aria-labelledby="latest-entries">
+<h2 id="latest-entries">Latest entries</h2>
+<ul class="entry-list">
+<li class="entry">
+<div class="entry-main">
+<span class="entry-what">Pilsner malt, 3 sacks, and a new hydrometer</span>
+<span class="entry-meta">Ondra paid · 28 October 2026</span>
+</div>
+<span class="entry-amount">12 480 Kč</span>
+</li>
+<li class="entry">
+<div class="entry-main">
+<span class="entry-what">Saaz hops</span>
+<span class="entry-meta">Šimon paid · 21 October 2026</span>
+</div>
+<span class="entry-amount">380 Kč</span>
+</li>
+<li class="entry">
+<div class="entry-main">
+<span class="entry-what">Bottle caps and sanitiser</span>
+<span class="entry-meta">Josef paid · 2 October 2026</span>
+</div>
+<span class="entry-amount">1 240 Kč</span>
+</li>
+</ul>
+</section>
+</main>
+<nav class="tabs" aria-label="Sections">
+<a class="tab" href="/" aria-current="page">
+<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+<ellipse cx="12" cy="6" rx="7" ry="3">
+</ellipse>
+<path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6">
+</path>
+<path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6">
+</path>
+</svg>
+<span>Finance</span>
+</a>
+<a class="tab" href="/shopping">
+<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+<path d="M3 4h2l2.4 11h10.2L20 8H6.2">
+</path>
+<circle cx="9" cy="19.5" r="1.5">
+</circle>
+<circle cx="17" cy="19.5" r="1.5">
+</circle>
+</svg>
+<span>Shopping</span>
+</a>
+<a class="tab" href="/reminders">
+<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+<path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z">
+</path>
+<path d="M10 20.5a2 2 0 0 0 4 0">
+</path>
+</svg>
+<span>Reminders</span>
+</a>
+<a class="tab" href="/quotes">
+<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+<path d="M4 5h16v11H9l-5 4z">
+</path>
+</svg>
+<span>Quotes</span>
+</a>
+</nav>
+</div>
+</body>
+</html>

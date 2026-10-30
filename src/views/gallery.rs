@@ -9,6 +9,7 @@ use crate::domain::members::{CREW_NAME, DisplayName};
 use crate::views::admin::{self, Outcome as AdminOutcome};
 use crate::views::brand::header_logo;
 use crate::views::display_name::{self, Outcome};
+use crate::views::finance::{self, ExpenseProblems, ExpenseValues};
 use crate::views::layout::document;
 use crate::views::nav::{ADMIN_HREF, Place, Tab, bottom_nav};
 use crate::views::passkey::CeremonyUrls;
@@ -36,6 +37,10 @@ const SEVERAL_PASSKEYS_HEIGHT: u16 = 1500;
 const ADMIN_SETTINGS_HEIGHT: u16 = 1300;
 /// The admin page's two sections, with a new link or several open ones.
 const ADMIN_HEIGHT: u16 = 1000;
+/// The Finance home screen: a Balance, the button, the Crew's Balances and three entries.
+const FINANCE_HEIGHT: u16 = 1150;
+/// The Expense form with a problem under every field.
+const EXPENSE_FORM_HEIGHT: u16 = 760;
 /// Where the fixture passkey lists' forms post.
 const PASSKEYS_BASE: &str = "/settings/passkeys";
 const DESKTOP_WIDTH: u16 = 1280;
@@ -139,6 +144,7 @@ pub fn fixtures() -> Vec<Fixture> {
         .chain(signed_in_pages())
         .chain(passkey_lists())
         .chain(admin_pages())
+        .chain(finance_pages())
         .collect()
 }
 
@@ -197,6 +203,66 @@ fn admin_pages() -> Vec<Fixture> {
         height: ADMIN_HEIGHT,
     })
     .into()
+}
+
+/// The Finance home screen for a Member who owes, is owed and is Even, the Expense form, and an
+/// entry on its own.
+fn finance_pages() -> Vec<Fixture> {
+    use finance::fixtures::{JOSEF, ONDRA, SIMON, TODAY, crew, entry, fresh, overview};
+
+    const NEW_EXPENSE: &str = "/expenses/new";
+    let homes = [
+        ("Owes", JOSEF, overview()),
+        ("Owed", ONDRA, overview()),
+        ("Even", SIMON, overview()),
+        ("Nothing logged", JOSEF, fresh()),
+    ]
+    .map(|(state, me, overview)| Fixture {
+        component: "Finance home",
+        state: state.to_owned(),
+        document: finance::home(me, &overview, NEW_EXPENSE),
+        height: FINANCE_HEIGHT,
+    });
+    let today = TODAY.to_string();
+    let empty = ExpenseValues::blank(ONDRA, &today);
+    let mistaken = ExpenseValues {
+        amount: "12,50",
+        description: "",
+        payer: SIMON,
+        expense_date: "2026-11-02",
+    };
+    let problems = ExpenseProblems {
+        amount: Some("Enter the amount in whole crowns.".to_owned()),
+        description: Some("Say what the money was for.".to_owned()),
+        payer: Some("They weren't in the Crew yet on that date.".to_owned()),
+        expense_date: Some("The Expense date can't be in the future.".to_owned()),
+    };
+    let forms = [
+        ("Empty", &empty, ExpenseProblems::default()),
+        ("With errors", &mistaken, problems),
+    ]
+    .map(|(state, values, problems)| Fixture {
+        component: "Expense form",
+        state: state.to_owned(),
+        document: finance::expense_page(&finance::expense_form(
+            "/expenses",
+            &crew(),
+            values,
+            &problems,
+            TODAY,
+        )),
+        height: EXPENSE_FORM_HEIGHT,
+    });
+    let row = Fixture {
+        component: "Entry row",
+        state: "Expense".to_owned(),
+        document: document(
+            "Entry row",
+            &html! { main.shell-main { ul.entry-list { (finance::entry_row(&entry())) } } },
+        ),
+        height: 120,
+    };
+    homes.into_iter().chain(forms).chain([row]).collect()
 }
 
 /// The pages a signed-in Member changes their display name on, and the form itself.
@@ -397,6 +463,9 @@ mod tests {
             "Display name form",
             "Passkey list",
             "Admin page",
+            "Finance home",
+            "Expense form",
+            "Entry row",
         ] {
             assert!(
                 html.contains(&format!("<h2>{component}</h2>")),
@@ -432,6 +501,13 @@ mod tests {
             "Alone in the Crew",
             "Name refused",
             "Link revoked",
+            "Owes",
+            "Owed",
+            "Even",
+            "Nothing logged",
+            "Empty",
+            "With errors",
+            "Expense",
         ] {
             assert!(html.contains(&format!("<h3>{state}</h3>")), "{state}");
         }

@@ -1,0 +1,32 @@
+---
+source: src/views/finance.rs
+expression: "expense_form(ACTION, &crew(), &values, &problems,\nTODAY).into_string().replace(\"><\", \">\\n<\")"
+---
+<form class="entry-form" method="post" action="/expenses" hx-post="/expenses" hx-swap="outerHTML">
+<div class="field">
+<label for="expense-amount">Amount in Kč</label>
+<input id="expense-amount" type="text" inputmode="numeric" name="amount" value="0" required autocomplete="off" autofocus aria-invalid="true" aria-describedby="expense-amount-problem">
+<p class="field-problem" id="expense-amount-problem">Enter an amount from 1 to 1 000 000 Kč.</p>
+</div>
+<div class="field">
+<label for="expense-description">What for</label>
+<input id="expense-description" type="text" name="description" value="" required maxlength="500" autocomplete="off" aria-invalid="true" aria-describedby="expense-description-problem">
+<p class="field-problem" id="expense-description-problem">Say what the money was for.</p>
+</div>
+<div class="field">
+<label for="expense-payer">Paid by</label>
+<select id="expense-payer" name="payer" aria-invalid="true" aria-describedby="expense-payer-problem">
+<option value="1">Josef</option>
+<option value="2">Ondra</option>
+<option value="3" selected>Šimon</option>
+</select>
+<p class="field-problem" id="expense-payer-problem">They weren't in the Crew yet on that date.</p>
+</div>
+<details class="field expense-date" open>
+<summary>Spent on 2 November 2026</summary>
+<label for="expense-date">Expense date</label>
+<input id="expense-date" type="date" name="expense_date" value="2026-11-02" max="2026-10-30" required aria-invalid="true" aria-describedby="expense-date-problem">
+<p class="field-problem" id="expense-date-problem">The Expense date can't be in the future.</p>
+</details>
+<button class="button button-large" type="submit">Log Expense</button>
+</form>

@@ -4,6 +4,7 @@ mod access;
 mod admin;
 mod device;
 mod error;
+mod finance;
 #[cfg(debug_assertions)]
 mod gallery;
 mod health;
@@ -30,6 +31,7 @@ use webauthn_rs::prelude::WebauthnError;
 use crate::assets;
 use crate::domain::auth::Auth;
 use crate::domain::clock::Clock;
+use crate::domain::finance::Finance;
 use crate::domain::members::Members;
 use crate::views::nav::Tab;
 
@@ -45,6 +47,7 @@ pub struct AppState {
     pub public_origin: PublicOrigin,
     pub auth: Auth,
     pub members: Members,
+    pub finance: Finance,
 }
 
 impl AppState {
@@ -58,6 +61,7 @@ impl AppState {
         Ok(Self {
             auth: Auth::new(db.clone(), clock.clone(), members.clone(), public_url)?,
             members,
+            finance: Finance::new(db.clone(), clock.clone()),
             public_origin: PublicOrigin::of(public_url),
             db,
             clock,
@@ -80,6 +84,7 @@ fn routes() -> Router<AppState> {
             get(static_files::service_worker),
         )
         .route(assets::MANIFEST.url, get(static_files::manifest))
+        .merge(finance::routes())
         .merge(sign_in::routes())
         .merge(invite::routes())
         .merge(device::routes())
@@ -87,7 +92,8 @@ fn routes() -> Router<AppState> {
         .merge(settings::routes())
         .merge(passkeys::routes())
         .merge(admin::routes());
-    for tab in Tab::ALL {
+    // Finance, the home page, has its own routes; the other tabs are placeholders for now.
+    for tab in Tab::ALL.into_iter().filter(|&tab| tab != Tab::Finance) {
         router = router.route(tab.href(), pages::tab(tab));
     }
     #[cfg(debug_assertions)]
@@ -362,6 +368,24 @@ pub(crate) mod test_support {
         pub async fn join_as_admin(&self, name: &str, authenticator: &mut Authenticator) -> String {
             let invite = self.admin_invite(name).await;
             let response = self.join(&invite, authenticator).await;
+            assert_eq!(response.status(), StatusCode::OK, "joining failed");
+            let cookie = cookie_pair(&response);
+            let got_it = self.post_with("/welcome/done", &cookie).await;
+            assert_eq!(got_it.status(), StatusCode::SEE_OTHER, "\"Got it\" failed");
+            cookie
+        }
+
+        /// Joins a Member called `name` through an Invite link, presses "Got it" on the welcome
+        /// page, and returns the session cookie of the browser they joined from.
+        pub async fn sign_in_new_member(&self, name: &str) -> String {
+            let token = self
+                .state
+                .auth
+                .create_test_invite(&DisplayName::parse(name).unwrap())
+                .await;
+            let response = self
+                .join(&super::invite::path(&token), &mut authenticator())
+                .await;
             assert_eq!(response.status(), StatusCode::OK, "joining failed");
             let cookie = cookie_pair(&response);
             let got_it = self.post_with("/welcome/done", &cookie).await;

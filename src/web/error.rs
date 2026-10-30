@@ -5,7 +5,10 @@ use axum::response::{IntoResponse, Response};
 use super::htmx::HX_REDIRECT;
 use super::sign_in;
 use crate::domain::auth::{AuthError, PASSKEY_NAME_MAX, PasskeyNameError};
+use crate::domain::finance::money::{AMOUNT_MAX, AMOUNT_MIN, AmountError, Crowns};
+use crate::domain::finance::{DESCRIPTION_MAX, DescriptionError};
 use crate::domain::members::{DISPLAY_NAME_MAX, NameError};
+use crate::views::finance::crowns;
 
 /// The one error type handlers return.
 #[derive(Debug, thiserror::Error)]
@@ -115,6 +118,28 @@ pub fn passkey_name_message(err: &PasskeyNameError) -> String {
     }
 }
 
+/// What a Member is told when the amount they typed for an Expense can't be used.
+pub fn amount_message(err: AmountError) -> String {
+    match err {
+        AmountError::NotWholeCrowns => "Enter the amount in whole crowns.".to_owned(),
+        AmountError::OutOfRange => format!(
+            "Enter an amount from {} to {}.",
+            crowns(Crowns::new(AMOUNT_MIN)),
+            crowns(Crowns::new(AMOUNT_MAX))
+        ),
+    }
+}
+
+/// What a Member is told when the description they typed for an Expense can't be used.
+pub fn description_message(err: DescriptionError) -> String {
+    match err {
+        DescriptionError::Blank => "Say what the money was for.".to_owned(),
+        DescriptionError::TooLong => {
+            format!("Keep the description to {DESCRIPTION_MAX} characters or fewer.")
+        }
+    }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = self.outcome();
@@ -161,6 +186,30 @@ mod tests {
         assert_eq!(
             passkey_name_message(&PasskeyNameError::TooLong),
             "Keep the passkey name to 40 characters or fewer."
+        );
+    }
+
+    #[test]
+    fn explains_each_unusable_amount() {
+        assert_eq!(
+            amount_message(AmountError::NotWholeCrowns),
+            "Enter the amount in whole crowns."
+        );
+        assert_eq!(
+            amount_message(AmountError::OutOfRange),
+            "Enter an amount from 1\u{a0}Kč to 1\u{a0}000\u{a0}000\u{a0}Kč."
+        );
+    }
+
+    #[test]
+    fn explains_each_unusable_description() {
+        assert_eq!(
+            description_message(DescriptionError::Blank),
+            "Say what the money was for."
+        );
+        assert_eq!(
+            description_message(DescriptionError::TooLong),
+            "Keep the description to 500 characters or fewer."
         );
     }
 
