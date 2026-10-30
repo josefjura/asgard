@@ -1,0 +1,33 @@
+# Values for the VPS's shared Helm chart. Namespace: asgard. Deploy with: ./deploy.sh apply asgard
+# See docs/operations.md. Only keys that differ from the chart's defaults are set.
+name: asgard
+image:
+  repository: ghcr.io/josefjura/asgard
+  # A release version, never latest. Upgrading means changing this tag.
+  tag: 0.2.0
+host: asgard.joseforge.cz
+
+# DATABASE_URL, BACKUP_DIR and PORT come from the image and point into /data.
+config:
+  # Also the WebAuthn relying party: never change it (ADR 0005).
+  PUBLIC_URL: https://asgard.joseforge.cz
+  RUST_LOG: info
+
+# From the Secret "asgard-secret", created from the sops-encrypted file (docs/operations.md).
+secret:
+  enabled: false
+secretEnv:
+  VAPID_PRIVATE_KEY: vapid-private-key
+
+# The chart uses one path for both probes; ready also checks that the database answers.
+probes:
+  path: /health/ready
+
+# The SQLite database, mounted at /data. One replica writes it (ADR 0004).
+persistence:
+  enabled: true
+  size: 1Gi
+  mountPath: /data
+
+# SQLite's temporary files, since the root filesystem is read-only.
+tmp: true
