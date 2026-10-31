@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT deleted_by, deleted_at FROM expenses",
+  "describe": {
+    "columns": [
+      {
+        "name": "deleted_by",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "deleted_at",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "c0bf5227cc345a93b5808588eeaa96582d68053c79f9d738db3b1f793ebe4269"
+}

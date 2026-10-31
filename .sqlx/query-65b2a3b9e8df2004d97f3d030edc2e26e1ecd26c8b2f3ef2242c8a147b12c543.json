@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT expenses.id AS \"id!\", payer_id, payers.display_name AS payer, amount,\n                  description, expense_date, logged_at, editors.display_name AS \"editor?\",\n                  edited_at\n           FROM expenses\n           JOIN members AS payers ON payers.id = expenses.payer_id\n           LEFT JOIN members AS editors ON editors.id = expenses.edited_by\n           WHERE deleted_at IS NULL\n           ORDER BY logged_at DESC, expenses.id DESC\n           LIMIT ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "payer_id",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "payer",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "amount",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "description",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "expense_date",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "logged_at",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "editor?",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "edited_at",
+        "ordinal": 8,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "65b2a3b9e8df2004d97f3d030edc2e26e1ecd26c8b2f3ef2242c8a147b12c543"
+}

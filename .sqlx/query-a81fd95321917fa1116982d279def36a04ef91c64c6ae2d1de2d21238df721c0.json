@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE expenses\n             SET payer_id = ?, amount = ?, description = ?, expense_date = ?, edited_by = ?,\n                 edited_at = ?\n             WHERE id = ? AND payer_id = ? AND deleted_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "a81fd95321917fa1116982d279def36a04ef91c64c6ae2d1de2d21238df721c0"
+}

@@ -6,7 +6,7 @@ use super::htmx::HX_REDIRECT;
 use super::sign_in;
 use crate::domain::auth::{AuthError, PASSKEY_NAME_MAX, PasskeyNameError};
 use crate::domain::finance::money::{AMOUNT_MAX, AMOUNT_MIN, AmountError, Crowns};
-use crate::domain::finance::{DESCRIPTION_MAX, DescriptionError};
+use crate::domain::finance::{DESCRIPTION_MAX, DescriptionError, EntryError};
 use crate::domain::members::{DISPLAY_NAME_MAX, NameError};
 use crate::views::finance::crowns;
 
@@ -29,8 +29,24 @@ pub enum AppError {
     /// A signed-in Member who isn't the Admin asked for an admin route.
     #[error("Admin only")]
     AdminOnly,
+    /// A Member asked to edit or delete an Expense or Payment that isn't theirs to change.
+    #[error("not the Member's entry to change")]
+    NotYourEntry,
+    /// The Expense or Payment asked for doesn't exist, or was deleted.
+    #[error("no such entry")]
+    NoSuchEntry,
     #[error(transparent)]
     Auth(#[from] AuthError),
+}
+
+impl From<EntryError> for AppError {
+    fn from(err: EntryError) -> Self {
+        match err {
+            EntryError::NotFound => Self::NoSuchEntry,
+            EntryError::NotAllowed => Self::NotYourEntry,
+            EntryError::Database(err) => Self::Database(err),
+        }
+    }
 }
 
 impl AppError {
@@ -52,6 +68,20 @@ impl AppError {
             Self::AdminOnly => (
                 StatusCode::FORBIDDEN,
                 Some("Only the Admin can do that.".to_owned()),
+            ),
+            Self::NotYourEntry => (
+                StatusCode::FORBIDDEN,
+                Some(
+                    "Only whoever paid or sent the money, or the Admin, can change this entry."
+                        .to_owned(),
+                ),
+            ),
+            Self::NoSuchEntry => (
+                StatusCode::NOT_FOUND,
+                Some(
+                    "That entry no longer exists. Reload the page to see the latest entries."
+                        .to_owned(),
+                ),
             ),
             Self::Auth(err) => auth_outcome(err),
         }

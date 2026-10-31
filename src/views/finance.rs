@@ -6,10 +6,77 @@ use maud::{Markup, html};
 
 use crate::domain::finance::money::{Crowns, Standing};
 use crate::domain::finance::settlement::Settlement;
-use crate::domain::finance::{DESCRIPTION_MAX, Entry, ExpenseEntry, Overview, PaymentEntry};
-use crate::domain::members::{MemberId, MemberName};
+use crate::domain::finance::{
+    DESCRIPTION_MAX, Edit, Entry, ExpenseEntry, ExpenseId, Overview, PaymentEntry, PaymentId,
+};
+use crate::domain::members::{Member, MemberId, MemberName};
 use crate::views::layout::shell;
 use crate::views::nav::{Place, Tab};
+
+/// Where Finance's links and forms lead: everything about Expenses under `expenses`, and about
+/// Payments under `payments`.
+#[derive(Debug, Clone, Copy)]
+pub struct Paths {
+    pub expenses: &'static str,
+    pub payments: &'static str,
+}
+
+impl Paths {
+    /// The empty Expense form.
+    #[must_use]
+    pub fn new_expense(self) -> String {
+        format!("{}/new", self.expenses)
+    }
+
+    /// The Expense `id`, which its edit form posts to.
+    #[must_use]
+    pub fn expense(self, id: ExpenseId) -> String {
+        format!("{}/{}", self.expenses, id.get())
+    }
+
+    /// The Expense `id` in its edit form.
+    #[must_use]
+    pub fn edit_expense(self, id: ExpenseId) -> String {
+        format!("{}/edit", self.expense(id))
+    }
+
+    /// Where the Expense `id`'s delete button posts.
+    #[must_use]
+    pub fn delete_expense(self, id: ExpenseId) -> String {
+        format!("{}/delete", self.expense(id))
+    }
+
+    /// The empty Payment form.
+    #[must_use]
+    pub fn new_payment(self) -> String {
+        format!("{}/new", self.payments)
+    }
+
+    /// The Payment `id`, which its edit form posts to.
+    #[must_use]
+    pub fn payment(self, id: PaymentId) -> String {
+        format!("{}/{}", self.payments, id.get())
+    }
+
+    /// The Payment `id` in its edit form.
+    #[must_use]
+    pub fn edit_payment(self, id: PaymentId) -> String {
+        format!("{}/edit", self.payment(id))
+    }
+
+    /// Where the Payment `id`'s delete button posts.
+    #[must_use]
+    pub fn delete_payment(self, id: PaymentId) -> String {
+        format!("{}/delete", self.payment(id))
+    }
+}
+
+/// Whether a form logs a new entry or saves changes to a logged one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Purpose {
+    Log,
+    Edit,
+}
 
 /// `crowns` the way the Crew reads money: thousands grouped by a space that never breaks, and
 /// "Kč". A negative amount gets a true minus sign.
@@ -51,24 +118,27 @@ fn day(date: Date) -> String {
     date.strftime("%-d %B %Y").to_string()
 }
 
-/// Where a Settlement's "Record" button leads: the Payment form at `new_payment`, pre-filled
-/// with its Sender, Recipient and amount.
-fn record_href(new_payment: &str, settlement: &Settlement) -> String {
+/// Where a Settlement's "Record" button leads: the Payment form, pre-filled with its Sender,
+/// Recipient and amount.
+fn record_href(paths: Paths, settlement: &Settlement) -> String {
     format!(
-        "{new_payment}?sender={}&recipient={}&amount={}",
+        "{}?sender={}&recipient={}&amount={}",
+        paths.new_payment(),
         settlement.sender.id.get(),
         settlement.recipient.id.get(),
         settlement.amount.get()
     )
 }
 
-/// The Finance home screen for `me`: their Balance and Settlements, the buttons that lead to
-/// `new_expense` and `new_payment`, everyone's Balance, the Settlement plan and the latest
-/// entries.
+/// The Finance home screen for `me`.
+///
+/// It shows their Balance and Settlements, the buttons that log an Expense or a Payment,
+/// everyone's Balance, the Settlement plan and the latest entries, with the controls for the
+/// ones `me` may change.
 #[must_use]
-pub fn home(me: MemberId, overview: &Overview, new_expense: &str, new_payment: &str) -> Markup {
-    let mine = overview.balance_of(me);
-    let my_settlements: Vec<&Settlement> = overview.settlements_of(me).collect();
+pub fn home(me: &Member, overview: &Overview, paths: Paths) -> Markup {
+    let mine = overview.balance_of(me.id);
+    let my_settlements: Vec<&Settlement> = overview.settlements_of(me.id).collect();
     shell(
         Place::Tab(Tab::Finance),
         &html! {
@@ -91,15 +161,15 @@ pub fn home(me: MemberId, overview: &Overview, new_expense: &str, new_payment: &
                     h2 #my-settlements { "Settle up" }
                     ul.settlement-list {
                         @for (index, settlement) in my_settlements.iter().enumerate() {
-                            (my_settlement(me, settlement, index, new_payment))
+                            (my_settlement(me.id, settlement, index, paths))
                         }
                     }
                 }
             }
 
             div.finance-actions {
-                a.button.button-large href=(new_expense) { "+ Expense" }
-                a.button.button-secondary href=(new_payment) { "+ Payment" }
+                a.button.button-large href=(paths.new_expense()) { "+ Expense" }
+                a.button.button-secondary href=(paths.new_payment()) { "+ Payment" }
             }
 
             section.finance-section aria-labelledby="crew-balances" {
@@ -109,7 +179,7 @@ pub fn home(me: MemberId, overview: &Overview, new_expense: &str, new_payment: &
                         li.(standing_class(balance.balance)) {
                             span.balance-name {
                                 (balance.member.display_name)
-                                @if balance.member.id == me { " (you)" }
+                                @if balance.member.id == me.id { " (you)" }
                             }
                             span.balance-amount { (balance_text(balance.balance)) }
                         }
@@ -143,7 +213,7 @@ pub fn home(me: MemberId, overview: &Overview, new_expense: &str, new_payment: &
                 } @else {
                     ul.entry-list {
                         @for entry in &overview.recent {
-                            (entry_row(entry))
+                            (entry_row(me, entry, paths))
                         }
                     }
                 }
@@ -154,7 +224,7 @@ pub fn home(me: MemberId, overview: &Overview, new_expense: &str, new_payment: &
 
 /// A Settlement `me` sends or receives, as the `index`th in their list, with the button that
 /// records it.
-fn my_settlement(me: MemberId, settlement: &Settlement, index: usize, new_payment: &str) -> Markup {
+fn my_settlement(me: MemberId, settlement: &Settlement, index: usize, paths: Paths) -> Markup {
     let id = format!("my-settlement-{index}");
     let amount = crowns(settlement.amount);
     html! {
@@ -166,40 +236,77 @@ fn my_settlement(me: MemberId, settlement: &Settlement, index: usize, new_paymen
                     (settlement.sender.display_name) " should send you " strong { (amount) }
                 }
             }
-            a.button.button-secondary href=(record_href(new_payment, settlement))
+            a.button.button-secondary href=(record_href(paths, settlement))
                 aria-describedby=(id) { "Record" }
         }
     }
 }
 
-/// One Expense or Payment in a list.
+/// One Expense or Payment in a list, with the controls to edit and delete it if `me` may.
 #[must_use]
-pub fn entry_row(entry: &Entry) -> Markup {
+pub fn entry_row(me: &Member, entry: &Entry, paths: Paths) -> Markup {
+    let may_change = entry.may_be_changed_by(me);
     match entry {
-        Entry::Expense(expense) => expense_row(expense),
-        Entry::Payment(payment) => payment_row(payment),
+        Entry::Expense(expense) => {
+            let controls = may_change.then(|| Controls {
+                edit: paths.edit_expense(expense.id),
+                delete: paths.delete_expense(expense.id),
+                confirm: format!(
+                    "Delete the Expense \u{201c}{}\u{201d}?",
+                    expense.description.as_str()
+                ),
+            });
+            expense_row(expense, controls.as_ref())
+        }
+        Entry::Payment(payment) => {
+            let controls = may_change.then(|| Controls {
+                edit: paths.edit_payment(payment.id),
+                delete: paths.delete_payment(payment.id),
+                confirm: format!(
+                    "Delete the Payment from {} to {}?",
+                    payment.sender.display_name, payment.recipient
+                ),
+            });
+            payment_row(payment, controls.as_ref())
+        }
     }
 }
 
-/// An Expense: what it was for, who paid, when, and how much.
-fn expense_row(entry: &ExpenseEntry) -> Markup {
+/// Where an entry's edit and delete controls lead, and what deleting it asks first.
+struct Controls {
+    edit: String,
+    delete: String,
+    confirm: String,
+}
+
+/// An Expense: what it was for, who paid, when, how much, and who edited it last.
+fn expense_row(entry: &ExpenseEntry, controls: Option<&Controls>) -> Markup {
+    let what = format!("expense-{}", entry.id.get());
     html! {
         li.entry {
             div.entry-main {
-                span.entry-what { (entry.description.as_str()) }
-                span.entry-meta { (entry.payer) " paid · " (day(entry.expense_date)) }
+                span.entry-what #(what) { (entry.description.as_str()) }
+                span.entry-meta {
+                    (entry.payer.display_name) " paid · " (day(entry.expense_date))
+                }
+                (edited(entry.edited.as_ref()))
+                (entry_controls(controls, &what))
             }
             span.entry-amount { (crowns(entry.amount.crowns())) }
         }
     }
 }
 
-/// A Payment: who sent it to whom, what for if anything, when, and how much.
-fn payment_row(entry: &PaymentEntry) -> Markup {
+/// A Payment: who sent it to whom, what for if anything, when, how much, and who edited it
+/// last.
+fn payment_row(entry: &PaymentEntry, controls: Option<&Controls>) -> Markup {
+    let what = format!("payment-{}", entry.id.get());
     html! {
         li.entry.payment {
             div.entry-main {
-                span.entry-what { (entry.sender) " → " (entry.recipient) }
+                span.entry-what #(what) {
+                    (entry.sender.display_name) " → " (entry.recipient)
+                }
                 span.entry-meta {
                     "Payment · "
                     @if let Some(description) = &entry.description {
@@ -207,8 +314,37 @@ fn payment_row(entry: &PaymentEntry) -> Markup {
                     }
                     (day(entry.logged_on))
                 }
+                (edited(entry.edited.as_ref()))
+                (entry_controls(controls, &what))
             }
             span.entry-amount { (crowns(entry.amount.crowns())) }
+        }
+    }
+}
+
+/// Who edited an entry last, and when, if anyone has.
+fn edited(edit: Option<&Edit>) -> Markup {
+    html! {
+        @if let Some(edit) = edit {
+            span.entry-meta.entry-edited { "edited by " (edit.by) " · " (day(edit.on)) }
+        }
+    }
+}
+
+/// The edit link and delete button of the entry described by the element `what`. Deleting asks
+/// first; without htmx, it posts as a plain form.
+fn entry_controls(controls: Option<&Controls>, what: &str) -> Markup {
+    html! {
+        @if let Some(controls) = controls {
+            div.entry-controls {
+                a.button.button-small href=(controls.edit) aria-describedby=(what) { "Edit" }
+                form method="post" action=(controls.delete) hx-post=(controls.delete)
+                    hx-confirm=(controls.confirm) {
+                    button.button.button-small.quiet type="submit" aria-describedby=(what) {
+                        "Delete"
+                    }
+                }
+            }
         }
     }
 }
@@ -246,17 +382,22 @@ pub struct ExpenseProblems {
 
 /// The page around the Expense form.
 #[must_use]
-pub fn expense_page(form: &Markup) -> Markup {
+pub fn expense_page(purpose: Purpose, form: &Markup) -> Markup {
     shell(
         Place::Tab(Tab::Finance),
         &html! {
-            h1 { "New Expense" }
+            h1 {
+                @match purpose {
+                    Purpose::Log => "New Expense",
+                    Purpose::Edit => "Edit Expense",
+                }
+            }
             (form)
         },
     )
 }
 
-/// The form an Expense is logged with, posting to `action`.
+/// The form an Expense is logged or edited with, posting to `action`.
 ///
 /// It shows `values` and, beside each field, what was wrong with it. The Payer is one of
 /// `members`; the Expense date can't be after `today`, and while it is today it stays folded
@@ -265,6 +406,7 @@ pub fn expense_page(form: &Markup) -> Markup {
 #[must_use]
 pub fn expense_form(
     action: &str,
+    purpose: Purpose,
     members: &[MemberName],
     values: &ExpenseValues,
     problems: &ExpenseProblems,
@@ -321,7 +463,12 @@ pub fn expense_form(
                     aria-describedby=[problems.expense_date.is_some().then_some("expense-date-problem")];
                 (problem("expense-date-problem", problems.expense_date.as_deref()))
             }
-            button.button.button-large type="submit" { "Log Expense" }
+            button.button.button-large type="submit" {
+                @match purpose {
+                    Purpose::Log => "Log Expense",
+                    Purpose::Edit => "Save Expense",
+                }
+            }
         }
     }
 }
@@ -360,17 +507,22 @@ pub struct PaymentProblems {
 
 /// The page around the Payment form.
 #[must_use]
-pub fn payment_page(form: &Markup) -> Markup {
+pub fn payment_page(purpose: Purpose, form: &Markup) -> Markup {
     shell(
         Place::Tab(Tab::Finance),
         &html! {
-            h1 { "New Payment" }
+            h1 {
+                @match purpose {
+                    Purpose::Log => "New Payment",
+                    Purpose::Edit => "Edit Payment",
+                }
+            }
             (form)
         },
     )
 }
 
-/// The form a Payment is logged with, posting to `action`.
+/// The form a Payment is logged or edited with, posting to `action`.
 ///
 /// It shows `values` and, beside each field, what was wrong with it. The Sender and the
 /// Recipient are each one of `members`; the Recipient starts unchosen. It swaps and posts like
@@ -378,6 +530,7 @@ pub fn payment_page(form: &Markup) -> Markup {
 #[must_use]
 pub fn payment_form(
     action: &str,
+    purpose: Purpose,
     members: &[MemberName],
     values: &PaymentValues,
     problems: &PaymentProblems,
@@ -427,7 +580,12 @@ pub fn payment_form(
                     aria-describedby=[problems.description.is_some().then_some("payment-description-problem")];
                 (problem("payment-description-problem", problems.description.as_deref()))
             }
-            button.button.button-large type="submit" { "Log Payment" }
+            button.button.button-large type="submit" {
+                @match purpose {
+                    Purpose::Log => "Log Payment",
+                    Purpose::Edit => "Save Payment",
+                }
+            }
         }
     }
 }
@@ -448,11 +606,11 @@ pub mod fixtures {
     use crate::domain::finance::money::{Amount, Crowns};
     use crate::domain::finance::settlement::settlement_plan;
     use crate::domain::finance::{
-        Description, Entry, ExpenseEntry, ExpenseId, MemberBalance, Overview, PaymentEntry,
+        Description, Edit, Entry, ExpenseEntry, ExpenseId, MemberBalance, Overview, PaymentEntry,
         PaymentId,
     };
-    use crate::domain::members::{DisplayName, MemberId, MemberName};
-    use crate::views::finance::PaymentValues;
+    use crate::domain::members::{DisplayName, Member, MemberId, MemberName};
+    use crate::views::finance::{Paths, PaymentValues};
 
     pub const JOSEF: MemberId = MemberId::from_client(1);
     pub const ONDRA: MemberId = MemberId::from_client(2);
@@ -460,6 +618,12 @@ pub mod fixtures {
 
     /// The day the fixture forms are filled in.
     pub const TODAY: Date = date(2026, 10, 30);
+
+    /// Where the fixture links and forms lead.
+    pub const PATHS: Paths = Paths {
+        expenses: "/expenses",
+        payments: "/payments",
+    };
 
     fn name(name: &str) -> DisplayName {
         DisplayName::parse(name).expect("fixture names are valid")
@@ -480,6 +644,33 @@ pub mod fixtures {
             .into()
     }
 
+    /// The Member of [`crew`] with `id`, signed in. Josef is the Admin.
+    ///
+    /// # Panics
+    ///
+    /// If `id` isn't in [`crew`], which is a bug in the fixtures.
+    #[must_use]
+    pub fn member(id: MemberId) -> Member {
+        let member = crew()
+            .into_iter()
+            .find(|member| member.id == id)
+            .expect("fixture Members are in the Crew");
+        Member {
+            id,
+            display_name: member.display_name,
+            is_admin: id == JOSEF,
+            joined_on: date(2026, 10, 1),
+            welcomed: true,
+        }
+    }
+
+    fn member_name(display_name: &str) -> MemberName {
+        crew()
+            .into_iter()
+            .find(|member| member.display_name.as_str() == display_name)
+            .expect("fixture Members are in the Crew")
+    }
+
     /// A Malt Expense Ondra paid for.
     ///
     /// # Panics
@@ -496,13 +687,48 @@ pub mod fixtures {
         )
     }
 
+    /// [`entry`] after Josef, the Admin, edited it.
+    ///
+    /// # Panics
+    ///
+    /// If a fixture value is invalid, which is a bug in the fixtures.
+    #[must_use]
+    pub fn edited_entry() -> Entry {
+        let mut entry = entry();
+        if let Entry::Expense(expense) = &mut entry {
+            expense.edited = Some(Edit {
+                by: name("Josef"),
+                on: date(2026, 10, 30),
+            });
+        }
+        entry
+    }
+
+    /// [`payment_entry`] after Josef, its Sender, edited it.
+    ///
+    /// # Panics
+    ///
+    /// If a fixture value is invalid, which is a bug in the fixtures.
+    #[must_use]
+    pub fn edited_payment_entry() -> Entry {
+        let mut entry = payment_entry(Some("For the malt"));
+        if let Entry::Payment(payment) = &mut entry {
+            payment.edited = Some(Edit {
+                by: name("Josef"),
+                on: date(2026, 10, 30),
+            });
+        }
+        entry
+    }
+
     fn expense(id: i64, payer: &str, crowns: i64, description: &str, expense_date: Date) -> Entry {
         Entry::Expense(ExpenseEntry {
             id: ExpenseId::from_client(id),
-            payer: name(payer),
+            payer: member_name(payer),
             amount: Amount::new(crowns).expect("fixture amounts are valid"),
             description: Description::parse(description).expect("fixture descriptions are valid"),
             expense_date,
+            edited: None,
         })
     }
 
@@ -526,12 +752,13 @@ pub mod fixtures {
     ) -> Entry {
         Entry::Payment(PaymentEntry {
             id: PaymentId::from_client(id),
-            sender: name(sender),
+            sender: member_name(sender),
             recipient: name(recipient),
             amount: Amount::new(crowns).expect("fixture amounts are valid"),
             description: description
                 .map(|text| Description::parse(text).expect("fixture descriptions are valid")),
             logged_on,
+            edited: None,
         })
     }
 
@@ -603,7 +830,8 @@ pub mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::fixtures::{
-        JOSEF, ONDRA, SIMON, TODAY, crew, entry, fresh, overview, payment_entry, prefilled_payment,
+        JOSEF, ONDRA, PATHS, SIMON, TODAY, crew, edited_entry, edited_payment_entry, entry, fresh,
+        member, overview, payment_entry, prefilled_payment,
     };
     use super::*;
     use crate::views::assert_html_snapshot;
@@ -611,6 +839,7 @@ mod tests {
     const NEW_EXPENSE: &str = "/expenses/new";
     const NEW_PAYMENT: &str = "/payments/new";
     const ACTION: &str = "/expenses";
+    const EDIT_ACTION: &str = "/expenses/7";
     const PAYMENT_ACTION: &str = "/payments";
 
     fn empty_values(today: &str) -> ExpenseValues<'_> {
@@ -638,46 +867,126 @@ mod tests {
 
     #[test]
     fn finance_home_owes() {
-        assert_html_snapshot!(home(JOSEF, &overview(), NEW_EXPENSE, NEW_PAYMENT));
+        assert_html_snapshot!(home(&member(JOSEF), &overview(), PATHS));
     }
 
     #[test]
     fn finance_home_owed() {
-        assert_html_snapshot!(home(ONDRA, &overview(), NEW_EXPENSE, NEW_PAYMENT));
+        assert_html_snapshot!(home(&member(ONDRA), &overview(), PATHS));
     }
 
     #[test]
     fn finance_home_even() {
-        assert_html_snapshot!(home(SIMON, &overview(), NEW_EXPENSE, NEW_PAYMENT));
+        assert_html_snapshot!(home(&member(SIMON), &overview(), PATHS));
     }
 
     #[test]
     fn finance_home_with_nothing_logged() {
-        assert_html_snapshot!(home(JOSEF, &fresh(), NEW_EXPENSE, NEW_PAYMENT));
+        assert_html_snapshot!(home(&member(JOSEF), &fresh(), PATHS));
     }
 
     #[test]
     fn finance_entry_row() {
-        assert_html_snapshot!(entry_row(&entry()));
+        assert_html_snapshot!(entry_row(&member(SIMON), &entry(), PATHS));
     }
 
     #[test]
     fn finance_payment_row() {
-        assert_html_snapshot!(entry_row(&payment_entry(Some("For the malt"))));
+        assert_html_snapshot!(entry_row(
+            &member(SIMON),
+            &payment_entry(Some("For the malt")),
+            PATHS
+        ));
+    }
+
+    #[test]
+    fn finance_edited_entry_row_with_controls() {
+        assert_html_snapshot!(entry_row(&member(ONDRA), &edited_entry(), PATHS));
+    }
+
+    #[test]
+    fn finance_edited_payment_row_with_controls() {
+        assert_html_snapshot!(entry_row(&member(JOSEF), &edited_payment_entry(), PATHS));
     }
 
     #[test]
     fn a_payment_row_without_a_description() {
-        let html = entry_row(&payment_entry(None)).into_string();
+        let html = entry_row(&member(SIMON), &payment_entry(None), PATHS).into_string();
 
-        assert!(html.contains("<span class=\"entry-what\">Josef → Ondra</span>"));
+        assert!(html.contains("<span class=\"entry-what\" id=\"payment-4\">Josef → Ondra</span>"));
         assert!(html.contains("<span class=\"entry-meta\">Payment · 29 October 2026</span>"));
+    }
+
+    #[test]
+    fn only_the_payer_or_sender_and_the_admin_see_the_controls() {
+        let controls = |me, entry: &Entry| {
+            let html = entry_row(&member(me), entry, PATHS).into_string();
+            (html.contains("/edit\""), html.contains("/delete\""))
+        };
+
+        assert_eq!(controls(ONDRA, &entry()), (true, true));
+        assert_eq!(controls(JOSEF, &entry()), (true, true));
+        assert_eq!(controls(SIMON, &entry()), (false, false));
+        assert_eq!(controls(JOSEF, &payment_entry(None)), (true, true));
+        assert_eq!(controls(ONDRA, &payment_entry(None)), (false, false));
+    }
+
+    #[test]
+    fn the_controls_lead_to_the_entry() {
+        let html = entry_row(&member(JOSEF), &payment_entry(None), PATHS).into_string();
+
+        assert!(html.contains("href=\"/payments/4/edit\" aria-describedby=\"payment-4\""));
+        assert!(html.contains("hx-post=\"/payments/4/delete\""));
+        assert!(html.contains("hx-confirm=\"Delete the Payment from Josef to Ondra?\""));
+    }
+
+    #[test]
+    fn an_unedited_entry_says_nothing_about_edits() {
+        let html = entry_row(&member(ONDRA), &entry(), PATHS).into_string();
+
+        assert!(!html.contains("edited by"));
+    }
+
+    #[test]
+    fn expense_edit_form() {
+        let values = ExpenseValues {
+            amount: "12480",
+            description: "Pilsner malt, 3 sacks, and a new hydrometer",
+            payer: ONDRA,
+            expense_date: "2026-10-28",
+        };
+        assert_html_snapshot!(expense_page(
+            Purpose::Edit,
+            &expense_form(
+                EDIT_ACTION,
+                Purpose::Edit,
+                &crew(),
+                &values,
+                &ExpenseProblems::default(),
+                TODAY
+            )
+        ));
+    }
+
+    #[test]
+    fn payment_edit_form() {
+        assert_html_snapshot!(payment_page(
+            Purpose::Edit,
+            &payment_form(
+                "/payments/4",
+                Purpose::Edit,
+                &crew(),
+                &prefilled_payment(),
+                &PaymentProblems::default()
+            )
+        ));
     }
 
     #[test]
     fn payment_form_empty() {
         assert_html_snapshot!(payment_form(
             PAYMENT_ACTION,
+            Purpose::Log,
             &crew(),
             &PaymentValues::blank(ONDRA),
             &PaymentProblems::default()
@@ -688,6 +997,7 @@ mod tests {
     fn payment_form_prefilled() {
         assert_html_snapshot!(payment_form(
             PAYMENT_ACTION,
+            Purpose::Log,
             &crew(),
             &prefilled_payment(),
             &PaymentProblems::default()
@@ -708,13 +1018,20 @@ mod tests {
             sender: None,
             recipient: Some("Choose someone other than the Sender.".to_owned()),
         };
-        assert_html_snapshot!(payment_form(PAYMENT_ACTION, &crew(), &values, &problems));
+        assert_html_snapshot!(payment_form(
+            PAYMENT_ACTION,
+            Purpose::Log,
+            &crew(),
+            &values,
+            &problems
+        ));
     }
 
     #[test]
     fn the_payment_form_starts_with_me_sending_to_nobody_yet() {
         let html = payment_form(
             PAYMENT_ACTION,
+            Purpose::Log,
             &crew(),
             &PaymentValues::blank(ONDRA),
             &PaymentProblems::default(),
@@ -736,6 +1053,7 @@ mod tests {
         let today = TODAY.to_string();
         assert_html_snapshot!(expense_form(
             ACTION,
+            Purpose::Log,
             &crew(),
             &empty_values(&today),
             &ExpenseProblems::default(),
@@ -757,12 +1075,19 @@ mod tests {
             payer: Some("They weren't in the Crew yet on that date.".to_owned()),
             expense_date: Some("The Expense date can't be in the future.".to_owned()),
         };
-        assert_html_snapshot!(expense_form(ACTION, &crew(), &values, &problems, TODAY));
+        assert_html_snapshot!(expense_form(
+            ACTION,
+            Purpose::Log,
+            &crew(),
+            &values,
+            &problems,
+            TODAY
+        ));
     }
 
     #[test]
     fn the_home_screen_marks_the_member_and_their_standing() {
-        let html = home(ONDRA, &overview(), NEW_EXPENSE, NEW_PAYMENT).into_string();
+        let html = home(&member(ONDRA), &overview(), PATHS).into_string();
 
         assert!(html.contains("<section class=\"my-balance owed\""));
         assert!(html.contains("+4\u{a0}161\u{a0}Kč"));
@@ -776,6 +1101,7 @@ mod tests {
         let today = TODAY.to_string();
         let html = expense_form(
             ACTION,
+            Purpose::Log,
             &crew(),
             &empty_values(&today),
             &ExpenseProblems::default(),
@@ -795,8 +1121,15 @@ mod tests {
             expense_date: "2026-10-28",
             ..empty_values("")
         };
-        let html = expense_form(ACTION, &crew(), &values, &ExpenseProblems::default(), TODAY)
-            .into_string();
+        let html = expense_form(
+            ACTION,
+            Purpose::Log,
+            &crew(),
+            &values,
+            &ExpenseProblems::default(),
+            TODAY,
+        )
+        .into_string();
 
         assert!(html.contains(
             "<details class=\"field expense-date\" open><summary>Spent on 28 October 2026</summary>"
@@ -808,6 +1141,7 @@ mod tests {
         let today = TODAY.to_string();
         let html = expense_form(
             ACTION,
+            Purpose::Log,
             &crew(),
             &empty_values(&today),
             &ExpenseProblems::default(),
@@ -827,6 +1161,7 @@ mod tests {
         let today = TODAY.to_string();
         let html = expense_form(
             ACTION,
+            Purpose::Log,
             &crew(),
             &empty_values(&today),
             &ExpenseProblems::default(),
@@ -844,8 +1179,15 @@ mod tests {
             description: "\"><b>Malt",
             ..empty_values("2026-10-30")
         };
-        let html = expense_form(ACTION, &crew(), &values, &ExpenseProblems::default(), TODAY)
-            .into_string();
+        let html = expense_form(
+            ACTION,
+            Purpose::Log,
+            &crew(),
+            &values,
+            &ExpenseProblems::default(),
+            TODAY,
+        )
+        .into_string();
 
         assert!(html.contains("value=\"&quot;&gt;&lt;b&gt;Malt\""));
     }

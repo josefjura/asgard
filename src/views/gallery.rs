@@ -9,7 +9,9 @@ use crate::domain::members::{CREW_NAME, DisplayName};
 use crate::views::admin::{self, Outcome as AdminOutcome};
 use crate::views::brand::header_logo;
 use crate::views::display_name::{self, Outcome};
-use crate::views::finance::{self, ExpenseProblems, ExpenseValues, PaymentProblems, PaymentValues};
+use crate::views::finance::{
+    self, ExpenseProblems, ExpenseValues, PaymentProblems, PaymentValues, Purpose,
+};
 use crate::views::layout::document;
 use crate::views::nav::{ADMIN_HREF, Place, Tab, bottom_nav};
 use crate::views::passkey::CeremonyUrls;
@@ -44,6 +46,8 @@ const FINANCE_HEIGHT: u16 = 1500;
 const EXPENSE_FORM_HEIGHT: u16 = 760;
 /// The Payment form with its problems.
 const PAYMENT_FORM_HEIGHT: u16 = 720;
+/// An entry row with the edited line and the edit and delete controls under it.
+const ENTRY_ROW_HEIGHT: u16 = 180;
 /// Where the fixture passkey lists' forms post.
 const PASSKEYS_BASE: &str = "/settings/passkeys";
 const DESKTOP_WIDTH: u16 = 1280;
@@ -212,11 +216,10 @@ fn admin_pages() -> Vec<Fixture> {
 /// forms, and each kind of entry on its own.
 fn finance_pages() -> Vec<Fixture> {
     use finance::fixtures::{
-        JOSEF, ONDRA, SIMON, TODAY, crew, entry, fresh, overview, payment_entry,
+        JOSEF, ONDRA, PATHS, SIMON, TODAY, crew, edited_entry, edited_payment_entry, entry, fresh,
+        member, overview, payment_entry,
     };
 
-    const NEW_EXPENSE: &str = "/expenses/new";
-    const NEW_PAYMENT: &str = "/payments/new";
     let homes = [
         ("Owes", JOSEF, overview()),
         ("Owed", ONDRA, overview()),
@@ -226,7 +229,7 @@ fn finance_pages() -> Vec<Fixture> {
     .map(|(state, me, overview)| Fixture {
         component: "Finance home",
         state: state.to_owned(),
-        document: finance::home(me, &overview, NEW_EXPENSE, NEW_PAYMENT),
+        document: finance::home(&member(me), &overview, PATHS),
         height: FINANCE_HEIGHT,
     });
     let today = TODAY.to_string();
@@ -243,35 +246,49 @@ fn finance_pages() -> Vec<Fixture> {
         payer: Some("They weren't in the Crew yet on that date.".to_owned()),
         expense_date: Some("The Expense date can't be in the future.".to_owned()),
     };
+    let editing = ExpenseValues {
+        amount: "12480",
+        description: "Pilsner malt, 3 sacks, and a new hydrometer",
+        payer: ONDRA,
+        expense_date: "2026-10-28",
+    };
     let forms = [
-        ("Empty", &empty, ExpenseProblems::default()),
-        ("With errors", &mistaken, problems),
+        ("Empty", Purpose::Log, &empty, ExpenseProblems::default()),
+        ("With errors", Purpose::Log, &mistaken, problems),
+        (
+            "Editing",
+            Purpose::Edit,
+            &editing,
+            ExpenseProblems::default(),
+        ),
     ]
-    .map(|(state, values, problems)| Fixture {
+    .map(|(state, purpose, values, problems)| Fixture {
         component: "Expense form",
         state: state.to_owned(),
-        document: finance::expense_page(&finance::expense_form(
-            "/expenses",
-            &crew(),
-            values,
-            &problems,
-            TODAY,
-        )),
+        document: finance::expense_page(
+            purpose,
+            &finance::expense_form("/expenses/7", purpose, &crew(), values, &problems, TODAY),
+        ),
         height: EXPENSE_FORM_HEIGHT,
     });
     let rows = [
-        ("Expense", entry()),
-        ("Payment", payment_entry(Some("For the malt"))),
-        ("Payment without a description", payment_entry(None)),
+        ("Expense", SIMON, entry()),
+        ("Payment", SIMON, payment_entry(Some("For the malt"))),
+        ("Payment without a description", SIMON, payment_entry(None)),
+        ("Expense its Payer may change", ONDRA, entry()),
+        ("Edited", ONDRA, edited_entry()),
+        ("Edited Payment", JOSEF, edited_payment_entry()),
     ]
-    .map(|(state, entry)| Fixture {
+    .map(|(state, me, entry)| Fixture {
         component: "Entry row",
         state: state.to_owned(),
         document: document(
             "Entry row",
-            &html! { main.shell-main { ul.entry-list { (finance::entry_row(&entry)) } } },
+            &html! {
+                main.shell-main { ul.entry-list { (finance::entry_row(&member(me), &entry, PATHS)) } }
+            },
         ),
-        height: 120,
+        height: ENTRY_ROW_HEIGHT,
     });
     homes
         .into_iter()
@@ -281,8 +298,8 @@ fn finance_pages() -> Vec<Fixture> {
         .collect()
 }
 
-/// The Payment form empty, pre-filled from a Settlement, and with problems.
-fn payment_forms() -> [Fixture; 3] {
+/// The Payment form empty, pre-filled from a Settlement, with problems, and editing a Payment.
+fn payment_forms() -> [Fixture; 4] {
     use finance::fixtures::{ONDRA, SIMON, crew, prefilled_payment};
 
     let mistaken_payment = PaymentValues {
@@ -300,25 +317,36 @@ fn payment_forms() -> [Fixture; 3] {
     [
         (
             "Empty",
+            Purpose::Log,
             PaymentValues::blank(ONDRA),
             PaymentProblems::default(),
         ),
         (
             "Pre-filled",
+            Purpose::Log,
             prefilled_payment(),
             PaymentProblems::default(),
         ),
-        ("With errors", mistaken_payment, payment_problems),
+        (
+            "With errors",
+            Purpose::Log,
+            mistaken_payment,
+            payment_problems,
+        ),
+        (
+            "Editing",
+            Purpose::Edit,
+            prefilled_payment(),
+            PaymentProblems::default(),
+        ),
     ]
-    .map(|(state, values, problems)| Fixture {
+    .map(|(state, purpose, values, problems)| Fixture {
         component: "Payment form",
         state: state.to_owned(),
-        document: finance::payment_page(&finance::payment_form(
-            "/payments",
-            &crew(),
-            &values,
-            &problems,
-        )),
+        document: finance::payment_page(
+            purpose,
+            &finance::payment_form("/payments/4", purpose, &crew(), &values, &problems),
+        ),
         height: PAYMENT_FORM_HEIGHT,
     })
 }
@@ -570,6 +598,10 @@ mod tests {
             "Expense",
             "Payment",
             "Payment without a description",
+            "Expense its Payer may change",
+            "Edited",
+            "Edited Payment",
+            "Editing",
         ] {
             assert!(html.contains(&format!("<h3>{state}</h3>")), "{state}");
         }

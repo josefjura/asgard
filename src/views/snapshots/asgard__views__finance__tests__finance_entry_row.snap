@@ -1,10 +1,11 @@
 ---
 source: src/views/finance.rs
-expression: "entry_row(&entry()).into_string().replace(\"><\", \">\\n<\")"
+assertion_line: 871
+expression: "entry_row(&member(SIMON), &entry(), PATHS).into_string().replace(\"><\", \">\\n<\")"
 ---
 <li class="entry">
 <div class="entry-main">
-<span class="entry-what">Pilsner malt, 3 sacks, and a new hydrometer</span>
+<span class="entry-what" id="expense-7">Pilsner malt, 3 sacks, and a new hydrometer</span>
 <span class="entry-meta">Ondra paid · 28 October 2026</span>
 </div>
 <span class="entry-amount">12 480 Kč</span>
