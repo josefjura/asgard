@@ -31,7 +31,7 @@ expression: "page(\"Asgard\", &display_name::form(\"/welcome/name\", \"Ondra\", 
 </picture>
 <h1>Welcome to Asgard</h1>
 <p class="lead">You're in the Crew. Here's what to know before you start.</p>
-<section class="welcome-section" aria-labelledby="welcome-name">
+<section class="section narrow" aria-labelledby="welcome-name">
 <h2 id="welcome-name">Your name</h2>
 <p>The Admin typed it in for you. Fix it here if they got it wrong.</p>
 <form class="name-form" method="post" action="/welcome/name" hx-post="/welcome/name" hx-swap="outerHTML">
@@ -43,7 +43,7 @@ expression: "page(\"Asgard\", &display_name::form(\"/welcome/name\", \"Ondra\", 
 <p class="note" id="display-name-note" role="status">This is how the Crew sees you.</p>
 </form>
 </section>
-<section class="welcome-section" aria-labelledby="welcome-install">
+<section class="section narrow" aria-labelledby="welcome-install">
 <h2 id="welcome-install">Put Asgard on your home screen</h2>
 <p>It then opens like an app, without the browser around it.</p>
 <dl class="install">
@@ -53,11 +53,11 @@ expression: "page(\"Asgard\", &display_name::form(\"/welcome/name\", \"Ondra\", 
 <dd>In Chrome, tap the <strong>⋮</strong> menu, then <strong>Install app</strong> or <strong>Add to Home screen</strong>.</dd>
 </dl>
 </section>
-<section class="welcome-section" aria-labelledby="welcome-push">
+<section class="section narrow" aria-labelledby="welcome-push">
 <h2 id="welcome-push">Notifications</h2>
 <div class="placeholder" id="push-control">Turning on notifications for this device is coming soon.</div>
 </section>
-<section class="welcome-section" aria-labelledby="welcome-tour">
+<section class="section narrow" aria-labelledby="welcome-tour">
 <h2 id="welcome-tour">Where things are</h2>
 <dl class="tour">
 <dt>Finance</dt>

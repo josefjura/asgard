@@ -41,7 +41,7 @@ expression: "page(&links(BASE, &[], &[], None)).into_string().replace(\"><\", \"
 <main class="shell-main">
 <h1>Admin</h1>
 <div class="admin-links" id="links">
-<section class="settings-section" aria-labelledby="admin-invite">
+<section class="section narrow" aria-labelledby="admin-invite">
 <h2 id="admin-invite">Invite someone</h2>
 <form class="name-form" method="post" action="/admin/invites" hx-post="/admin/invites" hx-target="#links" hx-swap="outerHTML">
 <label for="invite-name">Display name</label>
@@ -52,13 +52,13 @@ expression: "page(&links(BASE, &[], &[], None)).into_string().replace(\"><\", \"
 <p class="note" id="invite-name-note" role="status">The name they'll appear under. They can change it after joining.</p>
 </form>
 </section>
-<section class="settings-section" aria-labelledby="admin-device">
+<section class="section narrow" aria-labelledby="admin-device">
 <h2 id="admin-device">Set up a new device</h2>
-<p class="lead-in">No one else is in the Crew yet.</p>
+<p class="muted">No one else is in the Crew yet.</p>
 </section>
-<section class="settings-section" aria-labelledby="admin-open">
+<section class="section narrow" aria-labelledby="admin-open">
 <h2 id="admin-open">Open links</h2>
-<p class="lead-in">No open links. Each link works once, for 24 hours.</p>
+<p class="muted">No open links. Each link works once, for 24 hours.</p>
 <p class="note" role="status">
 </p>
 </section>

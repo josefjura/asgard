@@ -58,9 +58,9 @@ expression: "page(&member(JOSEF), &crew(), &Filters::of(HistoryFilter::default()
 <button class="button" type="submit">Show</button>
 </div>
 </form>
-<section class="finance-section" aria-labelledby="history-entries">
+<section class="section" aria-labelledby="history-entries">
 <h2 id="history-entries">Entries</h2>
-<p class="lead-in">Nothing logged yet.</p>
+<p class="muted">Nothing logged yet.</p>
 </section>
 </main>
 <nav class="tabs" aria-label="Sections">

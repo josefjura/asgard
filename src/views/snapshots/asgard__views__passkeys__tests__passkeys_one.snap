@@ -4,7 +4,7 @@ expression: "list(BASE, &one(), None).into_string().replace(\"><\", \">\\n<\")"
 ---
 <div class="passkeys" id="passkeys">
 <ul class="passkey-list">
-<li class="passkey">
+<li class="card passkey">
 <form class="passkey-rename" method="post" action="/settings/passkeys/1/name" hx-post="/settings/passkeys/1/name" hx-target="#passkeys" hx-swap="outerHTML">
 <label for="passkey-1-name">Passkey added 14 March 2026</label>
 <div class="field-row">

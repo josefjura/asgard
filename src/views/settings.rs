@@ -23,34 +23,34 @@ pub fn page(
         &html! {
             h1 { "Settings" }
 
-            section.settings-section aria-labelledby="settings-name" {
+            section.section.narrow aria-labelledby="settings-name" {
                 h2 #settings-name { "Your name" }
                 (name_form)
             }
 
-            section.settings-section aria-labelledby="settings-passkeys" {
+            section.section.narrow aria-labelledby="settings-passkeys" {
                 h2 #settings-passkeys { "Passkeys" }
                 (passkeys)
-                p.lead-in {
+                p.muted {
                     "Add a passkey on each device you sign in from, unless your passkeys already sync to it."
                 }
                 (passkey::button("Add a passkey", Ceremony::Register, add_passkey))
             }
 
-            section.settings-section aria-labelledby="settings-push" {
+            section.section.narrow aria-labelledby="settings-push" {
                 h2 #settings-push { "Notifications" }
                 (push::control())
             }
 
             @if let Some(admin) = admin {
-                section.settings-section aria-labelledby="settings-admin" {
+                section.section.narrow aria-labelledby="settings-admin" {
                     h2 #settings-admin { "Admin" }
-                    p.lead-in { "Bring someone into the Crew with an Invite link." }
+                    p.muted { "Bring someone into the Crew with an Invite link." }
                     a.button href=(admin) { "Invite links" }
                 }
             }
 
-            section.settings-section aria-labelledby="settings-device" {
+            section.section.narrow aria-labelledby="settings-device" {
                 h2 #settings-device { "This device" }
                 p { "Logging out signs this device out. Your passkey stays, so you can sign back in." }
                 form method="post" action=(log_out) {

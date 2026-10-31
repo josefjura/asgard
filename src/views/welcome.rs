@@ -14,13 +14,13 @@ pub fn page(crew: &str, name_form: &Markup, got_it: &str) -> Markup {
             h1 { "Welcome to " (crew) }
             p.lead { "You're in the Crew. Here's what to know before you start." }
 
-            section.welcome-section aria-labelledby="welcome-name" {
+            section.section.narrow aria-labelledby="welcome-name" {
                 h2 #welcome-name { "Your name" }
                 p { "The Admin typed it in for you. Fix it here if they got it wrong." }
                 (name_form)
             }
 
-            section.welcome-section aria-labelledby="welcome-install" {
+            section.section.narrow aria-labelledby="welcome-install" {
                 h2 #welcome-install { "Put Asgard on your home screen" }
                 p { "It then opens like an app, without the browser around it." }
                 dl.install {
@@ -37,12 +37,12 @@ pub fn page(crew: &str, name_form: &Markup, got_it: &str) -> Markup {
                 }
             }
 
-            section.welcome-section aria-labelledby="welcome-push" {
+            section.section.narrow aria-labelledby="welcome-push" {
                 h2 #welcome-push { "Notifications" }
                 (push::control())
             }
 
-            section.welcome-section aria-labelledby="welcome-tour" {
+            section.section.narrow aria-labelledby="welcome-tour" {
                 h2 #welcome-tour { "Where things are" }
                 dl.tour {
                     @for tab in Tab::ALL {

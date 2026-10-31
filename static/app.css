@@ -1,4 +1,5 @@
-/* Asgard: one mobile-first stylesheet. Hop greens and pale-ale amber. */
+/* Asgard: one mobile-first stylesheet. Hop greens, with the logo's bronze as the accent and
+   pale-ale amber where the accent sits on the green band. */
 
 :root {
   color-scheme: light dark;
@@ -7,11 +8,17 @@
   --surface: #fafbf4;
   --ink: #121212;
   --muted: #5e6450;
+  /* --line divides content; --edge outlines a control, so it stands 3:1 off what's behind it. */
   --line: #d5d9c4;
+  --edge: #7d836a;
   --band: #3e5b2b;
   --band-ink: #eee9da;
+  --primary: #3e5b2b;
+  --primary-ink: #eee9da;
   --active: #3e5b2b;
-  --amber: #d9a021;
+  /* --accent marks focus and the current page; inside the band it becomes --band-accent. */
+  --accent: #86693a;
+  --band-accent: #d9a021;
   --danger: #a3301f;
 
   --space-1: 0.25rem;
@@ -20,6 +27,13 @@
   --space-4: 1.5rem;
   --space-5: 2.5rem;
   --measure: 40rem;
+  --radius: 0.5rem;
+
+  --text-tiny: 0.75rem;
+  --text-small: 0.875rem;
+  --text-lead: 1.125rem;
+  --text-title: 1.75rem;
+  --text-figure: 2.25rem;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -30,10 +44,14 @@
     --ink: #eee9da;
     --muted: #a0a68e;
     --line: #343a29;
+    --edge: #6a7256;
     --band: #263820;
     --band-ink: #eee9da;
+    --primary: #4a7330;
+    --primary-ink: #eee9da;
     --active: #a9c97f;
-    --amber: #e3ae36;
+    --accent: #e3ae36;
+    --band-accent: #e3ae36;
     --danger: #f08a75;
   }
 }
@@ -64,7 +82,7 @@ a {
 }
 
 :focus-visible {
-  outline: 3px solid var(--amber);
+  outline: 3px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -72,6 +90,8 @@ a {
 
 .shell {
   display: grid;
+  /* minmax(0, …): a wide form row wraps or shrinks instead of widening the page. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
   grid-template-areas: "header" "main" "nav";
   min-height: 100dvh;
@@ -84,6 +104,7 @@ a {
   padding: calc(var(--space-3) + env(safe-area-inset-top)) var(--space-3) var(--space-3);
   background: var(--band);
   color: var(--band-ink);
+  --accent: var(--band-accent);
 }
 
 .logo {
@@ -130,7 +151,7 @@ a {
   inset: auto var(--space-2) calc(-1 * var(--space-2));
   height: 3px;
   border-radius: 3px 3px 0 0;
-  background: var(--amber);
+  background: var(--accent);
 }
 
 .shell-main {
@@ -140,14 +161,7 @@ a {
   padding: var(--space-4) var(--space-3) var(--space-5);
 }
 
-.shell-main h1 {
-  margin: 0 0 var(--space-3);
-  font-size: 1.75rem;
-  line-height: 1.2;
-  letter-spacing: -0.01em;
-}
-
-/* Bottom navigation: four equal tabs, the active one marked with an amber bar. */
+/* Bottom navigation: four equal tabs, the active one marked with an accent bar. */
 
 .tabs {
   grid-area: nav;
@@ -169,7 +183,7 @@ a {
   min-height: 3.5rem;
   padding: var(--space-2) var(--space-1);
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: var(--text-tiny);
   text-decoration: none;
 }
 
@@ -194,7 +208,7 @@ a {
   inset: -1px 25% auto;
   height: 3px;
   border-radius: 0 0 3px 3px;
-  background: var(--amber);
+  background: var(--accent);
 }
 
 @media (min-width: 48rem) {
@@ -224,6 +238,7 @@ a {
     padding: 0;
     background: var(--band);
     border-top: 0;
+    --accent: var(--band-accent);
   }
 
   .tab {
@@ -252,12 +267,46 @@ a {
   }
 }
 
-/* Placeholder content, and the pages shown outside the shell. */
+/* Text: page titles, section headings, the larger lead line and quieter asides. */
+
+.shell-main h1,
+.standalone h1 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-title);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.standalone h1 {
+  margin-bottom: var(--space-2);
+}
+
+.section {
+  margin-bottom: var(--space-5);
+}
+
+/* A section of one-column text and forms, kept to a comfortable line length. */
+.narrow {
+  max-width: 28rem;
+}
+
+.section h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-lead);
+  line-height: 1.3;
+}
+
+.muted {
+  margin: 0 0 var(--space-2);
+  color: var(--muted);
+}
 
 .empty {
   max-width: 32rem;
   color: var(--muted);
 }
+
+/* The pages shown outside the shell: the hero logo over a centred column. */
 
 .standalone {
   display: grid;
@@ -273,13 +322,8 @@ a {
   margin-bottom: var(--space-3);
 }
 
-.standalone h1 {
-  margin: 0 0 var(--space-2);
-  font-size: 1.75rem;
-  line-height: 1.2;
-}
-
-.standalone p {
+/* :where keeps this as weak as a class, so a note or status line inside keeps its own look. */
+.standalone :where(p) {
   max-width: 28rem;
   margin: 0 0 var(--space-3);
   color: var(--muted);
@@ -287,54 +331,10 @@ a {
 
 .standalone .lead {
   color: var(--ink);
-  font-size: 1.125rem;
+  font-size: var(--text-lead);
 }
 
-/* Buttons and the status line beneath them. */
-
-.button {
-  justify-self: start;
-  min-height: 3rem;
-  padding: var(--space-2) var(--space-4);
-  border: 0;
-  border-radius: 0.5rem;
-  background: var(--band);
-  color: var(--band-ink);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.button:disabled {
-  opacity: 0.6;
-  cursor: progress;
-}
-
-.standalone .status {
-  min-height: 1.5em;
-  margin-top: var(--space-3);
-  color: var(--ink);
-}
-
-.status:empty {
-  visibility: hidden;
-}
-
-/* The welcome and settings pages: their sections, the install and tour lists, and the
-   placeholders for controls still to come. */
-
-.welcome-section,
-.settings-section {
-  max-width: 28rem;
-  margin-bottom: var(--space-4);
-}
-
-.welcome-section h2,
-.settings-section h2 {
-  margin: 0 0 var(--space-2);
-  font-size: 1.125rem;
-  line-height: 1.3;
-}
+/* The welcome page's install and tour lists. */
 
 .install,
 .tour {
@@ -355,16 +355,33 @@ a {
 .placeholder {
   padding: var(--space-3);
   border: 2px dashed var(--line);
-  border-radius: 0.5rem;
+  border-radius: var(--radius);
   color: var(--muted);
 }
 
-/* Forms: a label, the field and its button on one row, and a note beneath. */
+/* Fields: a bold label over the control, red-edged when refused, with its problem or a note
+   beneath. In a .field-row the control shares its line with the button that submits it. */
 
-.name-form label {
+label {
   display: block;
   margin-bottom: var(--space-1);
   font-weight: 600;
+}
+
+input,
+select {
+  width: 100%;
+  min-height: 3rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+[aria-invalid="true"] {
+  border-color: var(--danger);
 }
 
 .field-row {
@@ -372,135 +389,142 @@ a {
   gap: var(--space-2);
 }
 
+/* A zero width so a field's built-in size never sets how narrow its row can go. */
 .field-row input,
 .field-row select {
   flex: 1;
+  width: 0;
   min-width: 0;
-  min-height: 3rem;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: var(--surface);
-  color: var(--ink);
-  font: inherit;
 }
 
-.field-row input[aria-invalid="true"] {
-  border-color: var(--danger);
+.field-problem {
+  margin: var(--space-1) 0 0;
+  color: var(--danger);
+  font-size: var(--text-small);
 }
 
-.name-form .note {
+.note {
   margin: var(--space-2) 0 0;
-  font-size: 0.875rem;
+  color: var(--muted);
+  font-size: var(--text-small);
 }
 
-.name-form .note.refused {
+.note.refused {
   color: var(--danger);
 }
 
-/* The passkey list in settings: each passkey's rename form with its delete button beneath,
-   then the add button and the status line the passkey script writes to. */
+.note:empty {
+  display: none;
+}
 
-.passkey-list {
+/* The line the passkey script writes to. Empty, it is only the gap beneath its button, but it
+   stays rendered so screen readers announce what's written to it. */
+.status {
+  margin: var(--space-3) 0 0;
+  color: var(--ink);
+}
+
+/* Buttons: filled for the main action, outlined for the others, red-lettered to delete. */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  min-height: 3rem;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--primary);
+  color: var(--primary-ink);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.button.secondary,
+.button.danger {
+  border-color: var(--edge);
+  background: transparent;
+  color: var(--ink);
+}
+
+.button.danger {
+  color: var(--danger);
+}
+
+.button.small {
+  min-height: 2.75rem;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-small);
+}
+
+.button.large {
+  width: 100%;
+  min-height: 3.5rem;
+  font-size: var(--text-lead);
+}
+
+/* Cards: a bordered surface around one thing, in lists spaced by a gap. */
+
+.card {
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.passkey-list,
+.link-list,
+.settlement-list {
   display: grid;
-  gap: var(--space-3);
-  margin: 0 0 var(--space-3);
+  gap: var(--space-2);
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.passkey {
-  padding: var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
+/* Settings' passkeys: each one's rename form with its delete button beneath. */
+
+.passkey-list {
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
 }
 
 .passkey-rename label {
-  display: block;
-  margin-bottom: var(--space-1);
   color: var(--muted);
-  font-size: 0.875rem;
+  font-size: var(--text-small);
+  font-weight: 400;
 }
 
 .passkey-delete {
   margin-top: var(--space-2);
 }
 
-.passkeys .note {
-  margin: var(--space-2) 0 0;
-  font-size: 0.875rem;
-}
-
 .passkeys > .note {
   margin: 0 0 var(--space-3);
-}
-
-.passkeys .note:empty {
-  display: none;
-}
-
-.passkeys .note.refused {
-  color: var(--danger);
-}
-
-.button.quiet {
-  min-height: 2.75rem;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--danger);
-}
-
-.settings-section .lead-in {
-  margin: 0 0 var(--space-2);
-  color: var(--muted);
-}
-
-.settings-section .status {
-  min-height: 1.5em;
-  margin: var(--space-2) 0 0;
 }
 
 /* The admin page: the link just made with its copy button, then the open links, each with its
    revoke button beside it. */
 
-a.button {
-  display: inline-flex;
-  align-items: center;
-  text-decoration: none;
-}
-
 .new-link {
   margin-top: var(--space-3);
-  padding: var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: var(--surface);
 }
 
 .new-link label {
-  display: block;
   margin-bottom: var(--space-2);
+  font-weight: 400;
 }
 
 .new-link input {
-  font-size: 0.875rem;
-}
-
-.admin-links .note {
-  margin: var(--space-2) 0 0;
-  font-size: 0.875rem;
-}
-
-.admin-links .note:empty {
-  display: none;
-}
-
-.link-list {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  font-size: var(--text-small);
 }
 
 .open-link {
@@ -509,9 +533,6 @@ a.button {
   gap: var(--space-2);
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
 }
 
 .open-link p {
@@ -520,7 +541,7 @@ a.button {
 
 .open-link .expires {
   color: var(--muted);
-  font-size: 0.875rem;
+  font-size: var(--text-small);
 }
 
 /* Finance: the Member's own Balance up top, the big "+ Expense" button, then the Crew's
@@ -528,22 +549,18 @@ a.button {
 
 .my-balance {
   margin-bottom: var(--space-4);
-  padding: var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: var(--surface);
 }
 
 .my-balance h2 {
   margin: 0;
   color: var(--muted);
-  font-size: 0.875rem;
+  font-size: var(--text-small);
   font-weight: 600;
 }
 
 .balance-figure {
   margin: var(--space-1) 0 0;
-  font-size: 2.25rem;
+  font-size: var(--text-figure);
   font-weight: 700;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
@@ -568,13 +585,6 @@ a.button {
   color: var(--muted);
 }
 
-.button-large {
-  width: 100%;
-  min-height: 3.5rem;
-  justify-content: center;
-  font-size: 1.125rem;
-}
-
 /* A large "+ Expense" button, with the rarer "+ Payment" beside it. */
 
 .finance-actions {
@@ -583,51 +593,18 @@ a.button {
   margin-bottom: var(--space-5);
 }
 
-.finance-actions .button-large {
+.finance-actions .large {
   flex: 1;
 }
 
-.button-secondary {
-  flex: none;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--ink);
-}
-
-.finance-section {
-  margin-bottom: var(--space-5);
-}
-
-.finance-section h2 {
-  margin: 0 0 var(--space-2);
-  font-size: 1.125rem;
-  line-height: 1.3;
-}
-
-.finance-section .lead-in {
-  margin: 0;
-  color: var(--muted);
-}
-
 /* My Settlements: what to send or expect, each with the button that records it. */
-
-.settlement-list {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
 
 .settlement {
   display: flex;
   gap: var(--space-3);
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: var(--surface);
+  padding-block: var(--space-2);
 }
 
 .settlement-what strong {
@@ -670,7 +647,7 @@ a.button {
 
 .entry-meta {
   color: var(--muted);
-  font-size: 0.875rem;
+  font-size: var(--text-small);
 }
 
 .entry-edited {
@@ -689,19 +666,6 @@ a.button {
   margin: 0;
 }
 
-.button-small {
-  min-height: 2.75rem;
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--ink);
-  font-size: 0.875rem;
-}
-
-.button-small.quiet {
-  color: var(--danger);
-}
-
 /* The Expense and Payment forms: one field under another, each with its problem beneath it.
    The Expense date folds away while it is today. */
 
@@ -711,37 +675,9 @@ a.button {
   max-width: 28rem;
 }
 
-.entry-form label {
-  display: block;
-  margin-bottom: var(--space-1);
-  font-weight: 600;
-}
-
 .entry-form .optional {
   color: var(--muted);
   font-weight: 400;
-}
-
-.entry-form input,
-.entry-form select {
-  width: 100%;
-  min-height: 3rem;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: var(--surface);
-  color: var(--ink);
-  font: inherit;
-}
-
-.entry-form [aria-invalid="true"] {
-  border-color: var(--danger);
-}
-
-.field-problem {
-  margin: var(--space-1) 0 0;
-  color: var(--danger);
-  font-size: 0.875rem;
 }
 
 .expense-date summary {
@@ -770,28 +706,6 @@ a.button {
   margin-bottom: var(--space-5);
 }
 
-.history-filters label {
-  display: block;
-  margin-bottom: var(--space-1);
-  font-weight: 600;
-}
-
-.history-filters input,
-.history-filters select {
-  width: 100%;
-  min-height: 3rem;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: var(--surface);
-  color: var(--ink);
-  font: inherit;
-}
-
-.history-filters [aria-invalid="true"] {
-  border-color: var(--danger);
-}
-
 .history-filter-actions {
   display: flex;
   gap: var(--space-2);
@@ -807,7 +721,7 @@ a.button {
 
 .pages-at {
   color: var(--muted);
-  font-size: 0.875rem;
+  font-size: var(--text-small);
 }
 
 .monthly-totals {
@@ -830,7 +744,7 @@ a.button {
 
 .monthly-totals thead th {
   color: var(--muted);
-  font-size: 0.875rem;
+  font-size: var(--text-small);
   font-weight: 600;
 }
 

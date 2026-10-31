@@ -79,21 +79,21 @@ pub fn links(
     };
     html! {
         div.admin-links #(LINKS_ID) {
-            section.settings-section aria-labelledby="admin-invite" {
+            section.section.narrow aria-labelledby="admin-invite" {
                 h2 #admin-invite { "Invite someone" }
                 (invite_form(base, outcome))
                 @if let Some(created) = created_for(LinkKind::Invite) {
                     (created)
                 }
             }
-            section.settings-section aria-labelledby="admin-device" {
+            section.section.narrow aria-labelledby="admin-device" {
                 h2 #admin-device { "Set up a new device" }
                 (device_link_form(base, members))
                 @if let Some(created) = created_for(LinkKind::Device) {
                     (created)
                 }
             }
-            section.settings-section aria-labelledby="admin-open" {
+            section.section.narrow aria-labelledby="admin-open" {
                 h2 #admin-open { "Open links" }
                 (open_links(base, open))
                 p.note role="status" {
@@ -138,7 +138,7 @@ fn device_link_form(base: &str, members: &[MemberName]) -> Markup {
     let target = format!("#{LINKS_ID}");
     html! {
         @if members.is_empty() {
-            p.lead-in { "No one else is in the Crew yet." }
+            p.muted { "No one else is in the Crew yet." }
         } @else {
             form.name-form method="post" action=(action) hx-post=(action)
                 hx-target=(target) hx-swap="outerHTML" {
@@ -165,7 +165,7 @@ fn device_link_form(base: &str, members: &[MemberName]) -> Markup {
 /// hand where the clipboard isn't available.
 fn created(name: &DisplayName, url: &str) -> Markup {
     html! {
-        div.new-link {
+        div.card.new-link {
             label for="new-link" {
                 "Send this link to " strong { (name) } ". It works once, for " (LINK_LIFETIME_HOURS) " hours."
             }
@@ -183,12 +183,12 @@ fn open_links(base: &str, open: &[OpenLink]) -> Markup {
     let target = format!("#{LINKS_ID}");
     html! {
         @if open.is_empty() {
-            p.lead-in { "No open links. Each link works once, for " (LINK_LIFETIME_HOURS) " hours." }
+            p.muted { "No open links. Each link works once, for " (LINK_LIFETIME_HOURS) " hours." }
         } @else {
             ul.link-list {
                 @for link in open {
                     @let revoke = revoke_path(base, link.id);
-                    li.open-link {
+                    li.card.open-link {
                         p {
                             (match link.kind {
                                 LinkKind::Invite => "Invite for ",
@@ -201,7 +201,7 @@ fn open_links(base: &str, open: &[OpenLink]) -> Markup {
                         form method="post" action=(revoke) hx-post=(revoke)
                             hx-target=(target) hx-swap="outerHTML"
                             hx-confirm={ "Revoke the link for " (link.display_name) "? It will stop working." } {
-                            button.button.quiet type="submit" { "Revoke" }
+                            button.button.danger type="submit" { "Revoke" }
                         }
                     }
                 }

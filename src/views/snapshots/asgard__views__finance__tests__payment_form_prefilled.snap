@@ -29,5 +29,5 @@ expression: "payment_form(PAYMENT_ACTION, Purpose::Log, &crew(), &prefilled_paym
 </label>
 <input id="payment-description" type="text" name="description" value="" maxlength="500" autocomplete="off">
 </div>
-<button class="button button-large" type="submit">Log Payment</button>
+<button class="button large" type="submit">Log Payment</button>
 </form>
