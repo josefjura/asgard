@@ -1,6 +1,6 @@
 ---
 source: src/views/finance.rs
-expression: "home(JOSEF, &fresh(), NEW_EXPENSE).into_string().replace(\"><\", \">\\n<\")"
+expression: "home(JOSEF, &fresh(), NEW_EXPENSE,\nNEW_PAYMENT).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -47,6 +47,7 @@ expression: "home(JOSEF, &fresh(), NEW_EXPENSE).into_string().replace(\"><\", \"
 </section>
 <div class="finance-actions">
 <a class="button button-large" href="/expenses/new">+ Expense</a>
+<a class="button button-secondary" href="/payments/new">+ Payment</a>
 </div>
 <section class="finance-section" aria-labelledby="crew-balances">
 <h2 id="crew-balances">Crew Balances</h2>

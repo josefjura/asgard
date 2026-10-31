@@ -1,0 +1,11 @@
+---
+source: src/views/finance.rs
+expression: "entry_row(&payment_entry(Some(\"For the malt\"))).into_string().replace(\"><\",\n\">\\n<\")"
+---
+<li class="entry payment">
+<div class="entry-main">
+<span class="entry-what">Josef → Ondra</span>
+<span class="entry-meta">Payment · For the malt · 29 October 2026</span>
+</div>
+<span class="entry-amount">4 160 Kč</span>
+</li>

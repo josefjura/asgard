@@ -1,5 +1,5 @@
 //! The Finance tab, Asgard's home page: everyone's Balance, the latest entries, and logging an
-//! Expense.
+//! Expense or a Payment.
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -16,10 +16,10 @@ use super::htmx::{HX_REDIRECT, Htmx};
 use super::pages::fresh;
 use super::{AppError, AppState, welcome};
 use crate::domain::finance::money::Amount;
-use crate::domain::finance::{Description, ExpenseError, NewExpense};
+use crate::domain::finance::{Description, ExpenseError, NewExpense, NewPayment, PaymentError};
 use crate::domain::members::{self, MemberId};
 use crate::views;
-use crate::views::finance::{ExpenseProblems, ExpenseValues};
+use crate::views::finance::{ExpenseProblems, ExpenseValues, PaymentProblems, PaymentValues};
 use crate::views::nav::Tab;
 
 /// Where the "+ Expense" button leads.
@@ -28,11 +28,22 @@ pub const NEW_EXPENSE_PATH: &str = "/expenses/new";
 /// Where the Expense form posts.
 const EXPENSES_PATH: &str = "/expenses";
 
+/// Where the "+ Payment" button leads.
+pub const NEW_PAYMENT_PATH: &str = "/payments/new";
+
+/// Where the Payment form posts.
+const PAYMENTS_PATH: &str = "/payments";
+
+/// What a Member is told when a Sender or Recipient they chose has left the form's list.
+const NOT_IN_CREW: &str = "That Member isn't in the Crew. Reload the page to see who is.";
+
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route(Tab::Finance.href(), get(home))
         .route(NEW_EXPENSE_PATH, get(new_expense))
         .route(EXPENSES_PATH, post(log_expense))
+        .route(NEW_PAYMENT_PATH, get(new_payment))
+        .route(PAYMENTS_PATH, post(log_payment))
 }
 
 /// The home page. It sends a Member to the welcome page until they have pressed "Got it"
@@ -42,7 +53,13 @@ async fn home(State(state): State<AppState>, Member(member): Member) -> Result<R
         return Ok(Redirect::to(welcome::PATH).into_response());
     }
     let overview = state.finance.overview().await?;
-    Ok(fresh(views::finance::home(member.id, &overview, NEW_EXPENSE_PATH)).into_response())
+    Ok(fresh(views::finance::home(
+        member.id,
+        &overview,
+        NEW_EXPENSE_PATH,
+        NEW_PAYMENT_PATH,
+    ))
+    .into_response())
 }
 
 /// The empty Expense form: the Payer is the Member asking, and the Expense date is today.
@@ -155,6 +172,120 @@ async fn expense_form(
     ))
 }
 
+/// The empty Payment form: the Sender is the Member asking, and no Recipient is chosen yet.
+async fn new_payment(
+    State(state): State<AppState>,
+    Member(member): Member,
+) -> Result<impl IntoResponse, AppError> {
+    let values = PaymentValues::blank(member.id);
+    let form = payment_form(&state, &values, &PaymentProblems::default()).await?;
+    Ok(fresh(views::finance::payment_page(&form)))
+}
+
+#[derive(Deserialize)]
+struct PaymentForm {
+    amount: String,
+    description: String,
+    sender: i64,
+    /// Missing while the form's "Choose a Member" placeholder is still selected.
+    #[serde(default)]
+    recipient: String,
+}
+
+/// Logs the Payment and goes back to Finance, or answers with the form showing what to fix,
+/// like [`log_expense`].
+async fn log_payment(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Form(input): Form<PaymentForm>,
+) -> Result<Response, AppError> {
+    let sender = MemberId::from_client(input.sender);
+    let recipient = input
+        .recipient
+        .trim()
+        .parse()
+        .ok()
+        .map(MemberId::from_client);
+    let problems = match parse_payment(&input, sender, recipient) {
+        Ok(payment) => match state.finance.log_payment(member.id, &payment).await {
+            Ok(_) => {
+                tracing::info!(member = member.id.get(), "a Member logged a Payment");
+                return Ok(back_to_finance(htmx));
+            }
+            Err(PaymentError::SameMember) => PaymentProblems {
+                recipient: Some("Choose someone other than the Sender.".to_owned()),
+                ..PaymentProblems::default()
+            },
+            Err(PaymentError::SenderNotInCrew) => PaymentProblems {
+                sender: Some(NOT_IN_CREW.to_owned()),
+                ..PaymentProblems::default()
+            },
+            Err(PaymentError::RecipientNotInCrew) => PaymentProblems {
+                recipient: Some(NOT_IN_CREW.to_owned()),
+                ..PaymentProblems::default()
+            },
+            Err(PaymentError::Database(err)) => return Err(err.into()),
+        },
+        Err(problems) => problems,
+    };
+    let values = PaymentValues {
+        amount: &input.amount,
+        description: &input.description,
+        sender,
+        recipient,
+    };
+    let form = payment_form(&state, &values, &problems).await?;
+    let body = if htmx {
+        form
+    } else {
+        views::finance::payment_page(&form)
+    };
+    Ok((StatusCode::UNPROCESSABLE_ENTITY, fresh(body)).into_response())
+}
+
+/// The Payment as typed, or what is wrong with each field that can be checked on its own.
+fn parse_payment(
+    input: &PaymentForm,
+    sender: MemberId,
+    recipient: Option<MemberId>,
+) -> Result<NewPayment, PaymentProblems> {
+    let amount = Amount::parse(&input.amount);
+    let description = Description::parse_optional(&input.description);
+    match (amount, description, recipient) {
+        (Ok(amount), Ok(description), Some(recipient)) => Ok(NewPayment {
+            sender,
+            recipient,
+            amount,
+            description,
+        }),
+        (amount, description, recipient) => Err(PaymentProblems {
+            amount: amount.err().map(amount_message),
+            description: description.err().map(description_message),
+            sender: None,
+            recipient: recipient
+                .is_none()
+                .then(|| "Choose who got the money.".to_owned()),
+        }),
+    }
+}
+
+/// The Payment form showing `values` and `problems`, with every Member to choose the Sender
+/// and the Recipient from.
+async fn payment_form(
+    state: &AppState,
+    values: &PaymentValues<'_>,
+    problems: &PaymentProblems,
+) -> Result<Markup, AppError> {
+    let members = state.members.all().await?;
+    Ok(views::finance::payment_form(
+        PAYMENTS_PATH,
+        &members,
+        values,
+        problems,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -174,12 +305,35 @@ mod tests {
     /// The fields of a 1 000 Kč Malt Expense paid by the Member `payer` on 1 January 2026, the
     /// test app's first day, with `changes` made to them.
     fn fields<'a>(payer: i64, changes: &[(&'a str, &'a str)]) -> Vec<(&'a str, String)> {
-        let mut fields = vec![
+        let fields = vec![
             ("amount", "1000".to_owned()),
             ("description", "Malt".to_owned()),
             ("payer", payer.to_string()),
             ("expense_date", "2026-01-01".to_owned()),
         ];
+        changed(fields, changes)
+    }
+
+    /// The fields of a 300 Kč Payment from the Member `sender` to `recipient`, with no
+    /// description, and with `changes` made to them.
+    fn payment_fields<'a>(
+        sender: i64,
+        recipient: i64,
+        changes: &[(&'a str, &'a str)],
+    ) -> Vec<(&'a str, String)> {
+        let fields = vec![
+            ("amount", "300".to_owned()),
+            ("description", String::new()),
+            ("sender", sender.to_string()),
+            ("recipient", recipient.to_string()),
+        ];
+        changed(fields, changes)
+    }
+
+    fn changed<'a>(
+        mut fields: Vec<(&'a str, String)>,
+        changes: &[(&'a str, &'a str)],
+    ) -> Vec<(&'a str, String)> {
         for (name, value) in changes {
             let field = fields.iter_mut().find(|(field, _)| field == name).unwrap();
             field.1 = (*value).to_owned();
@@ -194,7 +348,28 @@ mod tests {
         htmx: bool,
         origin: &str,
     ) -> Response<Body> {
-        let mut post = request(Method::POST, "/expenses", Some(origin));
+        post_form(app, "/expenses", cookie, fields, htmx, origin).await
+    }
+
+    async fn post_payment(
+        app: &TestApp,
+        cookie: &str,
+        fields: &[(&str, String)],
+        htmx: bool,
+        origin: &str,
+    ) -> Response<Body> {
+        post_form(app, "/payments", cookie, fields, htmx, origin).await
+    }
+
+    async fn post_form(
+        app: &TestApp,
+        uri: &str,
+        cookie: &str,
+        fields: &[(&str, String)],
+        htmx: bool,
+        origin: &str,
+    ) -> Response<Body> {
+        let mut post = request(Method::POST, uri, Some(origin));
         let headers = post.headers_mut();
         headers.insert(COOKIE, cookie.parse().unwrap());
         headers.insert(
@@ -261,6 +436,7 @@ mod tests {
         assert!(html.contains(&balance_row("Ondra", "Even")));
         assert!(html.contains("Nothing logged yet."));
         assert!(html.contains("href=\"/expenses/new\""));
+        assert!(html.contains("href=\"/payments/new\""));
     }
 
     #[sqlx::test]
@@ -407,6 +583,204 @@ mod tests {
 
         let response =
             post_expense(&app, &josef, &fields(1, &[]), true, "https://evil.example").await;
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let html = page(&app, "/", &josef).await;
+        assert!(html.contains("Nothing logged yet."));
+    }
+
+    #[sqlx::test]
+    async fn signed_out_the_payment_form_redirects_to_sign_in(db: SqlitePool) {
+        let app = TestApp::new(db);
+
+        for response in [
+            app.get("/payments/new").await,
+            post_payment(&app, "", &payment_fields(1, 2, &[]), false, PUBLIC_ORIGIN).await,
+        ] {
+            assert_eq!(response.status(), StatusCode::SEE_OTHER);
+            assert_eq!(response.headers()[LOCATION], "/sign-in");
+        }
+    }
+
+    #[sqlx::test]
+    async fn the_payment_form_defaults_to_me_sending(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (_, ondra) = josef_and_ondra(&app).await;
+
+        let html = page(&app, "/payments/new", &ondra).await;
+
+        assert!(html.contains("<h1>New Payment</h1>"));
+        let sender = &html[html.find("name=\"sender\"").unwrap()..];
+        let sender = &sender[..sender.find("</select>").unwrap()];
+        assert!(sender.contains("<option value=\"2\" selected>Ondra</option>"));
+        assert!(sender.contains("<option value=\"1\">Josef</option>"));
+        assert!(html.contains("<option value=\"\" disabled selected>Choose a Member</option>"));
+    }
+
+    #[sqlx::test]
+    async fn logging_a_payment_updates_both_balances_on_finance(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (josef, ondra) = josef_and_ondra(&app).await;
+        post_expense(&app, &josef, &fields(1, &[]), true, PUBLIC_ORIGIN).await;
+
+        let response = post_payment(
+            &app,
+            &ondra,
+            &payment_fields(2, 1, &[]),
+            true,
+            PUBLIC_ORIGIN,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[HX_REDIRECT], "/");
+        let html = page(&app, "/", &josef).await;
+        assert!(html.contains(&balance_row("Josef (you)", "+200 Kč")));
+        assert!(html.contains(&balance_row("Ondra", "−200 Kč")));
+        assert!(html.contains("<span class=\"entry-what\">Ondra → Josef</span>"));
+        assert!(html.contains("<span class=\"entry-meta\">Payment · 1 January 2026</span>"));
+        assert!(html.contains(&format!("{}</span>", crowns(Crowns::new(300)))));
+    }
+
+    #[sqlx::test]
+    async fn a_payment_logged_for_someone_else_keeps_its_description(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (josef, _) = josef_and_ondra(&app).await;
+
+        let changes = [("description", "For the malt")];
+        let response = post_payment(
+            &app,
+            &josef,
+            &payment_fields(2, 1, &changes),
+            false,
+            PUBLIC_ORIGIN,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[LOCATION], "/");
+        let html = page(&app, "/", &josef).await;
+        assert!(html.contains(&balance_row("Josef (you)", "−300 Kč")));
+        assert!(html.contains("Payment · For the malt · 1 January 2026"));
+    }
+
+    #[sqlx::test]
+    async fn each_payment_mistake_is_refused_in_the_form_with_what_was_typed(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (josef, _) = josef_and_ondra(&app).await;
+        let range = format!(
+            "Enter an amount from {} to {}.",
+            crowns(Crowns::new(1)),
+            crowns(Crowns::new(1_000_000))
+        );
+        let too_long = "x".repeat(DESCRIPTION_MAX + 1);
+        let cases = [
+            (("amount", "0"), range.as_str()),
+            (("amount", "1000001"), range.as_str()),
+            (("amount", "12.50"), "Enter the amount in whole crowns."),
+            (
+                ("description", too_long.as_str()),
+                "Keep the description to 500 characters or fewer.",
+            ),
+            (("recipient", "2"), "Choose someone other than the Sender."),
+            (("recipient", ""), "Choose who got the money."),
+            (
+                ("recipient", "99"),
+                "That Member isn't in the Crew. Reload the page to see who is.",
+            ),
+        ];
+        for ((field, value), message) in cases {
+            let changes = [(field, value)];
+            let response = post_payment(
+                &app,
+                &josef,
+                &payment_fields(2, 1, &changes),
+                true,
+                PUBLIC_ORIGIN,
+            )
+            .await;
+
+            assert_eq!(
+                response.status(),
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "{field}={value}"
+            );
+            let html = body_text(response).await;
+            assert!(
+                html.starts_with("<form class=\"entry-form\""),
+                "{field}={value}"
+            );
+            assert!(html.contains(message), "{field}={value}: {html}");
+            assert!(html.contains("aria-invalid=\"true\""), "{field}={value}");
+            let sender = &html[html.find("name=\"sender\"").unwrap()..];
+            assert!(
+                sender.contains("<option value=\"2\" selected>Ondra</option>"),
+                "{field}={value}"
+            );
+            if field != "recipient" {
+                assert!(
+                    html.contains(&format!("value=\"{value}\"")),
+                    "{field}={value}"
+                );
+            }
+        }
+        let html = page(&app, "/", &josef).await;
+        assert!(html.contains("Nothing logged yet."));
+    }
+
+    #[sqlx::test]
+    async fn a_payment_with_no_recipient_chosen_is_refused(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (josef, _) = josef_and_ondra(&app).await;
+        // The browser sends nothing for a select left on its disabled placeholder.
+        let fields: Vec<_> = payment_fields(1, 2, &[])
+            .into_iter()
+            .filter(|(name, _)| *name != "recipient")
+            .collect();
+
+        let response = post_payment(&app, &josef, &fields, true, PUBLIC_ORIGIN).await;
+
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let html = body_text(response).await;
+        assert!(html.contains("Choose who got the money."));
+        assert!(html.contains("<option value=\"\" disabled selected>Choose a Member</option>"));
+    }
+
+    #[sqlx::test]
+    async fn a_refused_plain_payment_post_gets_the_whole_page_back(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (josef, _) = josef_and_ondra(&app).await;
+
+        let changes = [("amount", "")];
+        let response = post_payment(
+            &app,
+            &josef,
+            &payment_fields(1, 2, &changes),
+            false,
+            PUBLIC_ORIGIN,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let html = body_text(response).await;
+        assert!(html.starts_with("<!DOCTYPE html>"));
+        assert!(html.contains("<h1>New Payment</h1>"));
+        assert!(html.contains("Enter the amount in whole crowns."));
+    }
+
+    #[sqlx::test]
+    async fn logging_a_payment_needs_our_origin(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (josef, _) = josef_and_ondra(&app).await;
+
+        let response = post_payment(
+            &app,
+            &josef,
+            &payment_fields(1, 2, &[]),
+            true,
+            "https://evil.example",
+        )
+        .await;
 
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         let html = page(&app, "/", &josef).await;
