@@ -3,6 +3,7 @@
 //! No axum or Maud imports here; everything is unit-testable on its own.
 
 pub mod auth;
+pub mod channel;
 pub mod clock;
 pub mod events;
 pub mod finance;

@@ -54,6 +54,10 @@ One Member's equal part of an Expense, in whole crowns. The Payer absorbs any ro
 Money sent directly from one Member (the **Sender**) to another (the **Recipient**) to settle up.
 _Avoid_: transfer, repayment
 
+**Entry**:
+An Expense or a Payment, as the Crew logs, edits and deletes them. Only its Payer or Sender, or the Admin, may change an Entry.
+_Avoid_: transaction, record
+
 **Logger**:
 The Member who entered an Expense or Payment into Asgard, who may differ from its Payer or Sender.
 _Avoid_: creator, author
