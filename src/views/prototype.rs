@@ -152,16 +152,15 @@ a.entry-link:hover .entry-what { text-decoration: underline; }
 
 /* Settings: one primary at most, a submit beside its field is secondary, helper text is muted,
    and sections sit an even distance apart. */
-.settings-section { margin-bottom: var(--space-5); }
-.settings-section .name-form label { font-size: 1.125rem; margin-bottom: var(--space-2); }
+
+.section .name-form label { font-size: 1.125rem; margin-bottom: var(--space-2); }
 .field-row .button,
-.secondary .button:not(.quiet) {
+.outline-buttons .button:not(.danger) {
   border: 1px solid var(--edge);
   background: transparent;
   color: var(--ink);
 }
-.settings-section .note { color: var(--muted); }
-.settings-section .status:empty { display: none; }
+
 .row-link {
   display: flex;
   align-items: center;
@@ -228,7 +227,7 @@ fn finance_home(me: &Member, overview: &Overview, face: &Face) -> Markup {
         &html! {
             h1 { "Finance" }
 
-            section.my-balance.(standing_class(mine)) aria-labelledby="my-balance" {
+            section.card.my-balance.(standing_class(mine)) aria-labelledby="my-balance" {
                 h2 #my-balance { "Your Balance" }
                 p.balance-figure { (balance_text(mine)) }
                 p.balance-says {
@@ -241,11 +240,11 @@ fn finance_home(me: &Member, overview: &Overview, face: &Face) -> Markup {
             }
 
             @if !my_settlements.is_empty() {
-                section.finance-section aria-labelledby="my-settlements" {
+                section.section aria-labelledby="my-settlements" {
                     h2 #my-settlements { "Settle up" }
                     ul.settlement-list {
                         @for settlement in &my_settlements {
-                            li.settlement {
+                            li.card.settlement {
                                 span.settlement-what {
                                     @if settlement.sender.id == me.id {
                                         "Send " (settlement.recipient.display_name) " "
@@ -255,7 +254,7 @@ fn finance_home(me: &Member, overview: &Overview, face: &Face) -> Markup {
                                         strong { (crowns(settlement.amount)) }
                                     }
                                 }
-                                a.button.button-secondary href=(paths::NEW_PAYMENT) { "Record" }
+                                a.button.secondary href=(paths::NEW_PAYMENT) { "Record" }
                             }
                         }
                     }
@@ -263,11 +262,11 @@ fn finance_home(me: &Member, overview: &Overview, face: &Face) -> Markup {
             }
 
             div.finance-actions {
-                a.button.button-large href=(paths::NEW_EXPENSE) { "+ Expense" }
-                a.button.button-secondary href=(paths::NEW_PAYMENT) { "+ Payment" }
+                a.button.large href=(paths::NEW_EXPENSE) { "+ Expense" }
+                a.button.secondary href=(paths::NEW_PAYMENT) { "+ Payment" }
             }
 
-            section.finance-section aria-labelledby="crew-balances" {
+            section.section aria-labelledby="crew-balances" {
                 h2 #crew-balances { "Crew Balances" }
                 ul.balance-list {
                     @for balance in &overview.balances {
@@ -289,7 +288,7 @@ fn finance_home(me: &Member, overview: &Overview, face: &Face) -> Markup {
                 }
             }
 
-            section.finance-section aria-labelledby="latest-entries" {
+            section.section aria-labelledby="latest-entries" {
                 h2 #latest-entries { "Latest entries" }
                 ul.entry-list {
                     @for entry in &overview.recent {
@@ -382,7 +381,7 @@ fn edit_expense(face: &Face) -> Markup {
                 p { "Deleting takes it out of everyone's Balance." }
                 form method="post" action=(delete) hx-post=(delete)
                     hx-confirm="Delete the Expense \u{201c}Pilsner malt, 3 sacks, and a new hydrometer\u{201d}?" {
-                    button.button.quiet type="submit" { "Delete Expense" }
+                    button.button.danger type="submit" { "Delete Expense" }
                 }
             }
         },
@@ -402,32 +401,32 @@ fn settings(face: &Face) -> Markup {
         &html! {
             h1 { "Settings" }
 
-            section.settings-section {
+            section.section.narrow {
                 (display_name::form("/settings/name", "Ondra", None))
             }
 
-            section.settings-section.secondary aria-labelledby="settings-passkeys" {
+            section.section.narrow.outline-buttons aria-labelledby="settings-passkeys" {
                 h2 #settings-passkeys { "Passkeys" }
                 (passkeys::list(base, &passkeys::fixtures::several(), None))
-                p.lead-in {
+                p.muted {
                     "Add a passkey on each device you sign in from, unless your passkeys already sync to it."
                 }
                 (passkey::button("Add a passkey", Ceremony::Register, &urls))
             }
 
-            section.settings-section aria-labelledby="settings-push" {
+            section.section.narrow aria-labelledby="settings-push" {
                 h2 #settings-push { "Notifications" }
                 (push::control())
             }
 
-            section.settings-section aria-labelledby="settings-admin" {
+            section.section.narrow aria-labelledby="settings-admin" {
                 h2 #settings-admin { "Admin" }
                 a.row-link href=(ADMIN_HREF) { "Invite links" (chevron()) }
             }
 
-            section.settings-section.secondary aria-labelledby="settings-device" {
+            section.section.narrow.outline-buttons aria-labelledby="settings-device" {
                 h2 #settings-device { "This device" }
-                p.lead-in { "Logging out signs this device out. Your passkey stays, so you can sign back in." }
+                p.muted { "Logging out signs this device out. Your passkey stays, so you can sign back in." }
                 form method="post" action="/log-out" {
                     button.button type="submit" { "Log out" }
                 }
