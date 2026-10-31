@@ -74,7 +74,7 @@ fn item(base: &str, passkey: &PasskeySummary, deletable: bool, outcome: Option<O
     let delete = delete_path(base, id);
     let target = format!("#{LIST_ID}");
     html! {
-        li.passkey {
+        li.card.passkey {
             form.passkey-rename method="post" action=(rename) hx-post=(rename)
                 hx-target=(target) hx-swap="outerHTML" {
                 label for=(input_id) {
@@ -94,7 +94,7 @@ fn item(base: &str, passkey: &PasskeySummary, deletable: bool, outcome: Option<O
                 form.passkey-delete method="post" action=(delete) hx-post=(delete)
                     hx-target=(target) hx-swap="outerHTML"
                     hx-confirm={ "Delete the passkey \u{201c}" (passkey.name) "\u{201d}? Any device signed in with it will be signed out." } {
-                    button.button.quiet type="submit" { "Delete " (passkey.name) }
+                    button.button.danger type="submit" { "Delete " (passkey.name) }
                 }
             }
         }

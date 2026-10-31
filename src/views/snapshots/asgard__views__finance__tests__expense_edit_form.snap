@@ -1,6 +1,5 @@
 ---
 source: src/views/finance.rs
-assertion_line: 934
 expression: "expense_page(Purpose::Edit,\n&expense_form(EDIT_ACTION, Purpose::Edit, &crew(), &values,\n&ExpenseProblems::default(), TODAY)).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
@@ -63,7 +62,7 @@ expression: "expense_page(Purpose::Edit,\n&expense_form(EDIT_ACTION, Purpose::Ed
 <label for="expense-date">Expense date</label>
 <input id="expense-date" type="date" name="expense_date" value="2026-10-28" max="2026-10-30" required>
 </details>
-<button class="button button-large" type="submit">Save Expense</button>
+<button class="button large" type="submit">Save Expense</button>
 </form>
 </main>
 <nav class="tabs" aria-label="Sections">

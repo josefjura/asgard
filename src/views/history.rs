@@ -95,15 +95,15 @@ pub fn page(me: &Member, members: &[MemberName], filters: &Filters, history: &Hi
                 div.history-filter-actions {
                     button.button type="submit" { "Show" }
                     @if filtered {
-                        a.button.button-secondary href=(paths::HISTORY) { "Clear" }
+                        a.button.secondary href=(paths::HISTORY) { "Clear" }
                     }
                 }
             }
 
-            section.finance-section aria-labelledby="history-entries" {
+            section.section aria-labelledby="history-entries" {
                 h2 #history-entries { "Entries" }
                 @if history.entries.is_empty() {
-                    p.lead-in {
+                    p.muted {
                         @if applied.is_empty() {
                             "Nothing logged yet."
                         } @else {
@@ -120,12 +120,12 @@ pub fn page(me: &Member, members: &[MemberName], filters: &Filters, history: &Hi
                 @if history.pages > 1 {
                     nav.pages aria-label="Pages" {
                         @if history.page > 1 {
-                            a.button.button-small rel="prev"
+                            a.button.secondary.small rel="prev"
                                 href=(href(applied, history.page - 1)) { "Newer" }
                         }
                         span.pages-at { "Page " (history.page) " of " (history.pages) }
                         @if history.page < history.pages {
-                            a.button.button-small rel="next"
+                            a.button.secondary.small rel="next"
                                 href=(href(applied, history.page + 1)) { "Older" }
                         }
                     }
@@ -133,10 +133,10 @@ pub fn page(me: &Member, members: &[MemberName], filters: &Filters, history: &Hi
             }
 
             @if !history.totals.is_empty() {
-                section.finance-section aria-labelledby="monthly-totals" {
+                section.section aria-labelledby="monthly-totals" {
                     h2 #monthly-totals { "Monthly totals" }
                     @if applied.member.is_some() {
-                        p.lead-in { "Everyone's entries, whoever paid, sent or received them." }
+                        p.muted { "Everyone's entries, whoever paid, sent or received them." }
                     }
                     table.monthly-totals {
                         thead {

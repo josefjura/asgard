@@ -1,6 +1,5 @@
 ---
 source: src/views/finance.rs
-assertion_line: 949
 expression: "payment_page(Purpose::Edit,\n&payment_form(\"/payments/4\", Purpose::Edit, &crew(), &prefilled_payment(),\n&PaymentProblems::default())).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
@@ -68,7 +67,7 @@ expression: "payment_page(Purpose::Edit,\n&payment_form(\"/payments/4\", Purpose
 </label>
 <input id="payment-description" type="text" name="description" value="" maxlength="500" autocomplete="off">
 </div>
-<button class="button button-large" type="submit">Save Payment</button>
+<button class="button large" type="submit">Save Payment</button>
 </form>
 </main>
 <nav class="tabs" aria-label="Sections">

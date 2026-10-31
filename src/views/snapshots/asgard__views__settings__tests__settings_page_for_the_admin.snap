@@ -40,7 +40,7 @@ expression: "page(&display_name::form(\"/settings/name\", \"Josef\", None),\n&pa
 </header>
 <main class="shell-main">
 <h1>Settings</h1>
-<section class="settings-section" aria-labelledby="settings-name">
+<section class="section narrow" aria-labelledby="settings-name">
 <h2 id="settings-name">Your name</h2>
 <form class="name-form" method="post" action="/settings/name" hx-post="/settings/name" hx-swap="outerHTML">
 <label for="display-name">Display name</label>
@@ -51,11 +51,11 @@ expression: "page(&display_name::form(\"/settings/name\", \"Josef\", None),\n&pa
 <p class="note" id="display-name-note" role="status">This is how the Crew sees you.</p>
 </form>
 </section>
-<section class="settings-section" aria-labelledby="settings-passkeys">
+<section class="section narrow" aria-labelledby="settings-passkeys">
 <h2 id="settings-passkeys">Passkeys</h2>
 <div class="passkeys" id="passkeys">
 <ul class="passkey-list">
-<li class="passkey">
+<li class="card passkey">
 <form class="passkey-rename" method="post" action="/settings/passkeys/1/name" hx-post="/settings/passkeys/1/name" hx-target="#passkeys" hx-swap="outerHTML">
 <label for="passkey-1-name">Passkey added 14 March 2026</label>
 <div class="field-row">
@@ -67,23 +67,23 @@ expression: "page(&display_name::form(\"/settings/name\", \"Josef\", None),\n&pa
 </ul>
 <p class="note" role="status">Your only passkey can't be deleted. Add another one first.</p>
 </div>
-<p class="lead-in">Add a passkey on each device you sign in from, unless your passkeys already sync to it.</p>
+<p class="muted">Add a passkey on each device you sign in from, unless your passkeys already sync to it.</p>
 <button class="button" type="button" data-passkey="register" data-passkey-start="/settings/passkeys/start" data-passkey-finish="/settings/passkeys/finish" aria-describedby="passkey-status">Add a passkey</button>
 <p class="status" id="passkey-status" role="status">
 </p>
 <script type="module" src="/static/passkey.[hash].js">
 </script>
 </section>
-<section class="settings-section" aria-labelledby="settings-push">
+<section class="section narrow" aria-labelledby="settings-push">
 <h2 id="settings-push">Notifications</h2>
 <div class="placeholder" id="push-control">Turning on notifications for this device is coming soon.</div>
 </section>
-<section class="settings-section" aria-labelledby="settings-admin">
+<section class="section narrow" aria-labelledby="settings-admin">
 <h2 id="settings-admin">Admin</h2>
-<p class="lead-in">Bring someone into the Crew with an Invite link.</p>
+<p class="muted">Bring someone into the Crew with an Invite link.</p>
 <a class="button" href="/admin">Invite links</a>
 </section>
-<section class="settings-section" aria-labelledby="settings-device">
+<section class="section narrow" aria-labelledby="settings-device">
 <h2 id="settings-device">This device</h2>
 <p>Logging out signs this device out. Your passkey stays, so you can sign back in.</p>
 <form method="post" action="/log-out">
