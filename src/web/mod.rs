@@ -31,7 +31,7 @@ use webauthn_rs::prelude::WebauthnError;
 use crate::assets;
 use crate::domain::auth::Auth;
 use crate::domain::clock::Clock;
-use crate::domain::events::Events;
+use crate::domain::events::{Event, Events};
 use crate::domain::finance::Finance;
 use crate::domain::members::Members;
 use crate::views::nav::Tab;
@@ -64,7 +64,7 @@ impl AppState {
         Ok(Self {
             auth: Auth::new(db.clone(), clock.clone(), members.clone(), public_url)?,
             members,
-            finance: Finance::new(db.clone(), clock.clone(), events.clone()),
+            finance: Finance::new(db.clone(), clock.clone(), events.emitter(Event::Finance)),
             events,
             public_origin: PublicOrigin::of(public_url),
             db,
