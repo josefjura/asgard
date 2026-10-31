@@ -156,7 +156,7 @@ pub fn home(me: &Member, overview: &Overview) -> Markup {
         &html! {
             h1 { "Finance" }
 
-            section.my-balance.(standing_class(mine)) aria-labelledby="my-balance" {
+            section.card.my-balance.(standing_class(mine)) aria-labelledby="my-balance" {
                 h2 #my-balance { "Your Balance" }
                 p.balance-figure { (balance_text(mine)) }
                 p.balance-says {
@@ -169,7 +169,7 @@ pub fn home(me: &Member, overview: &Overview) -> Markup {
             }
 
             @if !my_settlements.is_empty() {
-                section.finance-section aria-labelledby="my-settlements" {
+                section.section aria-labelledby="my-settlements" {
                     h2 #my-settlements { "Settle up" }
                     ul.settlement-list {
                         @for (index, settlement) in my_settlements.iter().enumerate() {
@@ -180,11 +180,11 @@ pub fn home(me: &Member, overview: &Overview) -> Markup {
             }
 
             div.finance-actions {
-                a.button.button-large href=(paths::NEW_EXPENSE) { "+ Expense" }
-                a.button.button-secondary href=(paths::NEW_PAYMENT) { "+ Payment" }
+                a.button.large href=(paths::NEW_EXPENSE) { "+ Expense" }
+                a.button.secondary href=(paths::NEW_PAYMENT) { "+ Payment" }
             }
 
-            section.finance-section aria-labelledby="crew-balances" {
+            section.section aria-labelledby="crew-balances" {
                 h2 #crew-balances { "Crew Balances" }
                 ul.balance-list {
                     @for balance in &overview.balances {
@@ -199,10 +199,10 @@ pub fn home(me: &Member, overview: &Overview) -> Markup {
                 }
             }
 
-            section.finance-section aria-labelledby="settlement-plan" {
+            section.section aria-labelledby="settlement-plan" {
                 h2 #settlement-plan { "Settlement plan" }
                 @if overview.settlements.is_empty() {
-                    p.lead-in { "Nobody needs to send anything." }
+                    p.muted { "Nobody needs to send anything." }
                 } @else {
                     ul.balance-list {
                         @for settlement in &overview.settlements {
@@ -218,10 +218,10 @@ pub fn home(me: &Member, overview: &Overview) -> Markup {
                 }
             }
 
-            section.finance-section aria-labelledby="latest-entries" {
+            section.section aria-labelledby="latest-entries" {
                 h2 #latest-entries { "Latest entries" }
                 @if overview.recent.is_empty() {
-                    p.lead-in { "Nothing logged yet. Log the first Expense when someone buys something for the brewery." }
+                    p.muted { "Nothing logged yet. Log the first Expense when someone buys something for the brewery." }
                 } @else {
                     ul.entry-list {
                         @for entry in &overview.recent {
@@ -241,7 +241,7 @@ fn my_settlement(me: MemberId, settlement: &Settlement, index: usize) -> Markup 
     let id = format!("my-settlement-{index}");
     let amount = crowns(settlement.amount);
     html! {
-        li.settlement {
+        li.card.settlement {
             span.settlement-what #(id) {
                 @if settlement.sender.id == me {
                     "Send " (settlement.recipient.display_name) " " strong { (amount) }
@@ -249,7 +249,7 @@ fn my_settlement(me: MemberId, settlement: &Settlement, index: usize) -> Markup 
                     (settlement.sender.display_name) " should send you " strong { (amount) }
                 }
             }
-            a.button.button-secondary href=(record_href(settlement))
+            a.button.secondary href=(record_href(settlement))
                 aria-describedby=(id) { "Record" }
         }
     }
@@ -351,10 +351,10 @@ fn entry_controls(controls: Option<&Controls>, what: &str) -> Markup {
     html! {
         @if let Some(controls) = controls {
             div.entry-controls {
-                a.button.button-small href=(controls.edit) aria-describedby=(what) { "Edit" }
+                a.button.secondary.small href=(controls.edit) aria-describedby=(what) { "Edit" }
                 form method="post" action=(controls.delete) hx-post=(controls.delete)
                     hx-confirm=(controls.confirm) {
-                    button.button.button-small.quiet type="submit" aria-describedby=(what) {
+                    button.button.danger.small type="submit" aria-describedby=(what) {
                         "Delete"
                     }
                 }
@@ -477,7 +477,7 @@ pub fn expense_form(
                     aria-describedby=[problems.expense_date.is_some().then_some("expense-date-problem")];
                 (problem("expense-date-problem", problems.expense_date.as_deref()))
             }
-            button.button.button-large type="submit" {
+            button.button.large type="submit" {
                 @match purpose {
                     Purpose::Log => "Log Expense",
                     Purpose::Edit => "Save Expense",
@@ -594,7 +594,7 @@ pub fn payment_form(
                     aria-describedby=[problems.description.is_some().then_some("payment-description-problem")];
                 (problem("payment-description-problem", problems.description.as_deref()))
             }
-            button.button.button-large type="submit" {
+            button.button.large type="submit" {
                 @match purpose {
                     Purpose::Log => "Log Payment",
                     Purpose::Edit => "Save Payment",
@@ -1098,7 +1098,7 @@ mod tests {
     fn the_home_screen_marks_the_member_and_their_standing() {
         let html = home(&member(ONDRA), &overview()).into_string();
 
-        assert!(html.contains("<section class=\"my-balance owed\""));
+        assert!(html.contains("<section class=\"card my-balance owed\""));
         assert!(html.contains("+4\u{a0}161\u{a0}Kč"));
         assert!(html.contains("Ondra (you)"));
         assert!(html.contains(&format!("href=\"{NEW_EXPENSE}\"")));

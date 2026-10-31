@@ -57,10 +57,10 @@ expression: "page(&member(JOSEF), &crew(), &filters,\n&unfiltered(),).into_strin
 </div>
 <div class="history-filter-actions">
 <button class="button" type="submit">Show</button>
-<a class="button button-secondary" href="/history">Clear</a>
+<a class="button secondary" href="/history">Clear</a>
 </div>
 </form>
-<section class="finance-section" aria-labelledby="history-entries">
+<section class="section" aria-labelledby="history-entries">
 <h2 id="history-entries">Entries</h2>
 <ul class="entry-list">
 <li class="entry payment">
@@ -68,9 +68,9 @@ expression: "page(&member(JOSEF), &crew(), &filters,\n&unfiltered(),).into_strin
 <span class="entry-what" id="payment-4">Josef → Ondra</span>
 <span class="entry-meta">Payment · 29 October 2026</span>
 <div class="entry-controls">
-<a class="button button-small" href="/payments/4/edit?back=%2Fhistory" aria-describedby="payment-4">Edit</a>
+<a class="button secondary small" href="/payments/4/edit?back=%2Fhistory" aria-describedby="payment-4">Edit</a>
 <form method="post" action="/payments/4/delete?back=%2Fhistory" hx-post="/payments/4/delete?back=%2Fhistory" hx-confirm="Delete the Payment from Josef to Ondra?">
-<button class="button button-small quiet" type="submit" aria-describedby="payment-4">Delete</button>
+<button class="button danger small" type="submit" aria-describedby="payment-4">Delete</button>
 </form>
 </div>
 </div>
@@ -81,9 +81,9 @@ expression: "page(&member(JOSEF), &crew(), &filters,\n&unfiltered(),).into_strin
 <span class="entry-what" id="expense-7">Pilsner malt, 3 sacks, and a new hydrometer</span>
 <span class="entry-meta">Ondra paid · 28 October 2026</span>
 <div class="entry-controls">
-<a class="button button-small" href="/expenses/7/edit?back=%2Fhistory" aria-describedby="expense-7">Edit</a>
+<a class="button secondary small" href="/expenses/7/edit?back=%2Fhistory" aria-describedby="expense-7">Edit</a>
 <form method="post" action="/expenses/7/delete?back=%2Fhistory" hx-post="/expenses/7/delete?back=%2Fhistory" hx-confirm="Delete the Expense “Pilsner malt, 3 sacks, and a new hydrometer”?">
-<button class="button button-small quiet" type="submit" aria-describedby="expense-7">Delete</button>
+<button class="button danger small" type="submit" aria-describedby="expense-7">Delete</button>
 </form>
 </div>
 </div>
@@ -94,9 +94,9 @@ expression: "page(&member(JOSEF), &crew(), &filters,\n&unfiltered(),).into_strin
 <span class="entry-what" id="expense-6">Saaz hops</span>
 <span class="entry-meta">Šimon paid · 21 October 2026</span>
 <div class="entry-controls">
-<a class="button button-small" href="/expenses/6/edit?back=%2Fhistory" aria-describedby="expense-6">Edit</a>
+<a class="button secondary small" href="/expenses/6/edit?back=%2Fhistory" aria-describedby="expense-6">Edit</a>
 <form method="post" action="/expenses/6/delete?back=%2Fhistory" hx-post="/expenses/6/delete?back=%2Fhistory" hx-confirm="Delete the Expense “Saaz hops”?">
-<button class="button button-small quiet" type="submit" aria-describedby="expense-6">Delete</button>
+<button class="button danger small" type="submit" aria-describedby="expense-6">Delete</button>
 </form>
 </div>
 </div>
@@ -107,9 +107,9 @@ expression: "page(&member(JOSEF), &crew(), &filters,\n&unfiltered(),).into_strin
 <span class="entry-what" id="expense-5">Bottle caps and sanitiser</span>
 <span class="entry-meta">Josef paid · 2 October 2026</span>
 <div class="entry-controls">
-<a class="button button-small" href="/expenses/5/edit?back=%2Fhistory" aria-describedby="expense-5">Edit</a>
+<a class="button secondary small" href="/expenses/5/edit?back=%2Fhistory" aria-describedby="expense-5">Edit</a>
 <form method="post" action="/expenses/5/delete?back=%2Fhistory" hx-post="/expenses/5/delete?back=%2Fhistory" hx-confirm="Delete the Expense “Bottle caps and sanitiser”?">
-<button class="button button-small quiet" type="submit" aria-describedby="expense-5">Delete</button>
+<button class="button danger small" type="submit" aria-describedby="expense-5">Delete</button>
 </form>
 </div>
 </div>
@@ -118,10 +118,10 @@ expression: "page(&member(JOSEF), &crew(), &filters,\n&unfiltered(),).into_strin
 </ul>
 <nav class="pages" aria-label="Pages">
 <span class="pages-at">Page 1 of 3</span>
-<a class="button button-small" rel="next" href="/history?page=2">Older</a>
+<a class="button secondary small" rel="next" href="/history?page=2">Older</a>
 </nav>
 </section>
-<section class="finance-section" aria-labelledby="monthly-totals">
+<section class="section" aria-labelledby="monthly-totals">
 <h2 id="monthly-totals">Monthly totals</h2>
 <table class="monthly-totals">
 <thead>

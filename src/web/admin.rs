@@ -446,7 +446,7 @@ mod tests {
         assert_eq!(joined.status(), StatusCode::OK);
         let settings = body_text(app.get_with("/settings", &cookie_pair(&joined)).await).await;
         assert!(settings.contains("value=\"Ondra\""));
-        assert_eq!(settings.matches("class=\"passkey\"").count(), 2);
+        assert_eq!(settings.matches("class=\"card passkey\"").count(), 2);
         assert!(admin_page(&app, &admin).await.contains("No open links."));
     }
 

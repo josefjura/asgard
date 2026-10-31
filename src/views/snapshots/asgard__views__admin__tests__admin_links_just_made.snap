@@ -3,7 +3,7 @@ source: src/views/admin.rs
 expression: "links(BASE, &several(), &crew(),\nSome(outcome)).into_string().replace(\"><\", \">\\n<\")"
 ---
 <div class="admin-links" id="links">
-<section class="settings-section" aria-labelledby="admin-invite">
+<section class="section narrow" aria-labelledby="admin-invite">
 <h2 id="admin-invite">Invite someone</h2>
 <form class="name-form" method="post" action="/admin/invites" hx-post="/admin/invites" hx-target="#links" hx-swap="outerHTML">
 <label for="invite-name">Display name</label>
@@ -13,7 +13,7 @@ expression: "links(BASE, &several(), &crew(),\nSome(outcome)).into_string().repl
 </div>
 <p class="note" id="invite-name-note" role="status">The name they'll appear under. They can change it after joining.</p>
 </form>
-<div class="new-link">
+<div class="card new-link">
 <label for="new-link">Send this link to <strong>Karel</strong>. It works once, for 24 hours.</label>
 <div class="field-row">
 <input id="new-link" type="text" value="https://asgard.joseforge.cz/invite/q7Xb2kLmNp4RsT9vWy0zA1cD3eF5gH6iJ8kL0mN2oP4" readonly>
@@ -23,7 +23,7 @@ expression: "links(BASE, &several(), &crew(),\nSome(outcome)).into_string().repl
 </p>
 </div>
 </section>
-<section class="settings-section" aria-labelledby="admin-device">
+<section class="section narrow" aria-labelledby="admin-device">
 <h2 id="admin-device">Set up a new device</h2>
 <form class="name-form" method="post" action="/admin/device-links" hx-post="/admin/device-links" hx-target="#links" hx-swap="outerHTML">
 <label for="device-member">Member</label>
@@ -37,25 +37,25 @@ expression: "links(BASE, &several(), &crew(),\nSome(outcome)).into_string().repl
 <p class="note" id="device-member-note">For a Member with no device to sign in on. The link adds a passkey on the device that opens it; their other passkeys keep working.</p>
 </form>
 </section>
-<section class="settings-section" aria-labelledby="admin-open">
+<section class="section narrow" aria-labelledby="admin-open">
 <h2 id="admin-open">Open links</h2>
 <ul class="link-list">
-<li class="open-link">
+<li class="card open-link">
 <p>Invite for <strong>Karel</strong>
 <br>
 <span class="expires">Works until 29 October, 09:05</span>
 </p>
 <form method="post" action="/admin/links/1/revoke" hx-post="/admin/links/1/revoke" hx-target="#links" hx-swap="outerHTML" hx-confirm="Revoke the link for Karel? It will stop working.">
-<button class="button quiet" type="submit">Revoke</button>
+<button class="button danger" type="submit">Revoke</button>
 </form>
 </li>
-<li class="open-link">
+<li class="card open-link">
 <p>New device for <strong>Ondra</strong>
 <br>
 <span class="expires">Works until 29 October, 14:05</span>
 </p>
 <form method="post" action="/admin/links/2/revoke" hx-post="/admin/links/2/revoke" hx-target="#links" hx-swap="outerHTML" hx-confirm="Revoke the link for Ondra? It will stop working.">
-<button class="button quiet" type="submit">Revoke</button>
+<button class="button danger" type="submit">Revoke</button>
 </form>
 </li>
 </ul>

@@ -8,9 +8,9 @@ expression: "entry_row(&member(JOSEF), &edited_payment_entry(),\nNone).into_stri
 <span class="entry-meta">Payment · For the malt · 29 October 2026</span>
 <span class="entry-meta entry-edited">edited by Josef · 30 October 2026</span>
 <div class="entry-controls">
-<a class="button button-small" href="/payments/4/edit" aria-describedby="payment-4">Edit</a>
+<a class="button secondary small" href="/payments/4/edit" aria-describedby="payment-4">Edit</a>
 <form method="post" action="/payments/4/delete" hx-post="/payments/4/delete" hx-confirm="Delete the Payment from Josef to Ondra?">
-<button class="button button-small quiet" type="submit" aria-describedby="payment-4">Delete</button>
+<button class="button danger small" type="submit" aria-describedby="payment-4">Delete</button>
 </form>
 </div>
 </div>

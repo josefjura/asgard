@@ -783,13 +783,13 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()[HX_REDIRECT], "/");
         let html = page(&app, "/", &josef).await;
-        assert!(html.contains("<section class=\"my-balance owed\""));
+        assert!(html.contains("<section class=\"card my-balance owed\""));
         assert!(html.contains(&balance_row("Josef (you)", "+500 Kč")));
         assert!(html.contains(&balance_row("Ondra", "−500 Kč")));
         assert!(html.contains("<span class=\"entry-what\" id=\"expense-1\">Malt</span>"));
         assert!(html.contains("Josef paid · 1 January 2026"));
         let html = page(&app, "/", &ondra).await;
-        assert!(html.contains("<section class=\"my-balance owes\""));
+        assert!(html.contains("<section class=\"card my-balance owes\""));
         assert!(html.contains("You owe the Crew this."));
     }
 

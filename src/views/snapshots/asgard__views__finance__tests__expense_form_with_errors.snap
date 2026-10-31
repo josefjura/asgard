@@ -28,5 +28,5 @@ expression: "expense_form(ACTION, Purpose::Log, &crew(), &values, &problems,\nTO
 <input id="expense-date" type="date" name="expense_date" value="2026-11-02" max="2026-10-30" required aria-invalid="true" aria-describedby="expense-date-problem">
 <p class="field-problem" id="expense-date-problem">The Expense date can't be in the future.</p>
 </details>
-<button class="button button-large" type="submit">Log Expense</button>
+<button class="button large" type="submit">Log Expense</button>
 </form>

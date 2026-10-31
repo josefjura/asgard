@@ -56,10 +56,10 @@ expression: "page(&member(ONDRA), &crew(), &Filters::of(ondra_in_october(), \"20
 </div>
 <div class="history-filter-actions">
 <button class="button" type="submit">Show</button>
-<a class="button button-secondary" href="/history">Clear</a>
+<a class="button secondary" href="/history">Clear</a>
 </div>
 </form>
-<section class="finance-section" aria-labelledby="history-entries">
+<section class="section" aria-labelledby="history-entries">
 <h2 id="history-entries">Entries</h2>
 <ul class="entry-list">
 <li class="entry payment">
@@ -74,9 +74,9 @@ expression: "page(&member(ONDRA), &crew(), &Filters::of(ondra_in_october(), \"20
 <span class="entry-what" id="expense-7">Pilsner malt, 3 sacks, and a new hydrometer</span>
 <span class="entry-meta">Ondra paid · 28 October 2026</span>
 <div class="entry-controls">
-<a class="button button-small" href="/expenses/7/edit?back=%2Fhistory%3Fmember%3D2%26month%3D2026-10" aria-describedby="expense-7">Edit</a>
+<a class="button secondary small" href="/expenses/7/edit?back=%2Fhistory%3Fmember%3D2%26month%3D2026-10" aria-describedby="expense-7">Edit</a>
 <form method="post" action="/expenses/7/delete?back=%2Fhistory%3Fmember%3D2%26month%3D2026-10" hx-post="/expenses/7/delete?back=%2Fhistory%3Fmember%3D2%26month%3D2026-10" hx-confirm="Delete the Expense “Pilsner malt, 3 sacks, and a new hydrometer”?">
-<button class="button button-small quiet" type="submit" aria-describedby="expense-7">Delete</button>
+<button class="button danger small" type="submit" aria-describedby="expense-7">Delete</button>
 </form>
 </div>
 </div>
@@ -84,9 +84,9 @@ expression: "page(&member(ONDRA), &crew(), &Filters::of(ondra_in_october(), \"20
 </li>
 </ul>
 </section>
-<section class="finance-section" aria-labelledby="monthly-totals">
+<section class="section" aria-labelledby="monthly-totals">
 <h2 id="monthly-totals">Monthly totals</h2>
-<p class="lead-in">Everyone's entries, whoever paid, sent or received them.</p>
+<p class="muted">Everyone's entries, whoever paid, sent or received them.</p>
 <table class="monthly-totals">
 <thead>
 <tr>
