@@ -1,6 +1,6 @@
 ---
 source: src/views/history.rs
-assertion_line: 305
+assertion_line: 311
 expression: "page(&member(JOSEF), &crew(), &filters, &unfiltered(),\nPATHS).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
@@ -69,8 +69,8 @@ expression: "page(&member(JOSEF), &crew(), &filters, &unfiltered(),\nPATHS).into
 <span class="entry-what" id="payment-4">Josef → Ondra</span>
 <span class="entry-meta">Payment · 29 October 2026</span>
 <div class="entry-controls">
-<a class="button button-small" href="/payments/4/edit" aria-describedby="payment-4">Edit</a>
-<form method="post" action="/payments/4/delete" hx-post="/payments/4/delete" hx-confirm="Delete the Payment from Josef to Ondra?">
+<a class="button button-small" href="/payments/4/edit?back=%2Fhistory" aria-describedby="payment-4">Edit</a>
+<form method="post" action="/payments/4/delete?back=%2Fhistory" hx-post="/payments/4/delete?back=%2Fhistory" hx-confirm="Delete the Payment from Josef to Ondra?">
 <button class="button button-small quiet" type="submit" aria-describedby="payment-4">Delete</button>
 </form>
 </div>
@@ -82,8 +82,8 @@ expression: "page(&member(JOSEF), &crew(), &filters, &unfiltered(),\nPATHS).into
 <span class="entry-what" id="expense-7">Pilsner malt, 3 sacks, and a new hydrometer</span>
 <span class="entry-meta">Ondra paid · 28 October 2026</span>
 <div class="entry-controls">
-<a class="button button-small" href="/expenses/7/edit" aria-describedby="expense-7">Edit</a>
-<form method="post" action="/expenses/7/delete" hx-post="/expenses/7/delete" hx-confirm="Delete the Expense “Pilsner malt, 3 sacks, and a new hydrometer”?">
+<a class="button button-small" href="/expenses/7/edit?back=%2Fhistory" aria-describedby="expense-7">Edit</a>
+<form method="post" action="/expenses/7/delete?back=%2Fhistory" hx-post="/expenses/7/delete?back=%2Fhistory" hx-confirm="Delete the Expense “Pilsner malt, 3 sacks, and a new hydrometer”?">
 <button class="button button-small quiet" type="submit" aria-describedby="expense-7">Delete</button>
 </form>
 </div>
@@ -95,8 +95,8 @@ expression: "page(&member(JOSEF), &crew(), &filters, &unfiltered(),\nPATHS).into
 <span class="entry-what" id="expense-6">Saaz hops</span>
 <span class="entry-meta">Šimon paid · 21 October 2026</span>
 <div class="entry-controls">
-<a class="button button-small" href="/expenses/6/edit" aria-describedby="expense-6">Edit</a>
-<form method="post" action="/expenses/6/delete" hx-post="/expenses/6/delete" hx-confirm="Delete the Expense “Saaz hops”?">
+<a class="button button-small" href="/expenses/6/edit?back=%2Fhistory" aria-describedby="expense-6">Edit</a>
+<form method="post" action="/expenses/6/delete?back=%2Fhistory" hx-post="/expenses/6/delete?back=%2Fhistory" hx-confirm="Delete the Expense “Saaz hops”?">
 <button class="button button-small quiet" type="submit" aria-describedby="expense-6">Delete</button>
 </form>
 </div>
@@ -108,8 +108,8 @@ expression: "page(&member(JOSEF), &crew(), &filters, &unfiltered(),\nPATHS).into
 <span class="entry-what" id="expense-5">Bottle caps and sanitiser</span>
 <span class="entry-meta">Josef paid · 2 October 2026</span>
 <div class="entry-controls">
-<a class="button button-small" href="/expenses/5/edit" aria-describedby="expense-5">Edit</a>
-<form method="post" action="/expenses/5/delete" hx-post="/expenses/5/delete" hx-confirm="Delete the Expense “Bottle caps and sanitiser”?">
+<a class="button button-small" href="/expenses/5/edit?back=%2Fhistory" aria-describedby="expense-5">Edit</a>
+<form method="post" action="/expenses/5/delete?back=%2Fhistory" hx-post="/expenses/5/delete?back=%2Fhistory" hx-confirm="Delete the Expense “Bottle caps and sanitiser”?">
 <button class="button button-small quiet" type="submit" aria-describedby="expense-5">Delete</button>
 </form>
 </div>

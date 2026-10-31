@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use jiff::civil::Date;
 use sqlx::{SqliteConnection, SqlitePool};
 
-use self::history::{History, HistoryFilter, Month};
+use self::history::{History, HistoryFilter, Month, monthly_totals};
 use self::ledger::{Ledger, LedgerExpense, LedgerPayment, Participant};
 use self::money::{Amount, Crowns};
 use self::settlement::{Settlement, settlement_plan};
@@ -229,6 +229,15 @@ impl Entry {
             Self::Payment(payment) => payment.sender.id,
         };
         may_change(member, payer_or_sender)
+    }
+
+    /// How much money changed hands.
+    #[must_use]
+    pub const fn amount(&self) -> Amount {
+        match self {
+            Self::Expense(expense) => expense.amount,
+            Self::Payment(payment) => payment.amount,
+        }
     }
 
     /// The day the entry is dated: an Expense's Expense date, or the day a Payment was logged on.
@@ -772,8 +781,8 @@ impl Finance {
         })
     }
 
-    /// The `page`th page of the entries `filter` lets through, and their monthly totals, as
-    /// [`History::of`] lays them out.
+    /// The `page`th page of the entries `filter` lets through, as [`History::of`] lays them out,
+    /// and the monthly totals of the whole Crew's entries in the filter's month.
     ///
     /// # Errors
     ///
@@ -784,14 +793,25 @@ impl Finance {
         page: usize,
     ) -> Result<History, sqlx::Error> {
         let mut conn = self.db.acquire().await?;
-        let all = entries(&mut conn, filter, -1).await?;
-        Ok(History::of(all, page))
+        let listed = entries(&mut conn, filter, None).await?;
+        // The totals say what the brewery cost, so they count everyone's entries.
+        let crew = HistoryFilter {
+            member: None,
+            ..*filter
+        };
+        let totals = if crew == *filter {
+            monthly_totals(listed.iter().map(|(_, entry)| entry))
+        } else {
+            let all = entries(&mut conn, &crew, None).await?;
+            monthly_totals(all.iter().map(|(_, entry)| entry))
+        };
+        Ok(History::of(listed, page, totals))
     }
 }
 
 /// The [`RECENT_ENTRIES`] Expenses and Payments logged last, newest first.
 async fn recent_entries(conn: &mut SqliteConnection) -> Result<Vec<Entry>, sqlx::Error> {
-    let mut recent = entries(conn, &HistoryFilter::default(), RECENT_ENTRIES).await?;
+    let mut recent = entries(conn, &HistoryFilter::default(), Some(RECENT_ENTRIES)).await?;
     // A stable sort keeps the order [`entries`] gives entries logged in the same second.
     recent.sort_by_key(|&(logged_at, _)| std::cmp::Reverse(logged_at));
     Ok(recent
@@ -802,22 +822,22 @@ async fn recent_entries(conn: &mut SqliteConnection) -> Result<Vec<Entry>, sqlx:
 }
 
 /// The Expenses and Payments `filter` lets through, each with the Unix second it was logged at:
-/// the `limit` of each logged last, or all of them for a negative `limit`. Expenses come first,
+/// the `limit` of each logged last, or all of them without a `limit`. Expenses come first,
 /// each kind the latest logged first.
 async fn entries(
     conn: &mut SqliteConnection,
     filter: &HistoryFilter,
-    limit: i64,
+    limit: Option<i64>,
 ) -> Result<Vec<(i64, Entry)>, sqlx::Error> {
     let member = filter.member.map(MemberId::get);
     let first_day = filter.month.map(Month::first_day);
     let next_first_day = filter.month.and_then(Month::next).map(Month::first_day);
-    let expense_dates = (
+    let (dated_from, dated_before) = (
         first_day.map(|day| day.to_string()),
         next_first_day.map(|day| day.to_string()),
     );
     // A Payment falls in the month it was logged in, in the Crew's time zone.
-    let logged = (
+    let (logged_from, logged_before) = (
         first_day.map(unix_seconds_at_crew_midnight),
         next_first_day.map(unix_seconds_at_crew_midnight),
     );
@@ -833,10 +853,10 @@ async fn entries(
              AND (?2 IS NULL OR expense_date >= ?2)
              AND (?3 IS NULL OR expense_date < ?3)
            ORDER BY logged_at DESC, expenses.id DESC
-           LIMIT ?4"#,
+           LIMIT coalesce(?4, -1)"#,
         member,
-        expense_dates.0,
-        expense_dates.1,
+        dated_from,
+        dated_before,
         limit,
     )
     .fetch_all(&mut *conn)
@@ -854,10 +874,10 @@ async fn entries(
              AND (?2 IS NULL OR logged_at >= ?2)
              AND (?3 IS NULL OR logged_at < ?3)
            ORDER BY logged_at DESC, payments.id DESC
-           LIMIT ?4"#,
+           LIMIT coalesce(?4, -1)"#,
         member,
-        logged.0,
-        logged.1,
+        logged_from,
+        logged_before,
         limit,
     )
     .fetch_all(&mut *conn)
@@ -916,7 +936,7 @@ mod tests {
     use jiff::tz::TimeZone;
     use tokio::sync::broadcast;
 
-    use super::history::{HISTORY_PAGE, MonthlyTotal};
+    use super::history::{HISTORY_PAGE_SIZE, MonthlyTotal};
     use super::*;
     use crate::domain::channel::Channel;
     use crate::domain::clock::ManualClock;
@@ -1220,10 +1240,7 @@ mod tests {
     }
 
     fn amount_of(entry: &Entry) -> i64 {
-        match entry {
-            Entry::Expense(expense) => expense.amount.get(),
-            Entry::Payment(payment) => payment.amount.get(),
-        }
+        entry.amount().get()
     }
 
     #[test]
@@ -2021,6 +2038,14 @@ mod tests {
         history.entries.iter().map(amount_of).collect()
     }
 
+    fn total(month: &str, expenses: i64, payments: i64) -> MonthlyTotal {
+        MonthlyTotal {
+            month: Month::parse(month).unwrap(),
+            expenses: Crowns::new(expenses),
+            payments: Crowns::new(payments),
+        }
+    }
+
     #[sqlx::test]
     async fn history_lists_every_entry_but_the_deleted_newest_first(db: SqlitePool) {
         let (josef, ondra, _) = crew_of_three(&db).await;
@@ -2060,19 +2085,8 @@ mod tests {
         // The Payment is dated 2 April, the day it was logged on.
         assert_eq!(history_amounts(&history), [300, 100, 500]);
         assert_eq!(
-            history
-                .totals
-                .iter()
-                .map(|total| (
-                    total.month.to_string(),
-                    total.expenses.get(),
-                    total.payments.get()
-                ))
-                .collect::<Vec<_>>(),
-            [
-                ("2026-04".to_owned(), 0, 300),
-                ("2026-03".to_owned(), 600, 0)
-            ]
+            history.totals,
+            [total("2026-04", 0, 300), total("2026-03", 600, 0)]
         );
     }
 
@@ -2106,7 +2120,11 @@ mod tests {
         assert_eq!(simons, [2, 3, 4]);
         let josefs = finance.history(&filter(&josef), 1).await.unwrap();
         assert_eq!(josefs.entries, []);
-        assert_eq!(josefs.totals, []);
+        // The totals are the whole Crew's, whoever the list is filtered to.
+        assert_eq!(
+            josefs.totals,
+            [total("2026-04", 0, 7), total("2026-03", 3, 0)]
+        );
     }
 
     #[sqlx::test]
@@ -2143,14 +2161,7 @@ mod tests {
         assert_eq!(history_amounts(&april), [30, 1]);
         // Logged in the same second, on the same day: Expenses come first.
         assert_eq!(history_amounts(&may), [40, 2]);
-        assert_eq!(
-            may.totals,
-            [MonthlyTotal {
-                month: Month::parse("2026-05").unwrap(),
-                expenses: Crowns::new(40),
-                payments: Crowns::new(2),
-            }]
-        );
+        assert_eq!(may.totals, [total("2026-05", 40, 2)]);
         assert_eq!(
             finance.history(&month("2026-03"), 1).await.unwrap().entries,
             []
@@ -2161,7 +2172,7 @@ mod tests {
     async fn history_pages_through_more_entries_than_the_home_screen_shows(db: SqlitePool) {
         let (josef, ..) = crew_of_three(&db).await;
         let finance = finance(db);
-        let count = i64::try_from(HISTORY_PAGE).unwrap() + 1;
+        let count = i64::try_from(HISTORY_PAGE_SIZE).unwrap() + 1;
         for crowns in 1..=count {
             finance
                 .log_expense(
@@ -2176,7 +2187,7 @@ mod tests {
         let second = finance.history(&HistoryFilter::default(), 2).await.unwrap();
 
         assert_eq!(first.pages, 2);
-        assert_eq!(first.entries.len(), HISTORY_PAGE);
+        assert_eq!(first.entries.len(), HISTORY_PAGE_SIZE);
         assert_eq!(history_amounts(&first)[0], count);
         assert_eq!(history_amounts(&second), [1]);
     }

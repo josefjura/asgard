@@ -3,6 +3,7 @@
 
 use jiff::civil::Date;
 use maud::{Markup, html};
+use url::form_urlencoded;
 
 use crate::domain::finance::money::{Crowns, Standing};
 use crate::domain::finance::settlement::Settlement;
@@ -69,6 +70,21 @@ impl Paths {
     #[must_use]
     pub fn delete_payment(self, id: PaymentId) -> String {
         format!("{}/delete", self.payment(id))
+    }
+}
+
+/// `path`, telling the page there to send a Member back to `back` once they are done, or to
+/// Finance without a `back`.
+#[must_use]
+pub fn returning_to(path: String, back: Option<&str>) -> String {
+    match back {
+        Some(back) => {
+            let query = form_urlencoded::Serializer::new(String::new())
+                .append_pair("back", back)
+                .finish();
+            format!("{path}?{query}")
+        }
+        None => path,
     }
 }
 
@@ -214,7 +230,7 @@ pub fn home(me: &Member, overview: &Overview, paths: Paths) -> Markup {
                 } @else {
                     ul.entry-list {
                         @for entry in &overview.recent {
-                            (entry_row(me, entry, paths))
+                            (entry_row(me, entry, paths, None))
                         }
                     }
                     p.history-link { a href=(paths.history) { "See every entry in History" } }
@@ -244,15 +260,16 @@ fn my_settlement(me: MemberId, settlement: &Settlement, index: usize, paths: Pat
     }
 }
 
-/// One Expense or Payment in a list, with the controls to edit and delete it if `me` may.
+/// One Expense or Payment in a list, with the controls to edit and delete it if `me` may. They
+/// send `me` back to `back` afterwards, or to Finance without one.
 #[must_use]
-pub fn entry_row(me: &Member, entry: &Entry, paths: Paths) -> Markup {
+pub fn entry_row(me: &Member, entry: &Entry, paths: Paths, back: Option<&str>) -> Markup {
     let may_change = entry.may_be_changed_by(me);
     match entry {
         Entry::Expense(expense) => {
             let controls = may_change.then(|| Controls {
-                edit: paths.edit_expense(expense.id),
-                delete: paths.delete_expense(expense.id),
+                edit: returning_to(paths.edit_expense(expense.id), back),
+                delete: returning_to(paths.delete_expense(expense.id), back),
                 confirm: format!(
                     "Delete the Expense \u{201c}{}\u{201d}?",
                     expense.description.as_str()
@@ -262,8 +279,8 @@ pub fn entry_row(me: &Member, entry: &Entry, paths: Paths) -> Markup {
         }
         Entry::Payment(payment) => {
             let controls = may_change.then(|| Controls {
-                edit: paths.edit_payment(payment.id),
-                delete: paths.delete_payment(payment.id),
+                edit: returning_to(paths.edit_payment(payment.id), back),
+                delete: returning_to(paths.delete_payment(payment.id), back),
                 confirm: format!(
                     "Delete the Payment from {} to {}?",
                     payment.sender.display_name, payment.recipient
@@ -891,7 +908,7 @@ mod tests {
 
     #[test]
     fn finance_entry_row() {
-        assert_html_snapshot!(entry_row(&member(SIMON), &entry(), PATHS));
+        assert_html_snapshot!(entry_row(&member(SIMON), &entry(), PATHS, None));
     }
 
     #[test]
@@ -899,23 +916,29 @@ mod tests {
         assert_html_snapshot!(entry_row(
             &member(SIMON),
             &payment_entry(Some("For the malt")),
-            PATHS
+            PATHS,
+            None
         ));
     }
 
     #[test]
     fn finance_edited_entry_row_with_controls() {
-        assert_html_snapshot!(entry_row(&member(ONDRA), &edited_entry(), PATHS));
+        assert_html_snapshot!(entry_row(&member(ONDRA), &edited_entry(), PATHS, None));
     }
 
     #[test]
     fn finance_edited_payment_row_with_controls() {
-        assert_html_snapshot!(entry_row(&member(JOSEF), &edited_payment_entry(), PATHS));
+        assert_html_snapshot!(entry_row(
+            &member(JOSEF),
+            &edited_payment_entry(),
+            PATHS,
+            None
+        ));
     }
 
     #[test]
     fn a_payment_row_without_a_description() {
-        let html = entry_row(&member(SIMON), &payment_entry(None), PATHS).into_string();
+        let html = entry_row(&member(SIMON), &payment_entry(None), PATHS, None).into_string();
 
         assert!(html.contains("<span class=\"entry-what\" id=\"payment-4\">Josef → Ondra</span>"));
         assert!(html.contains("<span class=\"entry-meta\">Payment · 29 October 2026</span>"));
@@ -924,7 +947,7 @@ mod tests {
     #[test]
     fn only_the_payer_or_sender_and_the_admin_see_the_controls() {
         let controls = |me, entry: &Entry| {
-            let html = entry_row(&member(me), entry, PATHS).into_string();
+            let html = entry_row(&member(me), entry, PATHS, None).into_string();
             (html.contains("/edit\""), html.contains("/delete\""))
         };
 
@@ -937,7 +960,7 @@ mod tests {
 
     #[test]
     fn the_controls_lead_to_the_entry() {
-        let html = entry_row(&member(JOSEF), &payment_entry(None), PATHS).into_string();
+        let html = entry_row(&member(JOSEF), &payment_entry(None), PATHS, None).into_string();
 
         assert!(html.contains("href=\"/payments/4/edit\" aria-describedby=\"payment-4\""));
         assert!(html.contains("hx-post=\"/payments/4/delete\""));
@@ -946,7 +969,7 @@ mod tests {
 
     #[test]
     fn an_unedited_entry_says_nothing_about_edits() {
-        let html = entry_row(&member(ONDRA), &entry(), PATHS).into_string();
+        let html = entry_row(&member(ONDRA), &entry(), PATHS, None).into_string();
 
         assert!(!html.contains("edited by"));
     }

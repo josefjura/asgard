@@ -23,9 +23,9 @@ use crate::domain::finance::{
 use crate::domain::members::{self, MemberId};
 use crate::views;
 use crate::views::finance::{
-    ExpenseProblems, ExpenseValues, Paths, PaymentProblems, PaymentValues, Purpose,
+    ExpenseProblems, ExpenseValues, Paths, PaymentProblems, PaymentValues, Purpose, returning_to,
 };
-use crate::views::history::Filters;
+use crate::views::history::{Filters, NOT_A_MONTH};
 use crate::views::nav::Tab;
 
 /// Where Finance's links and forms lead. The routes below spell out the same paths.
@@ -34,9 +34,6 @@ const PATHS: Paths = Paths {
     payments: "/payments",
     history: "/history",
 };
-
-/// What a Member is told when the month they typed into History's filter isn't one.
-const NOT_A_MONTH: &str = "Enter a month as YYYY-MM, like 2026-10.";
 
 /// What a Member is told when they pick the Sender as the Recipient too.
 const SAME_MEMBER: &str = "Choose someone other than the Sender.";
@@ -58,6 +55,29 @@ pub fn routes() -> Router<AppState> {
         .route("/payments/{id}", post(save_payment))
         .route("/payments/{id}/delete", post(delete_payment))
         .route(PATHS.history, get(history))
+}
+
+/// Where a Member goes once they have edited or deleted an entry, as the entry's controls send
+/// it: the page of History they came from, or Finance.
+#[derive(Deserialize)]
+struct Back {
+    back: Option<String>,
+}
+
+impl Back {
+    /// The page of History to go back to. Anything else is ignored, so a link can't send a
+    /// Member off Asgard.
+    fn history(&self) -> Option<&str> {
+        self.back.as_deref().filter(|back| {
+            back.strip_prefix(PATHS.history)
+                .is_some_and(|query| query.is_empty() || query.starts_with('?'))
+        })
+    }
+
+    /// Where to go back to.
+    fn to(&self) -> &str {
+        self.history().unwrap_or_else(|| Tab::Finance.href())
+    }
 }
 
 /// History's filter and page, as its form and links send them.
@@ -166,7 +186,7 @@ async fn log_expense(
         Ok(expense) => match state.finance.log_expense(member.id, &expense).await {
             Ok(_) => {
                 tracing::info!(member = member.id.get(), "a Member logged an Expense");
-                return Ok(back_to_finance(htmx));
+                return Ok(go_back(htmx, Tab::Finance.href()));
             }
             Err(err) => expense_problems(err)?,
         },
@@ -190,6 +210,7 @@ async fn edit_expense(
     State(state): State<AppState>,
     Member(member): Member,
     Path(id): Path<i64>,
+    Query(back): Query<Back>,
 ) -> Result<impl IntoResponse, AppError> {
     let id = ExpenseId::from_client(id);
     let expense = state.finance.expense_to_edit(&member, id).await?;
@@ -203,7 +224,7 @@ async fn edit_expense(
     };
     let form = expense_form(
         &state,
-        &PATHS.expense(id),
+        &returning_to(PATHS.expense(id), back.history()),
         Purpose::Edit,
         &values,
         &ExpenseProblems::default(),
@@ -212,13 +233,14 @@ async fn edit_expense(
     Ok(fresh(views::finance::expense_page(Purpose::Edit, &form)))
 }
 
-/// Saves the edited Expense `id` and goes back to Finance, or answers with the form showing
+/// Saves the edited Expense `id` and goes back to History or Finance, or answers with the form showing
 /// what to fix, like [`log_expense`].
 async fn save_expense(
     State(state): State<AppState>,
     Member(member): Member,
     Htmx(htmx): Htmx,
     Path(id): Path<i64>,
+    Query(back): Query<Back>,
     Form(input): Form<ExpenseForm>,
 ) -> Result<Response, AppError> {
     let id = ExpenseId::from_client(id);
@@ -226,7 +248,7 @@ async fn save_expense(
         Ok(expense) => match state.finance.edit_expense(&member, id, &expense).await {
             Ok(()) => {
                 tracing::info!(member = member.id.get(), "a Member edited an Expense");
-                return Ok(back_to_finance(htmx));
+                return Ok(go_back(htmx, back.to()));
             }
             Err(err) => expense_problems(err)?,
         },
@@ -238,7 +260,7 @@ async fn save_expense(
     };
     let form = expense_form(
         &state,
-        &PATHS.expense(id),
+        &returning_to(PATHS.expense(id), back.history()),
         Purpose::Edit,
         &input.values(),
         &problems,
@@ -249,28 +271,29 @@ async fn save_expense(
     }))
 }
 
-/// Deletes the Expense `id` and goes back to Finance.
+/// Deletes the Expense `id` and goes back to History or Finance.
 async fn delete_expense(
     State(state): State<AppState>,
     Member(member): Member,
     Htmx(htmx): Htmx,
     Path(id): Path<i64>,
+    Query(back): Query<Back>,
 ) -> Result<Response, AppError> {
     state
         .finance
         .delete_expense(&member, ExpenseId::from_client(id))
         .await?;
     tracing::info!(member = member.id.get(), "a Member deleted an Expense");
-    Ok(back_to_finance(htmx))
+    Ok(go_back(htmx, back.to()))
 }
 
-/// htmx can't follow a redirect to a whole page, so it is told to load Finance instead.
-fn back_to_finance(htmx: bool) -> Response {
-    let home = Tab::Finance.href();
+/// Sends a Member to the page at `to`. htmx can't follow a redirect to a whole page, so it is
+/// told to load the page instead.
+fn go_back(htmx: bool, to: &str) -> Response {
     if htmx {
-        (StatusCode::OK, [(HX_REDIRECT, home)]).into_response()
+        (StatusCode::OK, [(HX_REDIRECT, to)]).into_response()
     } else {
-        Redirect::to(home).into_response()
+        Redirect::to(to).into_response()
     }
 }
 
@@ -417,7 +440,7 @@ async fn log_payment(
         Ok(payment) => match state.finance.log_payment(member.id, &payment).await {
             Ok(_) => {
                 tracing::info!(member = member.id.get(), "a Member logged a Payment");
-                return Ok(back_to_finance(htmx));
+                return Ok(go_back(htmx, Tab::Finance.href()));
             }
             Err(err) => payment_problems(err)?,
         },
@@ -441,6 +464,7 @@ async fn edit_payment(
     State(state): State<AppState>,
     Member(member): Member,
     Path(id): Path<i64>,
+    Query(back): Query<Back>,
 ) -> Result<impl IntoResponse, AppError> {
     let id = PaymentId::from_client(id);
     let payment = state.finance.payment_to_edit(&member, id).await?;
@@ -453,7 +477,7 @@ async fn edit_payment(
     };
     let form = payment_form(
         &state,
-        &PATHS.payment(id),
+        &returning_to(PATHS.payment(id), back.history()),
         Purpose::Edit,
         &values,
         &PaymentProblems::default(),
@@ -462,13 +486,14 @@ async fn edit_payment(
     Ok(fresh(views::finance::payment_page(Purpose::Edit, &form)))
 }
 
-/// Saves the edited Payment `id` and goes back to Finance, or answers with the form showing
+/// Saves the edited Payment `id` and goes back to History or Finance, or answers with the form showing
 /// what to fix, like [`save_expense`].
 async fn save_payment(
     State(state): State<AppState>,
     Member(member): Member,
     Htmx(htmx): Htmx,
     Path(id): Path<i64>,
+    Query(back): Query<Back>,
     Form(input): Form<PaymentForm>,
 ) -> Result<Response, AppError> {
     let id = PaymentId::from_client(id);
@@ -476,7 +501,7 @@ async fn save_payment(
         Ok(payment) => match state.finance.edit_payment(&member, id, &payment).await {
             Ok(()) => {
                 tracing::info!(member = member.id.get(), "a Member edited a Payment");
-                return Ok(back_to_finance(htmx));
+                return Ok(go_back(htmx, back.to()));
             }
             Err(err) => payment_problems(err)?,
         },
@@ -488,7 +513,7 @@ async fn save_payment(
     };
     let form = payment_form(
         &state,
-        &PATHS.payment(id),
+        &returning_to(PATHS.payment(id), back.history()),
         Purpose::Edit,
         &input.values(),
         &problems,
@@ -499,19 +524,20 @@ async fn save_payment(
     }))
 }
 
-/// Deletes the Payment `id` and goes back to Finance.
+/// Deletes the Payment `id` and goes back to History or Finance.
 async fn delete_payment(
     State(state): State<AppState>,
     Member(member): Member,
     Htmx(htmx): Htmx,
     Path(id): Path<i64>,
+    Query(back): Query<Back>,
 ) -> Result<Response, AppError> {
     state
         .finance
         .delete_payment(&member, PaymentId::from_client(id))
         .await?;
     tracing::info!(member = member.id.get(), "a Member deleted a Payment");
-    Ok(back_to_finance(htmx))
+    Ok(go_back(htmx, back.to()))
 }
 
 /// The Payment as typed, or what is wrong with each field that can be checked without the
@@ -1433,6 +1459,56 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn editing_and_deleting_from_history_goes_back_to_the_same_page(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (_, _, simon) = simon_paid_ondra_logged(&app).await;
+        let back = "back=%2Fhistory%3Fmember%3D3";
+
+        let html = page(&app, "/history?member=3", &simon).await;
+        assert!(html.contains(&format!("href=\"/expenses/1/edit?{back}\"")));
+        let html = page(&app, &format!("/expenses/1/edit?{back}"), &simon).await;
+        assert!(html.contains(&format!("action=\"/expenses/1?{back}\"")));
+
+        let edit = format!("/expenses/1?{back}");
+        let changes = [("amount", "600")];
+        let response = post_form(
+            &app,
+            &edit,
+            &simon,
+            &fields(3, &changes),
+            true,
+            PUBLIC_ORIGIN,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[HX_REDIRECT], "/history?member=3");
+
+        let delete = format!("/expenses/1/delete?{back}");
+        let response = post_form(&app, &delete, &simon, &[], false, PUBLIC_ORIGIN).await;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[LOCATION], "/history?member=3");
+    }
+
+    #[sqlx::test]
+    async fn going_back_anywhere_but_history_goes_to_finance(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (_, _, simon) = simon_paid_ondra_logged(&app).await;
+
+        for back in [
+            "https%3A%2F%2Fevil.example",
+            "%2F%2Fevil.example",
+            "%2Fhistoryx",
+        ] {
+            let html = page(&app, &format!("/expenses/1/edit?back={back}"), &simon).await;
+            assert!(html.contains("action=\"/expenses/1\""), "{back}");
+            let edit = format!("/expenses/1?back={back}");
+            let response =
+                post_form(&app, &edit, &simon, &fields(3, &[]), false, PUBLIC_ORIGIN).await;
+            assert_eq!(response.headers()[LOCATION], "/", "{back}");
+        }
+    }
+
+    #[sqlx::test]
     async fn deleting_an_entry_needs_our_origin(db: SqlitePool) {
         let app = TestApp::new(db);
         let (josef, _, simon) = simon_paid_ondra_logged(&app).await;
@@ -1491,7 +1567,7 @@ mod tests {
         assert!(first.contains("Page 1 of 2"));
         assert!(first.contains("rel=\"next\" href=\"/history?page=2\">Older</a>"));
         // The Admin may change every entry.
-        assert!(first.contains("href=\"/expenses/26/edit\""));
+        assert!(first.contains("href=\"/expenses/26/edit?back=%2Fhistory\""));
         let second = page(&app, "/history?page=2", &josef).await;
         assert_eq!(expense_ids(&second), [1]);
         assert!(second.contains("rel=\"prev\" href=\"/history\">Newer</a>"));

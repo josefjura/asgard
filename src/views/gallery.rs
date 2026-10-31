@@ -13,7 +13,7 @@ use crate::views::display_name::{self, Outcome};
 use crate::views::finance::{
     self, ExpenseProblems, ExpenseValues, PaymentProblems, PaymentValues, Purpose,
 };
-use crate::views::history::{self, Filters};
+use crate::views::history::{self, Filters, NOT_A_MONTH};
 use crate::views::layout::document;
 use crate::views::nav::{ADMIN_HREF, Place, Tab, bottom_nav};
 use crate::views::passkey::CeremonyUrls;
@@ -291,7 +291,7 @@ fn finance_pages() -> Vec<Fixture> {
         document: document(
             "Entry row",
             &html! {
-                main.shell-main { ul.entry-list { (finance::entry_row(&member(me), &entry, PATHS)) } }
+                main.shell-main { ul.entry-list { (finance::entry_row(&member(me), &entry, PATHS, None)) } }
             },
         ),
         height: ENTRY_ROW_HEIGHT,
@@ -305,9 +305,9 @@ fn finance_pages() -> Vec<Fixture> {
         .collect()
 }
 
-/// History unfiltered, filtered by Member and month, with nothing to list, and with a month
-/// that isn't one.
-fn history_pages() -> [Fixture; 4] {
+/// History unfiltered, filtered by Member and month, with nothing logged, with nothing to list,
+/// and with a month that isn't one.
+fn history_pages() -> [Fixture; 5] {
     use finance::fixtures::{JOSEF, ONDRA, PATHS, SIMON, crew, member};
     use history::fixtures::{empty, filtered, october, ondra_in_october, unfiltered};
 
@@ -318,7 +318,7 @@ fn history_pages() -> [Fixture; 4] {
     let mistyped = Filters {
         applied: HistoryFilter::default(),
         month: "Oct",
-        month_problem: Some("Enter a month as YYYY-MM, like 2026-10."),
+        month_problem: Some(NOT_A_MONTH),
     };
     [
         (
@@ -334,6 +334,13 @@ fn history_pages() -> [Fixture; 4] {
             Filters::of(ondra_in_october(), "2026-10"),
             filtered(),
             FILTERED_HISTORY_HEIGHT,
+        ),
+        (
+            "Nothing logged",
+            JOSEF,
+            Filters::of(HistoryFilter::default(), ""),
+            empty(),
+            PAGE_HEIGHT,
         ),
         (
             "Nothing matches",

@@ -9,6 +9,9 @@ use crate::views::finance::{Paths, crowns, entry_row, problem};
 use crate::views::layout::shell;
 use crate::views::nav::{Place, Tab};
 
+/// What a Member is told when the month they typed into the filter isn't one.
+pub const NOT_A_MONTH: &str = "Enter a month as YYYY-MM, like 2026-10.";
+
 /// What the filter form shows: the filter the list was made with, and the month as typed with
 /// what was wrong with it.
 #[derive(Debug, Clone)]
@@ -57,8 +60,8 @@ fn month_name(month: Month) -> String {
 /// The History page for `me`.
 ///
 /// It shows the filter form with every one of `members` to choose from, a page of entries with
-/// the controls for the ones `me` may change, the way to the other pages, and the monthly totals
-/// of every entry the filter lets through.
+/// the controls for the ones `me` may change, which come back to this page, the way to the other
+/// pages, and the whole Crew's monthly totals in the filter's month.
 #[must_use]
 pub fn page(
     me: &Member,
@@ -69,6 +72,7 @@ pub fn page(
 ) -> Markup {
     let applied = filters.applied;
     let filtered = !applied.is_empty() || filters.month_problem.is_some();
+    let here = href(paths.history, applied, history.page);
     shell(
         Place::Tab(Tab::Finance),
         &html! {
@@ -115,7 +119,7 @@ pub fn page(
                 } @else {
                     ul.entry-list {
                         @for entry in &history.entries {
-                            (entry_row(me, entry, paths))
+                            (entry_row(me, entry, paths, Some(&here)))
                         }
                     }
                 }
@@ -137,6 +141,9 @@ pub fn page(
             @if !history.totals.is_empty() {
                 section.finance-section aria-labelledby="monthly-totals" {
                     h2 #monthly-totals { "Monthly totals" }
+                    @if applied.member.is_some() {
+                        p.lead-in { "Everyone's entries, whoever paid, sent or received them." }
+                    }
                     table.monthly-totals {
                         thead {
                             tr {
@@ -175,7 +182,7 @@ pub mod fixtures {
     ///
     /// # Panics
     ///
-    /// Never: the fixture month is valid.
+    /// If the fixture month is invalid, which is a bug in the fixtures.
     #[must_use]
     pub fn october() -> Month {
         Month::parse("2026-10").expect("the fixture month is valid")
@@ -222,11 +229,8 @@ pub mod fixtures {
         }
     }
 
-    /// [`ondra_in_october`]'s one page: the Payment he received and the Expense he paid.
-    ///
-    /// # Panics
-    ///
-    /// If a fixture value is invalid, which is a bug in the fixtures.
+    /// [`ondra_in_october`]'s one page, the Payment they received and the Expense they paid, and
+    /// the whole Crew's October.
     #[must_use]
     pub fn filtered() -> History {
         History {
@@ -235,13 +239,13 @@ pub mod fixtures {
             pages: 1,
             totals: vec![MonthlyTotal {
                 month: october(),
-                expenses: Crowns::new(12_480),
+                expenses: Crowns::new(14_100),
                 payments: Crowns::new(4_160),
             }],
         }
     }
 
-    /// Nothing the filter lets through.
+    /// Nothing to list.
     #[must_use]
     pub const fn empty() -> History {
         History {
@@ -302,13 +306,24 @@ mod tests {
         let filters = Filters {
             applied: HistoryFilter::default(),
             month: "Oct",
-            month_problem: Some("Enter a month as YYYY-MM, like 2026-10."),
+            month_problem: Some(NOT_A_MONTH),
         };
         assert_html_snapshot!(page(
             &member(JOSEF),
             &crew(),
             &filters,
             &unfiltered(),
+            PATHS
+        ));
+    }
+
+    #[test]
+    fn history_with_nothing_logged() {
+        assert_html_snapshot!(page(
+            &member(JOSEF),
+            &crew(),
+            &Filters::of(HistoryFilter::default(), ""),
+            &empty(),
             PATHS
         ));
     }
@@ -385,7 +400,45 @@ mod tests {
         .into_string();
 
         // Ondra paid the Malt, but Josef sent the Payment.
-        assert!(html.contains("href=\"/expenses/7/edit\""));
-        assert!(!html.contains("href=\"/payments/4/edit\""));
+        assert!(html.contains("href=\"/expenses/7/edit?back=%2Fhistory\""));
+        assert!(!html.contains("href=\"/payments/4/edit"));
+    }
+
+    #[test]
+    fn the_controls_come_back_to_the_same_page_of_history() {
+        let history = History {
+            page: 2,
+            ..filtered()
+        };
+        let html = page(
+            &member(ONDRA),
+            &crew(),
+            &Filters::of(ondra_in_october(), "2026-10"),
+            &history,
+            PATHS,
+        )
+        .into_string();
+
+        let back = "back=%2Fhistory%3Fmember%3D2%26month%3D2026-10%26page%3D2";
+        assert!(html.contains(&format!("href=\"/expenses/7/edit?{back}\"")));
+        assert!(html.contains(&format!("hx-post=\"/expenses/7/delete?{back}\"")));
+    }
+
+    #[test]
+    fn a_members_totals_are_said_to_be_everyones() {
+        let says = |filter| {
+            page(
+                &member(ONDRA),
+                &crew(),
+                &Filters::of(filter, ""),
+                &unfiltered(),
+                PATHS,
+            )
+            .into_string()
+            .contains("Everyone's entries")
+        };
+
+        assert!(says(ondra_in_october()));
+        assert!(!says(HistoryFilter::default()));
     }
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT expenses.id AS \"id!\", payer_id, payers.display_name AS payer, amount,\n                  description, expense_date, logged_at, editors.display_name AS \"editor?\",\n                  edited_at\n           FROM expenses\n           JOIN members AS payers ON payers.id = expenses.payer_id\n           LEFT JOIN members AS editors ON editors.id = expenses.edited_by\n           WHERE deleted_at IS NULL\n             AND (?1 IS NULL OR payer_id = ?1)\n             AND (?2 IS NULL OR expense_date >= ?2)\n             AND (?3 IS NULL OR expense_date < ?3)\n           ORDER BY logged_at DESC, expenses.id DESC\n           LIMIT ?4",
+  "query": "SELECT expenses.id AS \"id!\", payer_id, payers.display_name AS payer, amount,\n                  description, expense_date, logged_at, editors.display_name AS \"editor?\",\n                  edited_at\n           FROM expenses\n           JOIN members AS payers ON payers.id = expenses.payer_id\n           LEFT JOIN members AS editors ON editors.id = expenses.edited_by\n           WHERE deleted_at IS NULL\n             AND (?1 IS NULL OR payer_id = ?1)\n             AND (?2 IS NULL OR expense_date >= ?2)\n             AND (?3 IS NULL OR expense_date < ?3)\n           ORDER BY logged_at DESC, expenses.id DESC\n           LIMIT coalesce(?4, -1)",
   "describe": {
     "columns": [
       {
@@ -64,5 +64,5 @@
       true
     ]
   },
-  "hash": "2429b205ac3a727ee0532bd86448b2cf3fb5a57d258b06b63423b4778b593043"
+  "hash": "6e844802234af1d51f3b8aab46225e501d90613878d91de0ba05654178eafcb9"
 }

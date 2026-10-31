@@ -12,7 +12,7 @@ use super::money::Crowns;
 use crate::domain::members::MemberId;
 
 /// How many entries a page of History lists.
-pub const HISTORY_PAGE: usize = 25;
+pub const HISTORY_PAGE_SIZE: usize = 25;
 
 /// A calendar month in the Crew's time zone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -92,7 +92,7 @@ pub struct MonthlyTotal {
     pub payments: Crowns,
 }
 
-/// One page of History and the monthly totals of every entry the filter lets through.
+/// One page of History, and the monthly totals of the whole Crew.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct History {
     /// The page's entries, newest first.
@@ -101,7 +101,7 @@ pub struct History {
     pub page: usize,
     /// How many pages there are; at least 1, even with nothing to list.
     pub pages: usize,
-    /// Each month with an entry, newest first.
+    /// Each month with an entry, newest first, whoever paid, sent or received it.
     pub totals: Vec<MonthlyTotal>,
 }
 
@@ -109,17 +109,16 @@ impl History {
     /// The `page`th page of `entries`, each with the Unix second it was logged at, newest first:
     /// by date, then by when it was logged. A page past the last is the last.
     #[must_use]
-    pub fn of(mut entries: Vec<(i64, Entry)>, page: usize) -> Self {
+    pub fn of(mut entries: Vec<(i64, Entry)>, page: usize, totals: Vec<MonthlyTotal>) -> Self {
         // A stable sort keeps the given order between entries of the same date and second.
         entries.sort_by_key(|(logged_at, entry)| std::cmp::Reverse((entry.date(), *logged_at)));
-        let totals = monthly_totals(entries.iter().map(|(_, entry)| entry));
-        let pages = entries.len().div_ceil(HISTORY_PAGE).max(1);
+        let pages = entries.len().div_ceil(HISTORY_PAGE_SIZE).max(1);
         let page = page.clamp(1, pages);
         let entries = entries
             .into_iter()
             .map(|(_, entry)| entry)
-            .skip((page - 1) * HISTORY_PAGE)
-            .take(HISTORY_PAGE)
+            .skip((page - 1) * HISTORY_PAGE_SIZE)
+            .take(HISTORY_PAGE_SIZE)
             .collect();
         Self {
             entries,
@@ -131,24 +130,22 @@ impl History {
 }
 
 /// The totals of each month `entries` fall in, newest first.
-fn monthly_totals<'a>(entries: impl Iterator<Item = &'a Entry>) -> Vec<MonthlyTotal> {
-    let mut totals = BTreeMap::<Month, (i64, i64)>::new();
+pub fn monthly_totals<'a>(entries: impl IntoIterator<Item = &'a Entry>) -> Vec<MonthlyTotal> {
+    let mut totals = BTreeMap::new();
     for entry in entries {
-        let total = totals.entry(Month::of(entry.date())).or_default();
-        match entry {
-            Entry::Expense(expense) => total.0 += expense.amount.get(),
-            Entry::Payment(payment) => total.1 += payment.amount.get(),
-        }
-    }
-    totals
-        .into_iter()
-        .rev()
-        .map(|(month, (expenses, payments))| MonthlyTotal {
+        let month = Month::of(entry.date());
+        let total = totals.entry(month).or_insert(MonthlyTotal {
             month,
-            expenses: Crowns::new(expenses),
-            payments: Crowns::new(payments),
-        })
-        .collect()
+            expenses: Crowns::ZERO,
+            payments: Crowns::ZERO,
+        });
+        let sum = match entry {
+            Entry::Expense(_) => &mut total.expenses,
+            Entry::Payment(_) => &mut total.payments,
+        };
+        *sum = Crowns::new(sum.get() + entry.amount().get());
+    }
+    totals.into_values().rev().collect()
 }
 
 #[cfg(test)]
@@ -195,16 +192,13 @@ mod tests {
         history
             .entries
             .iter()
-            .map(|entry| match entry {
-                Entry::Expense(expense) => expense.amount.get(),
-                Entry::Payment(payment) => payment.amount.get(),
-            })
+            .map(|entry| entry.amount().get())
             .collect()
     }
 
-    fn totals(history: &History) -> Vec<(String, i64, i64)> {
-        history
-            .totals
+    /// Each of `totals` as its month, Expenses and Payments, to compare at a glance.
+    fn plain(totals: &[MonthlyTotal]) -> Vec<(String, i64, i64)> {
+        totals
             .iter()
             .map(|total| {
                 (
@@ -268,7 +262,7 @@ mod tests {
             (400, expense(3, 4, date(2026, 3, 21))),
         ];
 
-        let history = History::of(entries, 1);
+        let history = History::of(entries, 1, Vec::new());
 
         assert_eq!(amounts(&history), [4, 2, 1, 3]);
         assert_eq!((history.page, history.pages), (1, 1));
@@ -281,7 +275,7 @@ mod tests {
             .collect();
 
         let pages: Vec<History> = (1..=3)
-            .map(|page| History::of(entries.clone(), page))
+            .map(|page| History::of(entries.clone(), page, Vec::new()))
             .collect();
 
         assert_eq!(amounts(&pages[0]), (36..=60).rev().collect::<Vec<_>>());
@@ -297,15 +291,15 @@ mod tests {
             .map(|crowns| (crowns, expense(crowns, crowns, date(2026, 3, 1))))
             .collect();
 
-        assert_eq!(History::of(entries.clone(), 0).page, 1);
-        let past = History::of(entries, 9);
+        assert_eq!(History::of(entries.clone(), 0, Vec::new()).page, 1);
+        let past = History::of(entries, 9, Vec::new());
         assert_eq!((past.page, past.pages), (2, 2));
         assert_eq!(amounts(&past), [5, 4, 3, 2, 1]);
     }
 
     #[test]
     fn nothing_to_list_is_one_empty_page() {
-        let history = History::of(Vec::new(), 1);
+        let history = History::of(Vec::new(), 1, Vec::new());
 
         assert_eq!(
             history,
@@ -319,7 +313,7 @@ mod tests {
     }
 
     #[test]
-    fn totals_each_months_expenses_and_payments_across_every_page() {
+    fn totals_each_months_expenses_and_payments() {
         let mut entries: Vec<_> = (1..=30)
             .map(|id| (id, expense(id, 100, date(2026, 3, 15))))
             .collect();
@@ -330,10 +324,10 @@ mod tests {
             (70, payment(3, 3, date(2026, 6, 2))),
         ]);
 
-        let history = History::of(entries, 2);
+        let totals = monthly_totals(entries.iter().map(|(_, entry)| entry));
 
         assert_eq!(
-            totals(&history),
+            plain(&totals),
             [
                 ("2026-06".to_owned(), 0, 3),
                 ("2026-04".to_owned(), 1_000, 7),
