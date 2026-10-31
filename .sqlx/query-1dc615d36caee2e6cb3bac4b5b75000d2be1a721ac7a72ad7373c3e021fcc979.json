@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO payments (sender_id, recipient_id, amount, description, logged_by, logged_at)\n             VALUES (?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "1dc615d36caee2e6cb3bac4b5b75000d2be1a721ac7a72ad7373c3e021fcc979"
+}

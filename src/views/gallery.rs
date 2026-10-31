@@ -9,7 +9,7 @@ use crate::domain::members::{CREW_NAME, DisplayName};
 use crate::views::admin::{self, Outcome as AdminOutcome};
 use crate::views::brand::header_logo;
 use crate::views::display_name::{self, Outcome};
-use crate::views::finance::{self, ExpenseProblems, ExpenseValues};
+use crate::views::finance::{self, ExpenseProblems, ExpenseValues, PaymentProblems, PaymentValues};
 use crate::views::layout::document;
 use crate::views::nav::{ADMIN_HREF, Place, Tab, bottom_nav};
 use crate::views::passkey::CeremonyUrls;
@@ -37,10 +37,12 @@ const SEVERAL_PASSKEYS_HEIGHT: u16 = 1500;
 const ADMIN_SETTINGS_HEIGHT: u16 = 1300;
 /// The admin page's two sections, with a new link or several open ones.
 const ADMIN_HEIGHT: u16 = 1000;
-/// The Finance home screen: a Balance, the button, the Crew's Balances and three entries.
-const FINANCE_HEIGHT: u16 = 1150;
+/// The Finance home screen: a Balance, the buttons, the Crew's Balances and four entries.
+const FINANCE_HEIGHT: u16 = 1220;
 /// The Expense form with a problem under every field.
 const EXPENSE_FORM_HEIGHT: u16 = 760;
+/// The Payment form with its problems.
+const PAYMENT_FORM_HEIGHT: u16 = 720;
 /// Where the fixture passkey lists' forms post.
 const PASSKEYS_BASE: &str = "/settings/passkeys";
 const DESKTOP_WIDTH: u16 = 1280;
@@ -205,12 +207,15 @@ fn admin_pages() -> Vec<Fixture> {
     .into()
 }
 
-/// The Finance home screen for a Member who owes, is owed and is Even, the Expense form, and an
-/// entry on its own.
+/// The Finance home screen for a Member who owes, is owed and is Even, the Expense and Payment
+/// forms, and each kind of entry on its own.
 fn finance_pages() -> Vec<Fixture> {
-    use finance::fixtures::{JOSEF, ONDRA, SIMON, TODAY, crew, entry, fresh, overview};
+    use finance::fixtures::{
+        JOSEF, ONDRA, SIMON, TODAY, crew, entry, fresh, overview, payment_entry,
+    };
 
     const NEW_EXPENSE: &str = "/expenses/new";
+    const NEW_PAYMENT: &str = "/payments/new";
     let homes = [
         ("Owes", JOSEF, overview()),
         ("Owed", ONDRA, overview()),
@@ -220,7 +225,7 @@ fn finance_pages() -> Vec<Fixture> {
     .map(|(state, me, overview)| Fixture {
         component: "Finance home",
         state: state.to_owned(),
-        document: finance::home(me, &overview, NEW_EXPENSE),
+        document: finance::home(me, &overview, NEW_EXPENSE, NEW_PAYMENT),
         height: FINANCE_HEIGHT,
     });
     let today = TODAY.to_string();
@@ -253,16 +258,57 @@ fn finance_pages() -> Vec<Fixture> {
         )),
         height: EXPENSE_FORM_HEIGHT,
     });
-    let row = Fixture {
+    let mistaken_payment = PaymentValues {
+        amount: "0",
+        description: "",
+        sender: SIMON,
+        recipient: Some(SIMON),
+    };
+    let payment_problems = PaymentProblems {
+        amount: Some("Enter an amount from 1 to 1 000 000 Kč.".to_owned()),
+        description: None,
+        sender: None,
+        recipient: Some("Choose someone other than the Sender.".to_owned()),
+    };
+    let payment_forms = [
+        (
+            "Empty",
+            PaymentValues::blank(ONDRA),
+            PaymentProblems::default(),
+        ),
+        ("With errors", mistaken_payment, payment_problems),
+    ]
+    .map(|(state, values, problems)| Fixture {
+        component: "Payment form",
+        state: state.to_owned(),
+        document: finance::payment_page(&finance::payment_form(
+            "/payments",
+            &crew(),
+            &values,
+            &problems,
+        )),
+        height: PAYMENT_FORM_HEIGHT,
+    });
+    let rows = [
+        ("Expense", entry()),
+        ("Payment", payment_entry(Some("For the malt"))),
+        ("Payment without a description", payment_entry(None)),
+    ]
+    .map(|(state, entry)| Fixture {
         component: "Entry row",
-        state: "Expense".to_owned(),
+        state: state.to_owned(),
         document: document(
             "Entry row",
-            &html! { main.shell-main { ul.entry-list { (finance::entry_row(&entry())) } } },
+            &html! { main.shell-main { ul.entry-list { (finance::entry_row(&entry)) } } },
         ),
         height: 120,
-    };
-    homes.into_iter().chain(forms).chain([row]).collect()
+    });
+    homes
+        .into_iter()
+        .chain(forms)
+        .chain(payment_forms)
+        .chain(rows)
+        .collect()
 }
 
 /// The pages a signed-in Member changes their display name on, and the form itself.
@@ -465,6 +511,7 @@ mod tests {
             "Admin page",
             "Finance home",
             "Expense form",
+            "Payment form",
             "Entry row",
         ] {
             assert!(
@@ -508,6 +555,8 @@ mod tests {
             "Empty",
             "With errors",
             "Expense",
+            "Payment",
+            "Payment without a description",
         ] {
             assert!(html.contains(&format!("<h3>{state}</h3>")), "{state}");
         }

@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT payments.id AS \"id!\", senders.display_name AS sender,\n                  recipients.display_name AS recipient, amount, description, logged_at\n           FROM payments\n           JOIN members AS senders ON senders.id = payments.sender_id\n           JOIN members AS recipients ON recipients.id = payments.recipient_id\n           WHERE deleted_at IS NULL\n           ORDER BY logged_at DESC, payments.id DESC\n           LIMIT ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "sender",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "recipient",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "amount",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "description",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "logged_at",
+        "ordinal": 5,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "3cef591e173354d0d91bb1bf6242996ea01e61c243b5948f084c7d1af0f08d74"
+}

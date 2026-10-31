@@ -1,6 +1,6 @@
 ---
 source: src/views/finance.rs
-expression: "home(ONDRA, &overview(), NEW_EXPENSE).into_string().replace(\"><\", \">\\n<\")"
+expression: "home(ONDRA, &overview(), NEW_EXPENSE,\nNEW_PAYMENT).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -47,6 +47,7 @@ expression: "home(ONDRA, &overview(), NEW_EXPENSE).into_string().replace(\"><\",
 </section>
 <div class="finance-actions">
 <a class="button button-large" href="/expenses/new">+ Expense</a>
+<a class="button button-secondary" href="/payments/new">+ Payment</a>
 </div>
 <section class="finance-section" aria-labelledby="crew-balances">
 <h2 id="crew-balances">Crew Balances</h2>
@@ -68,6 +69,13 @@ expression: "home(ONDRA, &overview(), NEW_EXPENSE).into_string().replace(\"><\",
 <section class="finance-section" aria-labelledby="latest-entries">
 <h2 id="latest-entries">Latest entries</h2>
 <ul class="entry-list">
+<li class="entry payment">
+<div class="entry-main">
+<span class="entry-what">Josef → Ondra</span>
+<span class="entry-meta">Payment · 29 October 2026</span>
+</div>
+<span class="entry-amount">4 160 Kč</span>
+</li>
 <li class="entry">
 <div class="entry-main">
 <span class="entry-what">Pilsner malt, 3 sacks, and a new hydrometer</span>

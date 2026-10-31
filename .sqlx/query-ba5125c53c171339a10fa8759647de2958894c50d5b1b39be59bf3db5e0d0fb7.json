@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT sender_id, recipient_id, amount FROM payments WHERE deleted_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "sender_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "recipient_id",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "amount",
+        "ordinal": 2,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ba5125c53c171339a10fa8759647de2958894c50d5b1b39be59bf3db5e0d0fb7"
+}

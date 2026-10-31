@@ -1,5 +1,5 @@
-//! The ledger: every Member's Balance from the Crew's Expenses. Pure, with no I/O, so the
-//! Finance service reads its inputs from the database and recomputes it on every read.
+//! The ledger: every Member's Balance from the Crew's Expenses and Payments. Pure, with no I/O,
+//! so the Finance service reads its inputs from the database and recomputes it on every read.
 
 use jiff::civil::Date;
 
@@ -19,6 +19,14 @@ pub struct LedgerExpense {
     pub payer: MemberId,
     pub amount: Amount,
     pub expense_date: Date,
+}
+
+/// A Payment as the ledger sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LedgerPayment {
+    pub sender: MemberId,
+    pub recipient: MemberId,
+    pub amount: Amount,
 }
 
 /// One Member's equal part of an Expense.
@@ -104,6 +112,21 @@ impl Ledger {
         }
     }
 
+    /// Adds `payment`: the Sender's Balance goes up by its amount and the Recipient's down.
+    ///
+    /// A Payment where either side isn't one of the ledger's Members is left out, so the
+    /// Balances still sum to zero.
+    pub fn add_payment(&mut self, payment: &LedgerPayment) {
+        let (Some(sender), Some(recipient)) = (
+            self.position(payment.sender),
+            self.position(payment.recipient),
+        ) else {
+            return;
+        };
+        self.balances[sender] += payment.amount.get();
+        self.balances[recipient] -= payment.amount.get();
+    }
+
     /// Every Member's Balance, in the order the ledger was given them. They always sum to zero.
     #[must_use]
     pub fn balances(&self) -> Vec<Balance> {
@@ -169,11 +192,23 @@ mod tests {
         for expense in expenses {
             ledger.add_expense(expense);
         }
+        balances_of(&ledger)
+    }
+
+    fn balances_of(ledger: &Ledger) -> Vec<(MemberId, i64)> {
         ledger
             .balances()
             .into_iter()
             .map(|balance| (balance.member, balance.crowns.get()))
             .collect()
+    }
+
+    fn payment(sender: MemberId, recipient: MemberId, crowns: i64) -> LedgerPayment {
+        LedgerPayment {
+            sender,
+            recipient,
+            amount: Amount::new(crowns).unwrap(),
+        }
     }
 
     fn shares_of(members: Vec<Participant>, expense: &LedgerExpense) -> Vec<(MemberId, i64)> {
@@ -279,6 +314,87 @@ mod tests {
                 .sum();
 
             assert_eq!(total, 0, "after {count} Expenses");
+        }
+    }
+
+    #[test]
+    fn a_payment_raises_the_senders_balance_and_lowers_the_recipients() {
+        let malt = expense(JOSEF, 300, date(2026, 3, 1));
+        let cases = [
+            (
+                payment(ONDRA, JOSEF, 100),
+                [(JOSEF, 100), (ONDRA, 0), (SIMON, -100)],
+            ),
+            (
+                payment(SIMON, JOSEF, 40),
+                [(JOSEF, 160), (ONDRA, -100), (SIMON, -60)],
+            ),
+            (
+                payment(ONDRA, SIMON, 100),
+                [(JOSEF, 200), (ONDRA, 0), (SIMON, -200)],
+            ),
+        ];
+        for (payment, balances) in cases {
+            let mut ledger = Ledger::new(crew());
+            ledger.add_expense(&malt);
+            ledger.add_payment(&payment);
+
+            assert_eq!(balances_of(&ledger), balances, "{payment:?}");
+        }
+    }
+
+    #[test]
+    fn a_payment_that_overshoots_what_was_owed_flips_the_balances() {
+        let mut ledger = Ledger::new(crew());
+        ledger.add_expense(&expense(JOSEF, 300, date(2026, 3, 1)));
+        ledger.add_payment(&payment(ONDRA, JOSEF, 250));
+
+        assert_eq!(
+            balances_of(&ledger),
+            [(JOSEF, -50), (ONDRA, 150), (SIMON, -100)]
+        );
+    }
+
+    #[test]
+    fn a_payment_counts_whenever_it_was_made() {
+        // Karel joined after the Payment; it still counts, as Payments have no split.
+        let mut ledger = Ledger::new(crew_and_karel());
+        ledger.add_payment(&payment(KAREL, JOSEF, 500));
+
+        assert_eq!(
+            balances_of(&ledger),
+            [(JOSEF, -500), (ONDRA, 0), (SIMON, 0), (KAREL, 500)]
+        );
+    }
+
+    #[test]
+    fn a_payment_involving_someone_outside_the_ledger_is_left_out() {
+        for payment in [payment(KAREL, JOSEF, 100), payment(JOSEF, KAREL, 100)] {
+            let mut ledger = Ledger::new(crew());
+            ledger.add_payment(&payment);
+
+            assert_eq!(
+                balances_of(&ledger),
+                [(JOSEF, 0), (ONDRA, 0), (SIMON, 0)],
+                "{payment:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn balances_sum_to_zero_with_payments() {
+        let mut ledger = Ledger::new(crew_and_karel());
+        ledger.add_expense(&expense(ONDRA, 1001, date(2026, 6, 1)));
+        for payment in [
+            payment(JOSEF, ONDRA, 250),
+            payment(SIMON, ONDRA, 1_000_000),
+            payment(KAREL, JOSEF, 7),
+            payment(KAREL, SIMON, 1),
+        ] {
+            ledger.add_payment(&payment);
+            let total: i64 = balances_of(&ledger).iter().map(|(_, crowns)| crowns).sum();
+
+            assert_eq!(total, 0, "after {payment:?}");
         }
     }
 }

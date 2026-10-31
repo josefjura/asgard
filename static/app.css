@@ -575,8 +575,23 @@ a.button {
   font-size: 1.125rem;
 }
 
+/* A large "+ Expense" button, with the rarer "+ Payment" beside it. */
+
 .finance-actions {
+  display: flex;
+  gap: var(--space-2);
   margin-bottom: var(--space-5);
+}
+
+.finance-actions .button-large {
+  flex: 1;
+}
+
+.button-secondary {
+  flex: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
 }
 
 .finance-section {
@@ -632,8 +647,8 @@ a.button {
   font-size: 0.875rem;
 }
 
-/* The Expense form: one field under another, each with its problem beneath it. The Expense
-   date folds away while it is today. */
+/* The Expense and Payment forms: one field under another, each with its problem beneath it.
+   The Expense date folds away while it is today. */
 
 .entry-form {
   display: grid;
@@ -645,6 +660,11 @@ a.button {
   display: block;
   margin-bottom: var(--space-1);
   font-weight: 600;
+}
+
+.entry-form .optional {
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .entry-form input,

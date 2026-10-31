@@ -1,0 +1,33 @@
+---
+source: src/views/finance.rs
+expression: "payment_form(PAYMENT_ACTION, &crew(), &PaymentValues::blank(ONDRA),\n&PaymentProblems::default()).into_string().replace(\"><\", \">\\n<\")"
+---
+<form class="entry-form" method="post" action="/payments" hx-post="/payments" hx-swap="outerHTML">
+<div class="field">
+<label for="payment-amount">Amount in Kč</label>
+<input id="payment-amount" type="text" inputmode="numeric" name="amount" value="" required autocomplete="off" autofocus>
+</div>
+<div class="field">
+<label for="payment-sender">Sent by</label>
+<select id="payment-sender" name="sender">
+<option value="1">Josef</option>
+<option value="2" selected>Ondra</option>
+<option value="3">Šimon</option>
+</select>
+</div>
+<div class="field">
+<label for="payment-recipient">Sent to</label>
+<select id="payment-recipient" name="recipient" required>
+<option value="" disabled selected>Choose a Member</option>
+<option value="1">Josef</option>
+<option value="2">Ondra</option>
+<option value="3">Šimon</option>
+</select>
+</div>
+<div class="field">
+<label for="payment-description">What for <span class="optional">(optional)</span>
+</label>
+<input id="payment-description" type="text" name="description" value="" maxlength="500" autocomplete="off">
+</div>
+<button class="button button-large" type="submit">Log Payment</button>
+</form>
