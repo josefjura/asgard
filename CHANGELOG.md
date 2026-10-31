@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/josefjura/asgard/compare/v0.4.0...v0.4.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* paint the installed app's splash and system bar band green ([#73](https://github.com/josefjura/asgard/issues/73)) ([8879d61](https://github.com/josefjura/asgard/commit/8879d617b350ab460480501b8ad460fbcabc01a9))
+
 ## [0.4.0](https://github.com/josefjura/asgard/compare/v0.3.0...v0.4.0) (2026-10-31)
 
 
