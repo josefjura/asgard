@@ -1170,7 +1170,7 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn only_the_sender_logs_a_settlement_from_the_crew_balances(db: SqlitePool) {
+    async fn only_the_sender_logs_the_payment_for_a_settlement(db: SqlitePool) {
         let app = TestApp::new(db);
         let (josef, ondra, simon) = three_after_malt(&app).await;
 
@@ -1224,13 +1224,13 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn logging_a_sent_settlement_makes_both_members_even(db: SqlitePool) {
+    async fn logging_the_payment_for_a_sent_settlement_makes_both_members_even(db: SqlitePool) {
         let app = TestApp::new(db);
         let (josef, ondra, _) = three_after_malt(&app).await;
         let html = page(&app, "/", &ondra).await;
-        let record = sent_links(&html).remove(0);
+        let sent = sent_links(&html).remove(0);
 
-        let html = page(&app, &record, &ondra).await;
+        let html = page(&app, &sent, &ondra).await;
         assert!(html.contains("<h1>New Payment</h1>"));
         assert!(html.contains("name=\"amount\" value=\"298\""));
         let sender = &html[html.find("name=\"sender\"").unwrap()..];

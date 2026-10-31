@@ -279,11 +279,11 @@ impl Overview {
             .map_or(Crowns::ZERO, |balance| balance.balance)
     }
 
-    /// The Settlements `member` sends or receives.
-    pub fn settlements_of(&self, member: MemberId) -> impl Iterator<Item = &Settlement> {
-        self.settlements.iter().filter(move |settlement| {
-            settlement.sender.id == member || settlement.recipient.id == member
-        })
+    /// The Settlements `member` is the Sender of.
+    pub fn settlements_sent_by(&self, member: MemberId) -> impl Iterator<Item = &Settlement> {
+        self.settlements
+            .iter()
+            .filter(move |settlement| settlement.sender.id == member)
     }
 }
 
@@ -1099,9 +1099,9 @@ mod tests {
             .map(|s| (s.sender.id, s.recipient.id, s.amount.get()))
             .collect();
         assert_eq!(plan, [(simon, ondra, 300)]);
-        assert_eq!(overview.settlements_of(josef).count(), 0);
-        assert_eq!(overview.settlements_of(ondra).count(), 1);
-        assert_eq!(overview.settlements_of(simon).count(), 1);
+        assert_eq!(overview.settlements_sent_by(josef).count(), 0);
+        assert_eq!(overview.settlements_sent_by(ondra).count(), 0);
+        assert_eq!(overview.settlements_sent_by(simon).count(), 1);
     }
 
     #[sqlx::test]

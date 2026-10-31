@@ -223,7 +223,7 @@ fn admin_pages() -> Vec<Fixture> {
 fn finance_pages() -> Vec<Fixture> {
     use finance::fixtures::{
         JOSEF, ONDRA, SIMON, TODAY, crew, edited_entry, edited_payment_entry, entry, fresh, member,
-        overview, payment_entry,
+        overview, payment_entry, sends_to_two,
     };
 
     let homes = [
@@ -231,6 +231,7 @@ fn finance_pages() -> Vec<Fixture> {
         ("Owed", ONDRA, overview()),
         ("Even", SIMON, overview()),
         ("Nothing logged", JOSEF, fresh()),
+        ("Sends to two", JOSEF, sends_to_two()),
     ]
     .map(|(state, me, overview)| Fixture {
         component: "Finance home",

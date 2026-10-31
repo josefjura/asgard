@@ -148,14 +148,11 @@ fn sent_href(settlement: &Settlement) -> String {
 /// Expenses come first, since the Crew logs them all the time: my Balance, the buttons that log
 /// an Expense or a Payment, and the latest entries, leading to the edit page of the ones `me` may
 /// change. Settling up happens now and then, so everyone's Balance and the Settlement plan close
-/// the page; `me` logs a Settlement there once they have sent it.
+/// the page; `me` logs the Payment for a Settlement there once they have sent it.
 #[must_use]
 pub fn home(me: &Member, overview: &Overview) -> Markup {
     let mine = overview.balance_of(me.id);
-    let my_sends: Vec<&Settlement> = overview
-        .settlements_of(me.id)
-        .filter(|settlement| settlement.sender.id == me.id)
-        .collect();
+    let my_sends: Vec<&Settlement> = overview.settlements_sent_by(me.id).collect();
     shell(
         Place::Tab(Tab::Finance),
         &html! {
@@ -227,7 +224,7 @@ pub fn home(me: &Member, overview: &Overview) -> Markup {
 }
 
 /// The `index`th Settlement of the plan under its Sender's Balance. Only its Sender gets the
-/// button that logs it, because only the Sender knows once the money has gone out.
+/// button that logs its Payment, because only the Sender knows once the money has gone out.
 fn crew_settlement(me: MemberId, settlement: &Settlement, index: usize) -> Markup {
     let id = format!("settlement-{index}");
     html! {
@@ -787,6 +784,25 @@ pub mod fixtures {
         }
     }
 
+    /// Josef owing 300 Kč, which he sends as 200 Kč to Ondra and 100 Kč to Šimon, with nothing
+    /// in the latest entries.
+    #[must_use]
+    pub fn sends_to_two() -> Overview {
+        let balances: Vec<MemberBalance> = crew()
+            .into_iter()
+            .zip([-300, 200, 100])
+            .map(|(member, crowns)| MemberBalance {
+                member,
+                balance: Crowns::new(crowns),
+            })
+            .collect();
+        Overview {
+            settlements: settlement_plan(&balances),
+            balances,
+            recent: Vec::new(),
+        }
+    }
+
     /// The Payment form as Josef's Settlement with Ondra in [`overview`] fills it in.
     #[must_use]
     pub const fn prefilled_payment() -> PaymentValues<'static> {
@@ -823,11 +839,9 @@ pub mod fixtures {
 mod tests {
     use super::fixtures::{
         JOSEF, ONDRA, SIMON, TODAY, crew, edited_entry, edited_payment_entry, entry, fresh, member,
-        overview, payment_entry, prefilled_payment,
+        overview, payment_entry, prefilled_payment, sends_to_two,
     };
     use super::*;
-    use crate::domain::finance::MemberBalance;
-    use crate::domain::finance::settlement::settlement_plan;
     use crate::views::assert_html_snapshot;
 
     const NEW_EXPENSE: &str = "/expenses/new";
@@ -875,22 +889,13 @@ mod tests {
     }
 
     #[test]
-    fn my_balance_names_everyone_i_send_to() {
-        let balances: Vec<MemberBalance> = crew()
-            .into_iter()
-            .zip([-300, 200, 100])
-            .map(|(member, crowns)| MemberBalance {
-                member,
-                balance: Crowns::new(crowns),
-            })
-            .collect();
-        let overview = Overview {
-            settlements: settlement_plan(&balances),
-            balances,
-            recent: Vec::new(),
-        };
+    fn finance_home_sends_to_two() {
+        assert_html_snapshot!(home(&member(JOSEF), &sends_to_two()));
+    }
 
-        let html = home(&member(JOSEF), &overview).into_string();
+    #[test]
+    fn my_balance_names_everyone_i_send_to() {
+        let html = home(&member(JOSEF), &sends_to_two()).into_string();
 
         assert!(html.contains(
             "<p class=\"balance-next\">Send Ondra <strong>200\u{a0}Kč</strong> and \
