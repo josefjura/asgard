@@ -53,8 +53,7 @@ fn day(date: Date) -> String {
 
 /// Where a Settlement's "Record" button leads: the Payment form at `new_payment`, pre-filled
 /// with its Sender, Recipient and amount.
-#[must_use]
-pub fn record_href(new_payment: &str, settlement: &Settlement) -> String {
+fn record_href(new_payment: &str, settlement: &Settlement) -> String {
     format!(
         "{new_payment}?sender={}&recipient={}&amount={}",
         settlement.sender.id.get(),

@@ -4,7 +4,7 @@
 use std::cmp::Ordering;
 
 use super::MemberBalance;
-use super::money::Crowns;
+use super::money::{Crowns, Standing};
 use crate::domain::members::MemberName;
 
 /// One suggested Payment: the Sender sends the Recipient `amount` to settle up.
@@ -19,9 +19,10 @@ pub struct Settlement {
 /// The Settlements that bring every Member who isn't Even to Even.
 ///
 /// Members who are Even are left out, so nobody chases a single crown. The rest are matched
-/// greedily, the largest debtor to the largest creditor, until each of them is at zero. That
-/// gives at most one Settlement fewer than there are Members. Equal Balances are taken in
-/// display-name order, so the plan is the same on every read.
+/// greedily, the Member who owes the most sending to the Member owed the most, until each of
+/// them is at zero. That gives at most one Settlement fewer than there are Members. Equal
+/// Balances are taken in display-name order (by code point, not alphabet), so the plan is the
+/// same on every read.
 ///
 /// The crowns the Even Members hold are nobody's to pass on, so once the plan is paid the rest
 /// are left owing or owed that much between them, and exactly zero when it sums to nothing.
@@ -34,25 +35,29 @@ pub fn settlement_plan(balances: &[MemberBalance]) -> Vec<Settlement> {
         .collect();
     let mut plan = Vec::new();
     loop {
-        let creditor = largest(&open, |crowns| crowns);
-        let debtor = largest(&open, |crowns| -crowns);
-        let (Some(creditor), Some(debtor)) = (creditor, debtor) else {
+        let recipient = most(&open, Standing::Owed);
+        let sender = most(&open, Standing::Owes);
+        let (Some(recipient), Some(sender)) = (recipient, sender) else {
             return plan;
         };
-        let amount = open[creditor].1.min(-open[debtor].1);
-        open[creditor].1 -= amount;
-        open[debtor].1 += amount;
+        let amount = open[recipient].1.min(-open[sender].1);
+        open[recipient].1 -= amount;
+        open[sender].1 += amount;
         plan.push(Settlement {
-            sender: open[debtor].0.clone(),
-            recipient: open[creditor].0.clone(),
+            sender: open[sender].0.clone(),
+            recipient: open[recipient].0.clone(),
             amount: Crowns::new(amount),
         });
     }
 }
 
-/// Where in `open` the Member with the largest positive `size` of Balance is, the first in
+/// Where in `open` the Member who is owed the most, or owes the most, is: the first in
 /// display-name order among equals.
-fn largest(open: &[(&MemberName, i64)], size: impl Fn(i64) -> i64) -> Option<usize> {
+fn most(open: &[(&MemberName, i64)], standing: Standing) -> Option<usize> {
+    let size = |crowns: i64| match standing {
+        Standing::Owes => -crowns,
+        Standing::Owed | Standing::Even => crowns,
+    };
     open.iter()
         .enumerate()
         .filter(|(_, (_, crowns))| size(*crowns) > 0)
