@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT payer_id FROM expenses WHERE id = ? AND deleted_at IS NULL",
+  "query": "SELECT id AS \"id!\" FROM members WHERE joined_on <= ?",
   "describe": {
     "columns": [
       {
-        "name": "payer_id",
+        "name": "id!",
         "ordinal": 0,
         "type_info": "Integer"
       }
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "5ed09cd01207b82e98c513bd267b4c41c1be8fc390f991ebb2c72fd9ef36ef71"
+  "hash": "61aa224ae6c1653083d17da5f0eba5272cb9f6f590099268149892c1887a0195"
 }

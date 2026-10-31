@@ -5,6 +5,8 @@ pub mod ledger;
 pub mod money;
 pub mod settlement;
 
+use std::collections::BTreeSet;
+
 use jiff::civil::Date;
 use sqlx::{SqliteConnection, SqlitePool};
 
@@ -12,6 +14,7 @@ use self::ledger::{Ledger, LedgerExpense, LedgerPayment, Participant};
 use self::money::{Amount, Crowns};
 use self::settlement::{Settlement, settlement_plan};
 use crate::domain::clock::{Clock, crew_date_of_unix_seconds, unix_seconds};
+use crate::domain::events::{Event, Events};
 use crate::domain::members::{DisplayName, Member, MemberId, MemberName, parse_date};
 
 /// The longest description of an Expense or Payment, in characters.
@@ -254,17 +257,45 @@ impl Overview {
     }
 }
 
+/// An Expense or a Payment, as an event names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryId {
+    Expense(ExpenseId),
+    Payment(PaymentId),
+}
+
+/// What a Member did to an entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryAction {
+    Added,
+    Edited,
+    Deleted,
+}
+
+/// A Member added, edited or deleted an Expense or Payment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FinanceEvent {
+    pub entry: EntryId,
+    pub action: EntryAction,
+    /// The Member who did it.
+    pub actor: MemberId,
+    /// Everyone the entry involves, before and after an edit, except the actor, in id order:
+    /// an Expense's split, or a Payment's Sender and Recipient.
+    pub notify: Vec<MemberId>,
+}
+
 /// Logs Expenses and Payments and works out Balances.
 #[derive(Debug, Clone)]
 pub struct Finance {
     db: SqlitePool,
     clock: Clock,
+    events: Events,
 }
 
 impl Finance {
     #[must_use]
-    pub const fn new(db: SqlitePool, clock: Clock) -> Self {
-        Self { db, clock }
+    pub const fn new(db: SqlitePool, clock: Clock, events: Events) -> Self {
+        Self { db, clock, events }
     }
 
     /// Today in the Crew's time zone: the Expense date a new Expense starts with, and the
@@ -287,10 +318,11 @@ impl Finance {
         expense: &NewExpense,
     ) -> Result<ExpenseId, ExpenseError> {
         self.check_expense(expense).await?;
+        let split = self.split_on(expense.expense_date).await?;
         let payer = expense.payer.get();
         let amount = expense.amount.get();
         let expense_date = expense.expense_date.to_string();
-        let logger = logger.get();
+        let logged_by = logger.get();
         let logged_at = unix_seconds(self.clock.now());
         let done = sqlx::query!(
             "INSERT INTO expenses (payer_id, amount, description, expense_date, logged_by, logged_at)
@@ -299,12 +331,48 @@ impl Finance {
             amount,
             expense.description.0,
             expense_date,
-            logger,
+            logged_by,
             logged_at,
         )
         .execute(&self.db)
         .await?;
-        Ok(ExpenseId(done.last_insert_rowid()))
+        let id = ExpenseId(done.last_insert_rowid());
+        self.emit(EntryId::Expense(id), EntryAction::Added, logger, split);
+        Ok(id)
+    }
+
+    /// Everyone in the Crew on `date`: the Members an Expense of that date is split between.
+    async fn split_on(&self, date: Date) -> Result<Vec<MemberId>, sqlx::Error> {
+        let date = date.to_string();
+        let split = sqlx::query_scalar!(
+            r#"SELECT id AS "id!" FROM members WHERE joined_on <= ?"#,
+            date
+        )
+        .fetch_all(&self.db)
+        .await?;
+        Ok(split.into_iter().map(MemberId::from_stored).collect())
+    }
+
+    /// Emits that `actor` did `action` to `entry`, for everyone `involved` but the actor to hear.
+    fn emit(
+        &self,
+        entry: EntryId,
+        action: EntryAction,
+        actor: MemberId,
+        involved: impl IntoIterator<Item = MemberId>,
+    ) {
+        let notify = involved
+            .into_iter()
+            .filter(|&member| member != actor)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        self.events.emit(Event::Finance(FinanceEvent {
+            entry,
+            action,
+            actor,
+            notify,
+        }));
     }
 
     /// Refuses an Expense dated after today, or paid by someone who hadn't joined by its
@@ -367,8 +435,11 @@ impl Finance {
         id: ExpenseId,
         expense: &NewExpense,
     ) -> Result<(), ExpenseError> {
-        let payer = self.expense_payer(editor, id).await?.get();
+        let (payer, old_expense_date) = self.changeable_expense(editor, id).await?;
         self.check_expense(expense).await?;
+        let mut involved = self.split_on(old_expense_date).await?;
+        involved.extend(self.split_on(expense.expense_date).await?);
+        let payer = payer.get();
         let new_payer = expense.payer.get();
         let amount = expense.amount.get();
         let expense_date = expense.expense_date.to_string();
@@ -395,6 +466,12 @@ impl Finance {
         if done.rows_affected() == 0 {
             return Err(EntryError::NotFound.into());
         }
+        self.emit(
+            EntryId::Expense(id),
+            EntryAction::Edited,
+            editor.id,
+            involved,
+        );
         Ok(())
     }
 
@@ -404,7 +481,9 @@ impl Finance {
     ///
     /// Returns an [`EntryError`] as [`Finance::expense_to_edit`] does.
     pub async fn delete_expense(&self, member: &Member, id: ExpenseId) -> Result<(), EntryError> {
-        let payer = self.expense_payer(member, id).await?.get();
+        let (payer, old_expense_date) = self.changeable_expense(member, id).await?;
+        let split = self.split_on(old_expense_date).await?;
+        let payer = payer.get();
         let deleted_by = member.id.get();
         let deleted_at = unix_seconds(self.clock.now());
         let done = sqlx::query!(
@@ -420,24 +499,29 @@ impl Finance {
         if done.rows_affected() == 0 {
             return Err(EntryError::NotFound);
         }
+        self.emit(EntryId::Expense(id), EntryAction::Deleted, member.id, split);
         Ok(())
     }
 
-    /// The Payer of the Expense `id`, once [`may_change`] lets `member` change it.
-    async fn expense_payer(&self, member: &Member, id: ExpenseId) -> Result<MemberId, EntryError> {
-        let payer = sqlx::query_scalar!(
-            "SELECT payer_id FROM expenses WHERE id = ? AND deleted_at IS NULL",
+    /// The Payer and Expense date of the Expense `id`, once [`may_change`] lets `member` change
+    /// it.
+    async fn changeable_expense(
+        &self,
+        member: &Member,
+        id: ExpenseId,
+    ) -> Result<(MemberId, Date), EntryError> {
+        let row = sqlx::query!(
+            "SELECT payer_id, expense_date FROM expenses WHERE id = ? AND deleted_at IS NULL",
             id.0
         )
         .fetch_optional(&self.db)
         .await?
-        .map(MemberId::from_stored)
         .ok_or(EntryError::NotFound)?;
-        if may_change(member, payer) {
-            Ok(payer)
-        } else {
-            Err(EntryError::NotAllowed)
+        let payer = MemberId::from_stored(row.payer_id);
+        if !may_change(member, payer) {
+            return Err(EntryError::NotAllowed);
         }
+        Ok((payer, parse_date(&row.expense_date)?))
     }
 
     /// Logs `payment`, entered by `logger` and dated now.
@@ -457,7 +541,7 @@ impl Finance {
         let recipient = payment.recipient.get();
         let amount = payment.amount.get();
         let description = payment.description.as_ref().map(Description::as_str);
-        let logger = logger.get();
+        let logged_by = logger.get();
         let logged_at = unix_seconds(self.clock.now());
         let done = sqlx::query!(
             "INSERT INTO payments (sender_id, recipient_id, amount, description, logged_by, logged_at)
@@ -466,12 +550,15 @@ impl Finance {
             recipient,
             amount,
             description,
-            logger,
+            logged_by,
             logged_at,
         )
         .execute(&self.db)
         .await?;
-        Ok(PaymentId(done.last_insert_rowid()))
+        let id = PaymentId(done.last_insert_rowid());
+        let involved = [payment.sender, payment.recipient];
+        self.emit(EntryId::Payment(id), EntryAction::Added, logger, involved);
+        Ok(id)
     }
 
     /// Refuses a Payment to its own Sender, or between people who aren't Members.
@@ -542,8 +629,10 @@ impl Finance {
         id: PaymentId,
         payment: &NewPayment,
     ) -> Result<(), PaymentError> {
-        let sender = self.payment_sender(editor, id).await?.get();
+        let (sender, recipient) = self.changeable_payment(editor, id).await?;
         self.check_payment(payment).await?;
+        let involved = [sender, recipient, payment.sender, payment.recipient];
+        let sender = sender.get();
         let new_sender = payment.sender.get();
         let recipient = payment.recipient.get();
         let amount = payment.amount.get();
@@ -570,6 +659,12 @@ impl Finance {
         if done.rows_affected() == 0 {
             return Err(EntryError::NotFound.into());
         }
+        self.emit(
+            EntryId::Payment(id),
+            EntryAction::Edited,
+            editor.id,
+            involved,
+        );
         Ok(())
     }
 
@@ -579,7 +674,9 @@ impl Finance {
     ///
     /// Returns an [`EntryError`] as [`Finance::payment_to_edit`] does.
     pub async fn delete_payment(&self, member: &Member, id: PaymentId) -> Result<(), EntryError> {
-        let sender = self.payment_sender(member, id).await?.get();
+        let (sender, recipient) = self.changeable_payment(member, id).await?;
+        let involved = [sender, recipient];
+        let sender = sender.get();
         let deleted_by = member.id.get();
         let deleted_at = unix_seconds(self.clock.now());
         let done = sqlx::query!(
@@ -595,24 +692,33 @@ impl Finance {
         if done.rows_affected() == 0 {
             return Err(EntryError::NotFound);
         }
+        self.emit(
+            EntryId::Payment(id),
+            EntryAction::Deleted,
+            member.id,
+            involved,
+        );
         Ok(())
     }
 
-    /// The Sender of the Payment `id`, once [`may_change`] lets `member` change it.
-    async fn payment_sender(&self, member: &Member, id: PaymentId) -> Result<MemberId, EntryError> {
-        let sender = sqlx::query_scalar!(
-            "SELECT sender_id FROM payments WHERE id = ? AND deleted_at IS NULL",
+    /// The Sender and Recipient of the Payment `id`, once [`may_change`] lets `member` change it.
+    async fn changeable_payment(
+        &self,
+        member: &Member,
+        id: PaymentId,
+    ) -> Result<(MemberId, MemberId), EntryError> {
+        let row = sqlx::query!(
+            "SELECT sender_id, recipient_id FROM payments WHERE id = ? AND deleted_at IS NULL",
             id.0
         )
         .fetch_optional(&self.db)
         .await?
-        .map(MemberId::from_stored)
         .ok_or(EntryError::NotFound)?;
-        if may_change(member, sender) {
-            Ok(sender)
-        } else {
-            Err(EntryError::NotAllowed)
+        let sender = MemberId::from_stored(row.sender_id);
+        if !may_change(member, sender) {
+            return Err(EntryError::NotAllowed);
         }
+        Ok((sender, MemberId::from_stored(row.recipient_id)))
     }
 
     /// Everyone's Balance, the Settlement plan and the latest entries, read together so they
@@ -772,6 +878,7 @@ mod tests {
 
     use jiff::civil::date;
     use jiff::tz::TimeZone;
+    use tokio::sync::broadcast;
 
     use super::*;
     use crate::domain::clock::ManualClock;
@@ -794,7 +901,7 @@ mod tests {
 
     fn finance_and_clock(db: SqlitePool) -> (Finance, ManualClock) {
         let clock = ManualClock::starting_at(late_on_the_first_of_april());
-        (Finance::new(db, clock.clock()), clock)
+        (Finance::new(db, clock.clock(), Events::new()), clock)
     }
 
     fn expense(payer: MemberId, crowns: i64, description: &str, expense_date: Date) -> NewExpense {
@@ -1587,5 +1694,297 @@ mod tests {
             balances(&overview),
             [("Josef", 0), ("Ondra", 0), ("Šimon", 0)]
         );
+    }
+
+    /// The Finance service and a subscription to the events it emits.
+    fn finance_and_events(db: SqlitePool) -> (Finance, broadcast::Receiver<Event>) {
+        let clock = ManualClock::starting_at(late_on_the_first_of_april());
+        let events = Events::new();
+        let subscription = events.subscribe();
+        (Finance::new(db, clock.clock(), events), subscription)
+    }
+
+    /// Every event emitted since the last call.
+    fn emitted(subscription: &mut broadcast::Receiver<Event>) -> Vec<FinanceEvent> {
+        std::iter::from_fn(|| subscription.try_recv().ok())
+            .map(|Event::Finance(event)| event)
+            .collect()
+    }
+
+    fn event(
+        entry: EntryId,
+        action: EntryAction,
+        actor: &Member,
+        notify: &[&Member],
+    ) -> FinanceEvent {
+        FinanceEvent {
+            entry,
+            action,
+            actor: actor.id,
+            notify: notify.iter().map(|member| member.id).collect(),
+        }
+    }
+
+    /// Moves Šimon's join date to 25 March 2026, after the other fixture Members' 14 March.
+    async fn simon_joins_late(db: &SqlitePool, simon: &Member) {
+        let simon = simon.id.get();
+        sqlx::query!(
+            "UPDATE members SET joined_on = '2026-03-25' WHERE id = ?",
+            simon
+        )
+        .execute(db)
+        .await
+        .unwrap();
+    }
+
+    #[sqlx::test]
+    async fn an_expense_notifies_its_split_except_the_actor(db: SqlitePool) {
+        let (josef, ondra, simon) = crew_of_three(&db).await;
+        let (finance, mut events) = finance_and_events(db);
+
+        // The Admin logs it for Ondra, who paid.
+        let id = finance
+            .log_expense(josef.id, &expense(ondra.id, 300, "Malt", date(2026, 3, 20)))
+            .await
+            .unwrap();
+        finance
+            .edit_expense(
+                &ondra,
+                id,
+                &expense(ondra.id, 600, "Malt", date(2026, 3, 20)),
+            )
+            .await
+            .unwrap();
+        finance.delete_expense(&josef, id).await.unwrap();
+
+        let id = EntryId::Expense(id);
+        assert_eq!(
+            emitted(&mut events),
+            [
+                event(id, EntryAction::Added, &josef, &[&ondra, &simon]),
+                event(id, EntryAction::Edited, &ondra, &[&josef, &simon]),
+                event(id, EntryAction::Deleted, &josef, &[&ondra, &simon]),
+            ]
+        );
+    }
+
+    #[sqlx::test]
+    async fn an_expense_notifies_only_those_in_the_crew_on_its_date(db: SqlitePool) {
+        let (josef, ondra, simon) = crew_of_three(&db).await;
+        simon_joins_late(&db, &simon).await;
+        let (finance, mut events) = finance_and_events(db);
+
+        finance
+            .log_expense(ondra.id, &expense(ondra.id, 300, "Malt", date(2026, 3, 20)))
+            .await
+            .unwrap();
+
+        assert_eq!(emitted(&mut events)[0].notify, [josef.id]);
+    }
+
+    #[sqlx::test]
+    async fn moving_an_expense_across_a_join_date_notifies_both_splits(db: SqlitePool) {
+        let (josef, ondra, simon) = crew_of_three(&db).await;
+        simon_joins_late(&db, &simon).await;
+        let (finance, mut events) = finance_and_events(db);
+        let id = finance
+            .log_expense(ondra.id, &expense(ondra.id, 300, "Malt", date(2026, 3, 20)))
+            .await
+            .unwrap();
+
+        // Into Šimon's time in the Crew, and back out of it: he hears about both.
+        finance
+            .edit_expense(
+                &ondra,
+                id,
+                &expense(ondra.id, 300, "Malt", date(2026, 3, 30)),
+            )
+            .await
+            .unwrap();
+        finance
+            .edit_expense(
+                &ondra,
+                id,
+                &expense(ondra.id, 300, "Malt", date(2026, 3, 20)),
+            )
+            .await
+            .unwrap();
+
+        let notified: Vec<_> = emitted(&mut events)
+            .into_iter()
+            .map(|event| event.notify)
+            .collect();
+        assert_eq!(
+            notified,
+            [
+                vec![josef.id],
+                vec![josef.id, simon.id],
+                vec![josef.id, simon.id]
+            ]
+        );
+    }
+
+    #[sqlx::test]
+    async fn the_admin_handing_an_expense_on_notifies_both_payers(db: SqlitePool) {
+        let (josef, ondra, simon) = crew_of_three(&db).await;
+        simon_joins_late(&db, &simon).await;
+        let (finance, mut events) = finance_and_events(db);
+        let id = finance
+            .log_expense(ondra.id, &expense(ondra.id, 300, "Malt", date(2026, 3, 20)))
+            .await
+            .unwrap();
+
+        finance
+            .edit_expense(
+                &josef,
+                id,
+                &expense(simon.id, 300, "Malt", date(2026, 3, 30)),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            emitted(&mut events)[1],
+            event(
+                EntryId::Expense(id),
+                EntryAction::Edited,
+                &josef,
+                &[&ondra, &simon]
+            )
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_payment_notifies_its_sender_and_recipient_except_the_actor(db: SqlitePool) {
+        let (josef, ondra, simon) = crew_of_three(&db).await;
+        let (finance, mut events) = finance_and_events(db);
+
+        let id = finance
+            .log_payment(ondra.id, &payment(ondra.id, josef.id, 300, ""))
+            .await
+            .unwrap();
+        finance
+            .edit_payment(&ondra, id, &payment(ondra.id, josef.id, 200, ""))
+            .await
+            .unwrap();
+        finance.delete_payment(&josef, id).await.unwrap();
+        let logged_for_others = finance
+            .log_payment(josef.id, &payment(ondra.id, simon.id, 100, ""))
+            .await
+            .unwrap();
+        // The Admin, neither its Sender nor its Recipient, edits it.
+        finance
+            .edit_payment(
+                &josef,
+                logged_for_others,
+                &payment(ondra.id, simon.id, 50, ""),
+            )
+            .await
+            .unwrap();
+
+        let id = EntryId::Payment(id);
+        let for_others = EntryId::Payment(logged_for_others);
+        assert_eq!(
+            emitted(&mut events),
+            [
+                event(id, EntryAction::Added, &ondra, &[&josef]),
+                event(id, EntryAction::Edited, &ondra, &[&josef]),
+                event(id, EntryAction::Deleted, &josef, &[&ondra]),
+                event(for_others, EntryAction::Added, &josef, &[&ondra, &simon]),
+                event(for_others, EntryAction::Edited, &josef, &[&ondra, &simon]),
+            ]
+        );
+    }
+
+    #[sqlx::test]
+    async fn changing_who_a_payment_is_between_notifies_old_and_new(db: SqlitePool) {
+        let (josef, ondra, simon) = crew_of_three(&db).await;
+        let (finance, mut events) = finance_and_events(db);
+        let id = finance
+            .log_payment(ondra.id, &payment(ondra.id, josef.id, 300, ""))
+            .await
+            .unwrap();
+
+        // The Admin, its Recipient, says it was Šimon who sent it.
+        finance
+            .edit_payment(&josef, id, &payment(simon.id, josef.id, 300, ""))
+            .await
+            .unwrap();
+        // Šimon, its Sender now, says he sent it to Ondra.
+        finance
+            .edit_payment(&simon, id, &payment(simon.id, ondra.id, 300, ""))
+            .await
+            .unwrap();
+
+        let id = EntryId::Payment(id);
+        assert_eq!(
+            emitted(&mut events)[1..],
+            [
+                event(id, EntryAction::Edited, &josef, &[&ondra, &simon]),
+                event(id, EntryAction::Edited, &simon, &[&josef, &ondra]),
+            ]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_refused_change_emits_nothing(db: SqlitePool) {
+        let (josef, ondra, simon) = crew_of_three(&db).await;
+        let (finance, mut events) = finance_and_events(db);
+        let expense_id = finance
+            .log_expense(ondra.id, &expense(ondra.id, 300, "Malt", date(2026, 3, 20)))
+            .await
+            .unwrap();
+        let payment_id = finance
+            .log_payment(ondra.id, &payment(ondra.id, josef.id, 300, ""))
+            .await
+            .unwrap();
+        emitted(&mut events);
+
+        finance
+            .log_expense(ondra.id, &expense(ondra.id, 300, "Malt", date(2026, 4, 3)))
+            .await
+            .unwrap_err();
+        finance
+            .edit_expense(
+                &simon,
+                expense_id,
+                &expense(ondra.id, 1, "Malt", date(2026, 3, 20)),
+            )
+            .await
+            .unwrap_err();
+        finance
+            .delete_expense(&simon, expense_id)
+            .await
+            .unwrap_err();
+        finance
+            .log_payment(ondra.id, &payment(ondra.id, ondra.id, 300, ""))
+            .await
+            .unwrap_err();
+        finance
+            .edit_payment(&ondra, payment_id, &payment(ondra.id, ondra.id, 1, ""))
+            .await
+            .unwrap_err();
+        finance
+            .delete_payment(&simon, payment_id)
+            .await
+            .unwrap_err();
+
+        assert_eq!(emitted(&mut events), []);
+    }
+
+    #[sqlx::test]
+    async fn logging_needs_no_one_listening(db: SqlitePool) {
+        let (josef, ondra, _) = crew_of_three(&db).await;
+        let (finance, events) = finance_and_events(db);
+        drop(events);
+
+        finance
+            .log_expense(ondra.id, &expense(ondra.id, 300, "Malt", date(2026, 3, 20)))
+            .await
+            .unwrap();
+        finance
+            .log_payment(ondra.id, &payment(ondra.id, josef.id, 300, ""))
+            .await
+            .unwrap();
     }
 }

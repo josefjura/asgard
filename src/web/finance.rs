@@ -537,8 +537,10 @@ mod tests {
     use sqlx::SqlitePool;
     use url::form_urlencoded;
 
-    use crate::domain::finance::DESCRIPTION_MAX;
+    use crate::domain::events::Event;
     use crate::domain::finance::money::Crowns;
+    use crate::domain::finance::{DESCRIPTION_MAX, EntryAction, EntryId, ExpenseId, FinanceEvent};
+    use crate::domain::members::MemberId;
     use crate::views::finance::crowns;
     use crate::web::htmx::{HX_REDIRECT, HX_REQUEST};
     use crate::web::test_support::{PUBLIC_ORIGIN, TestApp, body_text, request};
@@ -724,6 +726,25 @@ mod tests {
         let html = page(&app, "/", &ondra).await;
         assert!(html.contains("<section class=\"my-balance owes\""));
         assert!(html.contains("You owe the Crew this."));
+    }
+
+    #[sqlx::test]
+    async fn logging_an_expense_tells_the_rest_of_the_crew(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (_, ondra) = josef_and_ondra(&app).await;
+        let mut events = app.state.events.subscribe();
+
+        post_expense(&app, &ondra, &fields(1, &[]), true, PUBLIC_ORIGIN).await;
+
+        assert_eq!(
+            events.try_recv(),
+            Ok(Event::Finance(FinanceEvent {
+                entry: EntryId::Expense(ExpenseId::from_client(1)),
+                action: EntryAction::Added,
+                actor: MemberId::from_client(2),
+                notify: vec![MemberId::from_client(1)],
+            }))
+        );
     }
 
     #[sqlx::test]

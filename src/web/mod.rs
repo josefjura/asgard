@@ -31,6 +31,7 @@ use webauthn_rs::prelude::WebauthnError;
 use crate::assets;
 use crate::domain::auth::Auth;
 use crate::domain::clock::Clock;
+use crate::domain::events::Events;
 use crate::domain::finance::Finance;
 use crate::domain::members::Members;
 use crate::views::nav::Tab;
@@ -48,6 +49,7 @@ pub struct AppState {
     pub auth: Auth,
     pub members: Members,
     pub finance: Finance,
+    pub events: Events,
 }
 
 impl AppState {
@@ -58,10 +60,12 @@ impl AppState {
     /// Fails if `public_url` can't be a WebAuthn relying party.
     pub fn new(db: SqlitePool, clock: Clock, public_url: &Url) -> Result<Self, WebauthnError> {
         let members = Members::new(db.clone());
+        let events = Events::new();
         Ok(Self {
             auth: Auth::new(db.clone(), clock.clone(), members.clone(), public_url)?,
             members,
-            finance: Finance::new(db.clone(), clock.clone()),
+            finance: Finance::new(db.clone(), clock.clone(), events.clone()),
+            events,
             public_origin: PublicOrigin::of(public_url),
             db,
             clock,
