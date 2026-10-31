@@ -29,6 +29,7 @@ webauthn-rs-proto = "0.5.5"
 [dev-dependencies]
 http-body-util = "0.1.5"
 insta = { version = "1.49.0", features = ["filters"] }
+proptest = "1.12.0"
 tempfile = "3.27.0"
 tower = { version = "0.5.3", features = ["util"] }
 webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }

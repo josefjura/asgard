@@ -66,6 +66,15 @@ expression: "home(SIMON, &overview(), NEW_EXPENSE,\nNEW_PAYMENT).into_string().r
 </li>
 </ul>
 </section>
+<section class="finance-section" aria-labelledby="settlement-plan">
+<h2 id="settlement-plan">Settlement plan</h2>
+<ul class="balance-list">
+<li>
+<span class="balance-name">Josef → Ondra</span>
+<span class="balance-amount">4 160 Kč</span>
+</li>
+</ul>
+</section>
 <section class="finance-section" aria-labelledby="latest-entries">
 <h2 id="latest-entries">Latest entries</h2>
 <ul class="entry-list">
