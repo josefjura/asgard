@@ -485,8 +485,7 @@ select {
 }
 
 .passkey-list,
-.link-list,
-.settlement-list {
+.link-list {
   display: grid;
   gap: var(--space-2);
   margin: 0;
@@ -572,8 +571,8 @@ select {
   font-size: var(--text-small);
 }
 
-/* Finance: the Member's own Balance up top, the big "+ Expense" button, then the Crew's
-   Balances and the latest entries. Owed is green, owes is red, Even is muted. */
+/* Finance: the Member's own Balance up top, the big "+ Expense" button, the latest entries, then
+   the Crew's Balances with the Settlements. Owed is green, owes is red, Even is muted. */
 
 .my-balance {
   margin-bottom: var(--space-4);
@@ -598,6 +597,16 @@ select {
 .balance-says {
   margin: var(--space-1) 0 0;
   color: var(--muted);
+}
+
+/* Whom I send how much, while I owe. */
+.balance-next {
+  margin: var(--space-2) 0 0;
+}
+
+.balance-next strong {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .owed .balance-figure,
@@ -626,21 +635,6 @@ select {
   flex: 1;
 }
 
-/* My Settlements: what to send or expect, each with the button that records it. */
-
-.settlement {
-  display: flex;
-  gap: var(--space-3);
-  align-items: center;
-  justify-content: space-between;
-  padding-block: var(--space-2);
-}
-
-.settlement-what strong {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
 .balance-list,
 .entry-list {
   margin: 0;
@@ -648,7 +642,8 @@ select {
   list-style: none;
 }
 
-/* Each Member's Balance, with what a sender sends on its own line beneath. */
+/* Each Member's Balance, with what a sender sends on its own line beneath, and the Sender's own
+   button that logs it once sent. */
 .balance-list li {
   display: flex;
   flex-wrap: wrap;
@@ -659,8 +654,16 @@ select {
   border-bottom: 1px solid var(--line);
 }
 
-.balance-sends {
+.balance-settlement {
+  display: flex;
   flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.balance-sends {
   color: var(--muted);
   font-size: var(--text-small);
 }

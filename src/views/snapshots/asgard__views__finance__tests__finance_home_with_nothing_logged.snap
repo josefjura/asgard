@@ -53,6 +53,10 @@ expression: "home(&member(JOSEF), &fresh()).into_string().replace(\"><\", \">\\n
 <a class="button large" href="/expenses/new">+ Expense</a>
 <a class="button secondary" href="/payments/new">+ Payment</a>
 </div>
+<section class="section" aria-labelledby="latest-entries">
+<h2 id="latest-entries">Latest entries</h2>
+<p class="muted">Nothing logged yet. Log the first Expense when someone buys something for the brewery.</p>
+</section>
 <section class="section" aria-labelledby="crew-balances">
 <h2 id="crew-balances">Crew Balances</h2>
 <ul class="balance-list">
@@ -69,10 +73,6 @@ expression: "home(&member(JOSEF), &fresh()).into_string().replace(\"><\", \">\\n
 <span class="balance-amount">Even</span>
 </li>
 </ul>
-</section>
-<section class="section" aria-labelledby="latest-entries">
-<h2 id="latest-entries">Latest entries</h2>
-<p class="muted">Nothing logged yet. Log the first Expense when someone buys something for the brewery.</p>
 </section>
 </main>
 <nav class="tabs" aria-label="Sections">

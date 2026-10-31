@@ -352,7 +352,7 @@ async fn expense_form(
     ))
 }
 
-/// What a Settlement's "Record" button fills the Payment form in with.
+/// What a Settlement's "I've sent it" button fills the Payment form in with.
 #[derive(Deserialize)]
 struct PaymentPrefill {
     sender: Option<i64>,
@@ -361,7 +361,7 @@ struct PaymentPrefill {
 }
 
 /// The Payment form: empty, with the Member asking as the Sender and no Recipient chosen yet,
-/// or filled in with a Settlement to record.
+/// or filled in with a Settlement its Sender has sent.
 async fn new_payment(
     State(state): State<AppState>,
     Member(member): Member,
@@ -1139,9 +1139,9 @@ mod tests {
         (josef, ondra, simon)
     }
 
-    /// Where the Record buttons on a Finance page lead, in order.
-    fn record_links(html: &str) -> Vec<String> {
-        html.match_indices(">Record</a>")
+    /// Where the "I've sent it" buttons on a Finance page lead, in order.
+    fn sent_links(html: &str) -> Vec<String> {
+        html.match_indices(">I've sent it</a>")
             .filter_map(|(end, _)| {
                 let before = &html[..end];
                 let href = &before[before.rfind("href=\"")? + "href=\"".len()..];
@@ -1150,52 +1150,87 @@ mod tests {
             .collect()
     }
 
-    /// `sender`'s row in the Crew's Balances, owing `amount` and sending it all to `recipient`.
-    fn sends(sender: &str, recipient: &str, amount: &str) -> String {
+    /// `sender`'s row in the Crew's Balances, owing `amount` and sending it all to `recipient`
+    /// as the `index`th Settlement of the plan.
+    fn sends(sender: &str, recipient: &str, amount: &str, index: usize) -> String {
         format!(
-            "{}<span class=\"balance-sends\">Sends {recipient} {}</span>",
+            "{}<div class=\"balance-settlement\"><span class=\"balance-sends\" \
+             id=\"settlement-{index}\">Sends {recipient} {}</span>",
             balance_row(sender, &format!("\u{2212}{amount}")),
             amount.replace(' ', "\u{a0}")
         )
     }
 
-    /// One of my Settlements as Finance words it.
-    fn my_settlement(words: &str, amount: &str) -> String {
-        format!("{words} <strong>{}</strong>", amount.replace(' ', "\u{a0}"))
+    /// My Balance's hint at whom I send how much.
+    fn hint(recipient: &str, amount: &str) -> String {
+        format!(
+            "<p class=\"balance-next\">Send {recipient} <strong>{}</strong>.",
+            amount.replace(' ', "\u{a0}")
+        )
     }
 
     #[sqlx::test]
-    async fn finance_shows_my_settlements_and_who_sends_what(db: SqlitePool) {
+    async fn only_the_sender_logs_the_payment_for_a_settlement(db: SqlitePool) {
         let app = TestApp::new(db);
         let (josef, ondra, simon) = three_after_malt(&app).await;
 
         let html = page(&app, "/", &ondra).await;
-        assert!(html.contains(&my_settlement("Send Josef", "298 Kč")));
+        assert!(html.contains(&sends("Šimon", "Josef", "301 Kč", 0)));
+        assert!(html.contains(&sends("Ondra (you)", "Josef", "298 Kč", 1)));
         assert_eq!(
-            record_links(&html),
+            sent_links(&html),
             ["/payments/new?sender=2&recipient=1&amount=298"]
         );
-        assert!(html.contains(&sends("Šimon", "Josef", "301 Kč")));
-        assert!(html.contains(&sends("Ondra (you)", "Josef", "298 Kč")));
+        assert!(html.contains("aria-describedby=\"settlement-1\">I've sent it</a>"));
 
         let html = page(&app, "/", &josef).await;
-        assert!(html.contains(&my_settlement("Šimon should send you", "301 Kč")));
-        assert!(html.contains(&my_settlement("Ondra should send you", "298 Kč")));
-        assert_eq!(record_links(&html).len(), 2);
+        assert!(html.contains(&sends("Šimon", "you", "301 Kč", 0)));
+        assert!(html.contains(&sends("Ondra", "you", "298 Kč", 1)));
+        assert_eq!(sent_links(&html), Vec::<String>::new());
 
         let html = page(&app, "/", &simon).await;
-        assert!(html.contains(&my_settlement("Send Josef", "301 Kč")));
-        assert!(!html.contains("should send you"));
+        assert_eq!(
+            sent_links(&html),
+            ["/payments/new?sender=3&recipient=1&amount=301"]
+        );
     }
 
     #[sqlx::test]
-    async fn recording_a_settlement_makes_both_members_even(db: SqlitePool) {
+    async fn finance_leads_with_expenses_and_ends_with_the_crew_balances(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (_, ondra, _) = three_after_malt(&app).await;
+
+        let html = page(&app, "/", &ondra).await;
+        let at = |text: &str| html.find(text).unwrap_or_else(|| panic!("no {text}"));
+        assert!(at("Your Balance") < at("+ Expense"));
+        assert!(at("+ Expense") < at("+ Payment"));
+        assert!(at("+ Payment") < at("Latest entries"));
+        assert!(at("Latest entries") < at("Crew Balances</h2>"));
+        assert!(!html.contains("Settle up"));
+        assert!(!html.contains(">Record</a>"));
+    }
+
+    #[sqlx::test]
+    async fn my_balance_says_whom_to_send_how_much_only_while_i_owe(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (josef, ondra, _) = three_after_malt(&app).await;
+
+        let html = page(&app, "/", &ondra).await;
+        assert!(html.contains(&hint("Josef", "298 Kč")));
+        assert!(html.contains("<a href=\"#crew-balances\">See Crew Balances</a>"));
+
+        let html = page(&app, "/", &josef).await;
+        assert!(!html.contains("balance-next"));
+    }
+
+    #[sqlx::test]
+    async fn logging_the_payment_for_a_sent_settlement_makes_both_members_even(db: SqlitePool) {
         let app = TestApp::new(db);
         let (josef, ondra, _) = three_after_malt(&app).await;
         let html = page(&app, "/", &ondra).await;
-        let record = record_links(&html).remove(0);
+        let sent = sent_links(&html).remove(0);
 
-        let html = page(&app, &record, &ondra).await;
+        let html = page(&app, &sent, &ondra).await;
         assert!(html.contains("<h1>New Payment</h1>"));
         assert!(html.contains("name=\"amount\" value=\"298\""));
         let sender = &html[html.find("name=\"sender\"").unwrap()..];
@@ -1219,12 +1254,12 @@ mod tests {
 
         let html = page(&app, "/", &ondra).await;
         assert!(html.contains("<p class=\"balance-figure\">Even</p>"));
-        assert!(!html.contains("Settle up"));
-        assert_eq!(record_links(&html), Vec::<String>::new());
+        assert!(!html.contains("balance-next"));
+        assert_eq!(sent_links(&html), Vec::<String>::new());
         let html = page(&app, "/", &josef).await;
         assert!(html.contains(&balance_row("Ondra", "Even")));
-        assert!(html.contains(&sends("Šimon", "Josef", "301 Kč")));
-        assert!(!html.contains("Ondra should send you"));
+        assert!(html.contains(&sends("Šimon", "you", "301 Kč", 0)));
+        assert!(!html.contains("Sends you 298"));
     }
 
     #[sqlx::test]
@@ -1239,7 +1274,7 @@ mod tests {
         assert!(html.contains("<p class=\"balance-figure\">Even</p>"));
         assert!(html.contains(&balance_row("Ondra (you)", "Even")));
         assert!(html.contains(&balance_row("Josef", "Even")));
-        assert!(!html.contains("Settle up"));
+        assert!(!html.contains("balance-next"));
         assert!(!html.contains("balance-sends"));
     }
 
