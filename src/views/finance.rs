@@ -1,5 +1,5 @@
-//! The Finance tab: everyone's Balance, the Settlements, the latest entries, and the Expense and
-//! Payment forms.
+//! The Finance tab: my Balance, the latest entries, everyone's Balance with the Settlements, and
+//! the Expense and Payment forms.
 
 use jiff::civil::Date;
 use maud::{Markup, html};
@@ -131,9 +131,9 @@ fn day(date: Date) -> String {
     date.strftime("%-d %B %Y").to_string()
 }
 
-/// Where a Settlement's "Record" button leads: the Payment form, pre-filled with its Sender,
-/// Recipient and amount.
-fn record_href(settlement: &Settlement) -> String {
+/// Where a Settlement's "I've sent it" button leads: the Payment form, pre-filled with its
+/// Sender, Recipient and amount.
+fn sent_href(settlement: &Settlement) -> String {
     format!(
         "{}?sender={}&recipient={}&amount={}",
         paths::NEW_PAYMENT,
@@ -145,13 +145,17 @@ fn record_href(settlement: &Settlement) -> String {
 
 /// The Finance home screen for `me`.
 ///
-/// It shows their Balance and Settlements, the buttons that log an Expense or a Payment,
-/// everyone's Balance with what each sender sends, and the latest entries, leading to the edit
-/// page of the ones `me` may change.
+/// Expenses come first, since the Crew logs them all the time: my Balance, the buttons that log
+/// an Expense or a Payment, and the latest entries, leading to the edit page of the ones `me` may
+/// change. Settling up happens now and then, so everyone's Balance and the Settlement plan close
+/// the page; `me` logs a Settlement there once they have sent it.
 #[must_use]
 pub fn home(me: &Member, overview: &Overview) -> Markup {
     let mine = overview.balance_of(me.id);
-    let my_settlements: Vec<&Settlement> = overview.settlements_of(me.id).collect();
+    let my_sends: Vec<&Settlement> = overview
+        .settlements_of(me.id)
+        .filter(|settlement| settlement.sender.id == me.id)
+        .collect();
     shell(
         Place::Tab(Tab::Finance),
         &html! {
@@ -167,15 +171,16 @@ pub fn home(me: &Member, overview: &Overview) -> Markup {
                         Standing::Even => "Nobody owes you and you owe nobody.",
                     })
                 }
-            }
-
-            @if !my_settlements.is_empty() {
-                section.section aria-labelledby="my-settlements" {
-                    h2 #my-settlements { "Settle up" }
-                    ul.settlement-list {
-                        @for (index, settlement) in my_settlements.iter().enumerate() {
-                            (my_settlement(me.id, settlement, index))
+                @if !my_sends.is_empty() {
+                    p.balance-next {
+                        "Send "
+                        @for (index, settlement) in my_sends.iter().enumerate() {
+                            @if index > 0 { " and " }
+                            (settlement.recipient.display_name) " "
+                            strong { (crowns(settlement.amount)) }
                         }
+                        ". "
+                        a href="#crew-balances" { "See Crew Balances" }
                     }
                 }
             }
@@ -183,28 +188,6 @@ pub fn home(me: &Member, overview: &Overview) -> Markup {
             div.finance-actions {
                 a.button.large href=(paths::NEW_EXPENSE) { "+ Expense" }
                 a.button.secondary href=(paths::NEW_PAYMENT) { "+ Payment" }
-            }
-
-            section.section aria-labelledby="crew-balances" {
-                h2 #crew-balances { "Crew Balances" }
-                ul.balance-list {
-                    @for balance in &overview.balances {
-                        li.(standing_class(balance.balance)) {
-                            span.balance-name {
-                                (balance.member.display_name)
-                                @if balance.member.id == me.id { " (you)" }
-                            }
-                            span.balance-amount { (balance_text(balance.balance)) }
-                            @for settlement in overview.settlements.iter()
-                                .filter(|settlement| settlement.sender.id == balance.member.id) {
-                                span.balance-sends {
-                                    "Sends " (settlement.recipient.display_name) " "
-                                    (crowns(settlement.amount))
-                                }
-                            }
-                        }
-                    }
-                }
             }
 
             section.section aria-labelledby="latest-entries" {
@@ -220,26 +203,48 @@ pub fn home(me: &Member, overview: &Overview) -> Markup {
                     p.history-link { a href=(paths::HISTORY) { "See every entry in History" } }
                 }
             }
+
+            section.section aria-labelledby="crew-balances" {
+                h2 #crew-balances { "Crew Balances" }
+                ul.balance-list {
+                    @for balance in &overview.balances {
+                        li.(standing_class(balance.balance)) {
+                            span.balance-name {
+                                (balance.member.display_name)
+                                @if balance.member.id == me.id { " (you)" }
+                            }
+                            span.balance-amount { (balance_text(balance.balance)) }
+                            @for (index, settlement) in overview.settlements.iter().enumerate()
+                                .filter(|(_, settlement)| settlement.sender.id == balance.member.id) {
+                                (crew_settlement(me.id, settlement, index))
+                            }
+                        }
+                    }
+                }
+            }
         },
     )
 }
 
-/// A Settlement `me` sends or receives, as the `index`th in their list, with the button that
-/// records it.
-fn my_settlement(me: MemberId, settlement: &Settlement, index: usize) -> Markup {
-    let id = format!("my-settlement-{index}");
-    let amount = crowns(settlement.amount);
+/// The `index`th Settlement of the plan under its Sender's Balance. Only its Sender gets the
+/// button that logs it, because only the Sender knows once the money has gone out.
+fn crew_settlement(me: MemberId, settlement: &Settlement, index: usize) -> Markup {
+    let id = format!("settlement-{index}");
     html! {
-        li.card.settlement {
-            span.settlement-what #(id) {
-                @if settlement.sender.id == me {
-                    "Send " (settlement.recipient.display_name) " " strong { (amount) }
+        div.balance-settlement {
+            span.balance-sends #(id) {
+                "Sends "
+                @if settlement.recipient.id == me {
+                    "you"
                 } @else {
-                    (settlement.sender.display_name) " should send you " strong { (amount) }
+                    (settlement.recipient.display_name)
                 }
+                " " (crowns(settlement.amount))
             }
-            a.button.secondary href=(record_href(settlement))
-                aria-describedby=(id) { "Record" }
+            @if settlement.sender.id == me {
+                a.button.small.secondary href=(sent_href(settlement))
+                    aria-describedby=(id) { "I've sent it" }
+            }
         }
     }
 }
@@ -821,6 +826,8 @@ mod tests {
         overview, payment_entry, prefilled_payment,
     };
     use super::*;
+    use crate::domain::finance::MemberBalance;
+    use crate::domain::finance::settlement::settlement_plan;
     use crate::views::assert_html_snapshot;
 
     const NEW_EXPENSE: &str = "/expenses/new";
@@ -865,6 +872,31 @@ mod tests {
     #[test]
     fn finance_home_even() {
         assert_html_snapshot!(home(&member(SIMON), &overview()));
+    }
+
+    #[test]
+    fn my_balance_names_everyone_i_send_to() {
+        let balances: Vec<MemberBalance> = crew()
+            .into_iter()
+            .zip([-300, 200, 100])
+            .map(|(member, crowns)| MemberBalance {
+                member,
+                balance: Crowns::new(crowns),
+            })
+            .collect();
+        let overview = Overview {
+            settlements: settlement_plan(&balances),
+            balances,
+            recent: Vec::new(),
+        };
+
+        let html = home(&member(JOSEF), &overview).into_string();
+
+        assert!(html.contains(
+            "<p class=\"balance-next\">Send Ondra <strong>200\u{a0}Kč</strong> and \
+             Šimon <strong>100\u{a0}Kč</strong>. "
+        ));
+        assert_eq!(html.matches(">I've sent it</a>").count(), 2);
     }
 
     #[test]

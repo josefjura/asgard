@@ -41,8 +41,8 @@ const SEVERAL_PASSKEYS_HEIGHT: u16 = 1500;
 const ADMIN_SETTINGS_HEIGHT: u16 = 1300;
 /// The admin page's two sections, with a new link or several open ones.
 const ADMIN_HEIGHT: u16 = 1000;
-/// The Finance home screen: a Balance, a Settlement, the buttons, the Crew's Balances, the
-/// Settlement plan and four entries.
+/// The Finance home screen: a Balance with whom to send how much, the buttons, four entries, and
+/// the Crew's Balances with the Settlement plan.
 const FINANCE_HEIGHT: u16 = 1500;
 /// The Expense form with a problem under every field, or with the delete button beneath it.
 const EXPENSE_FORM_HEIGHT: u16 = 900;

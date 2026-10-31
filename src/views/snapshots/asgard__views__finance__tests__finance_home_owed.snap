@@ -49,38 +49,10 @@ expression: "home(&member(ONDRA), &overview()).into_string().replace(\"><\", \">
 <p class="balance-figure">+4 161 Kč</p>
 <p class="balance-says">The Crew owes you this.</p>
 </section>
-<section class="section" aria-labelledby="my-settlements">
-<h2 id="my-settlements">Settle up</h2>
-<ul class="settlement-list">
-<li class="card settlement">
-<span class="settlement-what" id="my-settlement-0">Josef should send you <strong>4 160 Kč</strong>
-</span>
-<a class="button secondary" href="/payments/new?sender=1&amp;recipient=2&amp;amount=4160" aria-describedby="my-settlement-0">Record</a>
-</li>
-</ul>
-</section>
 <div class="finance-actions">
 <a class="button large" href="/expenses/new">+ Expense</a>
 <a class="button secondary" href="/payments/new">+ Payment</a>
 </div>
-<section class="section" aria-labelledby="crew-balances">
-<h2 id="crew-balances">Crew Balances</h2>
-<ul class="balance-list">
-<li class="owes">
-<span class="balance-name">Josef</span>
-<span class="balance-amount">−4 160 Kč</span>
-<span class="balance-sends">Sends Ondra 4 160 Kč</span>
-</li>
-<li class="owed">
-<span class="balance-name">Ondra (you)</span>
-<span class="balance-amount">+4 161 Kč</span>
-</li>
-<li class="even">
-<span class="balance-name">Šimon</span>
-<span class="balance-amount">Even</span>
-</li>
-</ul>
-</section>
 <section class="section" aria-labelledby="latest-entries">
 <h2 id="latest-entries">Latest entries</h2>
 <ul class="entry-list">
@@ -128,6 +100,26 @@ expression: "home(&member(ONDRA), &overview()).into_string().replace(\"><\", \">
 <p class="history-link">
 <a href="/history">See every entry in History</a>
 </p>
+</section>
+<section class="section" aria-labelledby="crew-balances">
+<h2 id="crew-balances">Crew Balances</h2>
+<ul class="balance-list">
+<li class="owes">
+<span class="balance-name">Josef</span>
+<span class="balance-amount">−4 160 Kč</span>
+<div class="balance-settlement">
+<span class="balance-sends" id="settlement-0">Sends you 4 160 Kč</span>
+</div>
+</li>
+<li class="owed">
+<span class="balance-name">Ondra (you)</span>
+<span class="balance-amount">+4 161 Kč</span>
+</li>
+<li class="even">
+<span class="balance-name">Šimon</span>
+<span class="balance-amount">Even</span>
+</li>
+</ul>
 </section>
 </main>
 <nav class="tabs" aria-label="Sections">
