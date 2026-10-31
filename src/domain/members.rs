@@ -11,7 +11,7 @@ pub const CREW_NAME: &str = "Asgard";
 /// The longest display name, in characters.
 pub const DISPLAY_NAME_MAX: usize = 40;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MemberId(i64);
 
 impl MemberId {
