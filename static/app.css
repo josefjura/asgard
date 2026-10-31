@@ -1,4 +1,5 @@
-/* Asgard: one mobile-first stylesheet. Hop greens and pale-ale amber. */
+/* Asgard: one mobile-first stylesheet. Hop greens, with the logo's bronze as the accent and
+   pale-ale amber where the accent sits on the green band. */
 
 :root {
   color-scheme: light dark;
@@ -7,11 +8,17 @@
   --surface: #fafbf4;
   --ink: #121212;
   --muted: #5e6450;
+  /* --line divides content; --edge outlines a control, so it stands 3:1 off what's behind it. */
   --line: #d5d9c4;
+  --edge: #7d836a;
   --band: #3e5b2b;
   --band-ink: #eee9da;
+  --primary: #3e5b2b;
+  --primary-ink: #eee9da;
   --active: #3e5b2b;
-  --amber: #d9a021;
+  /* --accent marks focus and the current page; inside the band it becomes --band-accent. */
+  --accent: #86693a;
+  --band-accent: #d9a021;
   --danger: #a3301f;
 
   --space-1: 0.25rem;
@@ -30,10 +37,14 @@
     --ink: #eee9da;
     --muted: #a0a68e;
     --line: #343a29;
+    --edge: #6a7256;
     --band: #263820;
     --band-ink: #eee9da;
+    --primary: #4a7330;
+    --primary-ink: #eee9da;
     --active: #a9c97f;
-    --amber: #e3ae36;
+    --accent: #e3ae36;
+    --band-accent: #e3ae36;
     --danger: #f08a75;
   }
 }
@@ -64,7 +75,7 @@ a {
 }
 
 :focus-visible {
-  outline: 3px solid var(--amber);
+  outline: 3px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -72,6 +83,8 @@ a {
 
 .shell {
   display: grid;
+  /* minmax(0, …): a wide form row wraps or shrinks instead of widening the page. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
   grid-template-areas: "header" "main" "nav";
   min-height: 100dvh;
@@ -84,6 +97,7 @@ a {
   padding: calc(var(--space-3) + env(safe-area-inset-top)) var(--space-3) var(--space-3);
   background: var(--band);
   color: var(--band-ink);
+  --accent: var(--band-accent);
 }
 
 .logo {
@@ -130,7 +144,7 @@ a {
   inset: auto var(--space-2) calc(-1 * var(--space-2));
   height: 3px;
   border-radius: 3px 3px 0 0;
-  background: var(--amber);
+  background: var(--accent);
 }
 
 .shell-main {
@@ -147,7 +161,7 @@ a {
   letter-spacing: -0.01em;
 }
 
-/* Bottom navigation: four equal tabs, the active one marked with an amber bar. */
+/* Bottom navigation: four equal tabs, the active one marked with an accent bar. */
 
 .tabs {
   grid-area: nav;
@@ -194,7 +208,7 @@ a {
   inset: -1px 25% auto;
   height: 3px;
   border-radius: 0 0 3px 3px;
-  background: var(--amber);
+  background: var(--accent);
 }
 
 @media (min-width: 48rem) {
@@ -224,6 +238,7 @@ a {
     padding: 0;
     background: var(--band);
     border-top: 0;
+    --accent: var(--band-accent);
   }
 
   .tab {
@@ -298,8 +313,8 @@ a {
   padding: var(--space-2) var(--space-4);
   border: 0;
   border-radius: 0.5rem;
-  background: var(--band);
-  color: var(--band-ink);
+  background: var(--primary);
+  color: var(--primary-ink);
   font: inherit;
   font-weight: 600;
   cursor: pointer;
@@ -374,11 +389,13 @@ a {
 
 .field-row input,
 .field-row select {
+  /* A zero width so a field's built-in size never sets how narrow its row can go. */
   flex: 1;
+  width: 0;
   min-width: 0;
   min-height: 3rem;
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 0.5rem;
   background: var(--surface);
   color: var(--ink);
@@ -445,7 +462,7 @@ a {
 
 .button.quiet {
   min-height: 2.75rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   background: transparent;
   color: var(--danger);
 }
@@ -589,7 +606,7 @@ a.button {
 
 .button-secondary {
   flex: none;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   background: transparent;
   color: var(--ink);
 }
@@ -692,7 +709,7 @@ a.button {
 .button-small {
   min-height: 2.75rem;
   padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   background: transparent;
   color: var(--ink);
   font-size: 0.875rem;
@@ -727,7 +744,7 @@ a.button {
   width: 100%;
   min-height: 3rem;
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 0.5rem;
   background: var(--surface);
   color: var(--ink);
@@ -781,7 +798,7 @@ a.button {
   width: 100%;
   min-height: 3rem;
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 0.5rem;
   background: var(--surface);
   color: var(--ink);
