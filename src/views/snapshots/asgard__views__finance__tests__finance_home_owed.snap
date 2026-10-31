@@ -1,6 +1,7 @@
 ---
 source: src/views/finance.rs
-expression: "home(ONDRA, &overview(), NEW_EXPENSE,\nNEW_PAYMENT).into_string().replace(\"><\", \">\\n<\")"
+assertion_line: 856
+expression: "home(&member(ONDRA), &overview(), PATHS).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -90,28 +91,34 @@ expression: "home(ONDRA, &overview(), NEW_EXPENSE,\nNEW_PAYMENT).into_string().r
 <ul class="entry-list">
 <li class="entry payment">
 <div class="entry-main">
-<span class="entry-what">Josef → Ondra</span>
+<span class="entry-what" id="payment-4">Josef → Ondra</span>
 <span class="entry-meta">Payment · 29 October 2026</span>
 </div>
 <span class="entry-amount">4 160 Kč</span>
 </li>
 <li class="entry">
 <div class="entry-main">
-<span class="entry-what">Pilsner malt, 3 sacks, and a new hydrometer</span>
+<span class="entry-what" id="expense-7">Pilsner malt, 3 sacks, and a new hydrometer</span>
 <span class="entry-meta">Ondra paid · 28 October 2026</span>
+<div class="entry-controls">
+<a class="button button-small" href="/expenses/7/edit" aria-describedby="expense-7">Edit</a>
+<form method="post" action="/expenses/7/delete" hx-post="/expenses/7/delete" hx-confirm="Delete the Expense “Pilsner malt, 3 sacks, and a new hydrometer”?">
+<button class="button button-small quiet" type="submit" aria-describedby="expense-7">Delete</button>
+</form>
+</div>
 </div>
 <span class="entry-amount">12 480 Kč</span>
 </li>
 <li class="entry">
 <div class="entry-main">
-<span class="entry-what">Saaz hops</span>
+<span class="entry-what" id="expense-6">Saaz hops</span>
 <span class="entry-meta">Šimon paid · 21 October 2026</span>
 </div>
 <span class="entry-amount">380 Kč</span>
 </li>
 <li class="entry">
 <div class="entry-main">
-<span class="entry-what">Bottle caps and sanitiser</span>
+<span class="entry-what" id="expense-5">Bottle caps and sanitiser</span>
 <span class="entry-meta">Josef paid · 2 October 2026</span>
 </div>
 <span class="entry-amount">1 240 Kč</span>

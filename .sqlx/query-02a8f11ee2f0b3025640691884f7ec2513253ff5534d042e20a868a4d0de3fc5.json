@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE members SET joined_on = '2026-03-25' WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "02a8f11ee2f0b3025640691884f7ec2513253ff5534d042e20a868a4d0de3fc5"
+}

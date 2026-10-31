@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE payments SET deleted_by = ?, deleted_at = ?\n             WHERE id = ? AND sender_id = ? AND deleted_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "bfacf163541b32418f46d064aa28149d51cdb6a8863f9acd666e17c7c29fd42d"
+}

@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT payments.id AS \"id!\", sender_id, senders.display_name AS sender,\n                  recipients.display_name AS recipient, amount, description, logged_at,\n                  editors.display_name AS \"editor?\", edited_at\n           FROM payments\n           JOIN members AS senders ON senders.id = payments.sender_id\n           JOIN members AS recipients ON recipients.id = payments.recipient_id\n           LEFT JOIN members AS editors ON editors.id = payments.edited_by\n           WHERE deleted_at IS NULL\n           ORDER BY logged_at DESC, payments.id DESC\n           LIMIT ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "sender_id",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "sender",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "recipient",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "amount",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "description",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "logged_at",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "editor?",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "edited_at",
+        "ordinal": 8,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "d70b4c05cfcfde2a6b6be5574c1316b35bd9d845acce3c46facfa8b288e3d254"
+}
