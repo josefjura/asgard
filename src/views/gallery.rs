@@ -37,8 +37,9 @@ const SEVERAL_PASSKEYS_HEIGHT: u16 = 1500;
 const ADMIN_SETTINGS_HEIGHT: u16 = 1300;
 /// The admin page's two sections, with a new link or several open ones.
 const ADMIN_HEIGHT: u16 = 1000;
-/// The Finance home screen: a Balance, the buttons, the Crew's Balances and four entries.
-const FINANCE_HEIGHT: u16 = 1220;
+/// The Finance home screen: a Balance, a Settlement, the buttons, the Crew's Balances, the
+/// Settlement plan and four entries.
+const FINANCE_HEIGHT: u16 = 1500;
 /// The Expense form with a problem under every field.
 const EXPENSE_FORM_HEIGHT: u16 = 760;
 /// The Payment form with its problems.
@@ -258,37 +259,6 @@ fn finance_pages() -> Vec<Fixture> {
         )),
         height: EXPENSE_FORM_HEIGHT,
     });
-    let mistaken_payment = PaymentValues {
-        amount: "0",
-        description: "",
-        sender: SIMON,
-        recipient: Some(SIMON),
-    };
-    let payment_problems = PaymentProblems {
-        amount: Some("Enter an amount from 1 to 1 000 000 Kč.".to_owned()),
-        description: None,
-        sender: None,
-        recipient: Some("Choose someone other than the Sender.".to_owned()),
-    };
-    let payment_forms = [
-        (
-            "Empty",
-            PaymentValues::blank(ONDRA),
-            PaymentProblems::default(),
-        ),
-        ("With errors", mistaken_payment, payment_problems),
-    ]
-    .map(|(state, values, problems)| Fixture {
-        component: "Payment form",
-        state: state.to_owned(),
-        document: finance::payment_page(&finance::payment_form(
-            "/payments",
-            &crew(),
-            &values,
-            &problems,
-        )),
-        height: PAYMENT_FORM_HEIGHT,
-    });
     let rows = [
         ("Expense", entry()),
         ("Payment", payment_entry(Some("For the malt"))),
@@ -306,9 +276,51 @@ fn finance_pages() -> Vec<Fixture> {
     homes
         .into_iter()
         .chain(forms)
-        .chain(payment_forms)
+        .chain(payment_forms())
         .chain(rows)
         .collect()
+}
+
+/// The Payment form empty, pre-filled from a Settlement, and with problems.
+fn payment_forms() -> [Fixture; 3] {
+    use finance::fixtures::{ONDRA, SIMON, crew, prefilled_payment};
+
+    let mistaken_payment = PaymentValues {
+        amount: "0",
+        description: "",
+        sender: SIMON,
+        recipient: Some(SIMON),
+    };
+    let payment_problems = PaymentProblems {
+        amount: Some("Enter an amount from 1 to 1 000 000 Kč.".to_owned()),
+        description: None,
+        sender: None,
+        recipient: Some("Choose someone other than the Sender.".to_owned()),
+    };
+    [
+        (
+            "Empty",
+            PaymentValues::blank(ONDRA),
+            PaymentProblems::default(),
+        ),
+        (
+            "Pre-filled",
+            prefilled_payment(),
+            PaymentProblems::default(),
+        ),
+        ("With errors", mistaken_payment, payment_problems),
+    ]
+    .map(|(state, values, problems)| Fixture {
+        component: "Payment form",
+        state: state.to_owned(),
+        document: finance::payment_page(&finance::payment_form(
+            "/payments",
+            &crew(),
+            &values,
+            &problems,
+        )),
+        height: PAYMENT_FORM_HEIGHT,
+    })
 }
 
 /// The pages a signed-in Member changes their display name on, and the form itself.
@@ -554,6 +566,7 @@ mod tests {
             "Nothing logged",
             "Empty",
             "With errors",
+            "Pre-filled",
             "Expense",
             "Payment",
             "Payment without a description",

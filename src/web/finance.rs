@@ -1,7 +1,7 @@
-//! The Finance tab, Asgard's home page: everyone's Balance, the latest entries, and logging an
-//! Expense or a Payment.
+//! The Finance tab, Asgard's home page: everyone's Balance and the Settlements, the latest
+//! entries, and logging an Expense or a Payment.
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
@@ -175,12 +175,27 @@ async fn expense_form(
     ))
 }
 
-/// The empty Payment form: the Sender is the Member asking, and no Recipient is chosen yet.
+/// What a Settlement's "Record" button fills the Payment form in with.
+#[derive(Deserialize)]
+struct PaymentPrefill {
+    sender: Option<i64>,
+    recipient: Option<i64>,
+    amount: Option<String>,
+}
+
+/// The Payment form: empty, with the Member asking as the Sender and no Recipient chosen yet,
+/// or filled in with a Settlement to record.
 async fn new_payment(
     State(state): State<AppState>,
     Member(member): Member,
+    Query(prefill): Query<PaymentPrefill>,
 ) -> Result<impl IntoResponse, AppError> {
-    let values = PaymentValues::blank(member.id);
+    let values = PaymentValues {
+        amount: prefill.amount.as_deref().unwrap_or_default(),
+        sender: prefill.sender.map_or(member.id, MemberId::from_client),
+        recipient: prefill.recipient.map(MemberId::from_client),
+        ..PaymentValues::blank(member.id)
+    };
     let form = payment_form(&state, &values, &PaymentProblems::default()).await?;
     Ok(fresh(views::finance::payment_page(&form)))
 }
@@ -794,6 +809,113 @@ mod tests {
         assert!(html.starts_with("<!DOCTYPE html>"));
         assert!(html.contains("<h1>New Payment</h1>"));
         assert!(html.contains("Enter the amount in whole crowns."));
+    }
+
+    /// Josef, Ondra and Šimon after Josef paid 900 Kč for Malt and Ondra 3 Kč for a bottle cap:
+    /// Josef is owed 599 Kč, Ondra owes 298 Kč and Šimon 301 Kč.
+    async fn three_after_malt(app: &TestApp) -> (String, String, String) {
+        let (josef, ondra) = josef_and_ondra(app).await;
+        let simon = app.sign_in_new_member("Šimon").await;
+        let changes = [("amount", "900")];
+        post_expense(app, &josef, &fields(1, &changes), true, PUBLIC_ORIGIN).await;
+        let changes = [("amount", "3"), ("description", "Bottle cap")];
+        post_expense(app, &ondra, &fields(2, &changes), true, PUBLIC_ORIGIN).await;
+        (josef, ondra, simon)
+    }
+
+    /// Where the Record buttons on a Finance page lead, in order.
+    fn record_links(html: &str) -> Vec<String> {
+        html.match_indices(">Record</a>")
+            .filter_map(|(end, _)| {
+                let before = &html[..end];
+                let href = &before[before.rfind("href=\"")? + "href=\"".len()..];
+                Some(href[..href.find('"')?].replace("&amp;", "&"))
+            })
+            .collect()
+    }
+
+    /// One of my Settlements as Finance words it.
+    fn my_settlement(words: &str, amount: &str) -> String {
+        format!("{words} <strong>{}</strong>", amount.replace(' ', "\u{a0}"))
+    }
+
+    #[sqlx::test]
+    async fn finance_shows_my_settlements_and_the_crews_plan(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (josef, ondra, simon) = three_after_malt(&app).await;
+
+        let html = page(&app, "/", &ondra).await;
+        assert!(html.contains(&my_settlement("Send Josef", "298 Kč")));
+        assert_eq!(
+            record_links(&html),
+            ["/payments/new?sender=2&recipient=1&amount=298"]
+        );
+        assert!(html.contains(&balance_row("Šimon → Josef", "301 Kč")));
+        assert!(html.contains(&balance_row("Ondra → Josef", "298 Kč")));
+
+        let html = page(&app, "/", &josef).await;
+        assert!(html.contains(&my_settlement("Šimon should send you", "301 Kč")));
+        assert!(html.contains(&my_settlement("Ondra should send you", "298 Kč")));
+        assert_eq!(record_links(&html).len(), 2);
+
+        let html = page(&app, "/", &simon).await;
+        assert!(html.contains(&my_settlement("Send Josef", "301 Kč")));
+        assert!(!html.contains("should send you"));
+    }
+
+    #[sqlx::test]
+    async fn recording_a_settlement_makes_both_members_even(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (josef, ondra, _) = three_after_malt(&app).await;
+        let html = page(&app, "/", &ondra).await;
+        let record = record_links(&html).remove(0);
+
+        let html = page(&app, &record, &ondra).await;
+        assert!(html.contains("<h1>New Payment</h1>"));
+        assert!(html.contains("name=\"amount\" value=\"298\""));
+        let sender = &html[html.find("name=\"sender\"").unwrap()..];
+        let sender = &sender[..sender.find("</select>").unwrap()];
+        assert!(sender.contains("<option value=\"2\" selected>Ondra</option>"));
+        let recipient = &html[html.find("name=\"recipient\"").unwrap()..];
+        let recipient = &recipient[..recipient.find("</select>").unwrap()];
+        assert!(recipient.contains("<option value=\"1\" selected>Josef</option>"));
+        assert!(recipient.contains("<option value=\"\" disabled>Choose a Member</option>"));
+
+        let changes = [("amount", "298")];
+        let response = post_payment(
+            &app,
+            &ondra,
+            &payment_fields(2, 1, &changes),
+            true,
+            PUBLIC_ORIGIN,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let html = page(&app, "/", &ondra).await;
+        assert!(html.contains("<p class=\"balance-figure\">Even</p>"));
+        assert!(!html.contains("Settle up"));
+        assert_eq!(record_links(&html), Vec::<String>::new());
+        let html = page(&app, "/", &josef).await;
+        assert!(html.contains(&balance_row("Ondra", "Even")));
+        assert!(html.contains(&balance_row("Šimon → Josef", "301 Kč")));
+        assert!(!html.contains("Ondra should send you"));
+    }
+
+    #[sqlx::test]
+    async fn a_member_within_a_crown_of_zero_is_even_with_no_settlement(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (josef, ondra) = josef_and_ondra(&app).await;
+        // 3 Kč split two ways: Josef is owed a crown and Ondra owes it.
+        let changes = [("amount", "3")];
+        post_expense(&app, &josef, &fields(1, &changes), true, PUBLIC_ORIGIN).await;
+
+        let html = page(&app, "/", &ondra).await;
+        assert!(html.contains("<p class=\"balance-figure\">Even</p>"));
+        assert!(html.contains(&balance_row("Ondra (you)", "Even")));
+        assert!(html.contains(&balance_row("Josef", "Even")));
+        assert!(!html.contains("Settle up"));
+        assert!(html.contains("Nobody needs to send anything."));
     }
 
     #[sqlx::test]

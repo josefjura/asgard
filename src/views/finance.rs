@@ -1,9 +1,11 @@
-//! The Finance tab: everyone's Balance, the latest entries, and the Expense and Payment forms.
+//! The Finance tab: everyone's Balance, the Settlements, the latest entries, and the Expense and
+//! Payment forms.
 
 use jiff::civil::Date;
 use maud::{Markup, html};
 
 use crate::domain::finance::money::{Crowns, Standing};
+use crate::domain::finance::settlement::Settlement;
 use crate::domain::finance::{DESCRIPTION_MAX, Entry, ExpenseEntry, Overview, PaymentEntry};
 use crate::domain::members::{MemberId, MemberName};
 use crate::views::layout::shell;
@@ -49,11 +51,25 @@ fn day(date: Date) -> String {
     date.strftime("%-d %B %Y").to_string()
 }
 
-/// The Finance home screen for `me`: their Balance, the buttons that lead to `new_expense` and
-/// `new_payment`, everyone's Balance and the latest entries.
+/// Where a Settlement's "Record" button leads: the Payment form at `new_payment`, pre-filled
+/// with its Sender, Recipient and amount.
+#[must_use]
+pub fn record_href(new_payment: &str, settlement: &Settlement) -> String {
+    format!(
+        "{new_payment}?sender={}&recipient={}&amount={}",
+        settlement.sender.id.get(),
+        settlement.recipient.id.get(),
+        settlement.amount.get()
+    )
+}
+
+/// The Finance home screen for `me`: their Balance and Settlements, the buttons that lead to
+/// `new_expense` and `new_payment`, everyone's Balance, the Settlement plan and the latest
+/// entries.
 #[must_use]
 pub fn home(me: MemberId, overview: &Overview, new_expense: &str, new_payment: &str) -> Markup {
     let mine = overview.balance_of(me);
+    let my_settlements: Vec<&Settlement> = overview.settlements_of(me).collect();
     shell(
         Place::Tab(Tab::Finance),
         &html! {
@@ -68,6 +84,17 @@ pub fn home(me: MemberId, overview: &Overview, new_expense: &str, new_payment: &
                         Standing::Owes => "You owe the Crew this.",
                         Standing::Even => "Nobody owes you and you owe nobody.",
                     })
+                }
+            }
+
+            @if !my_settlements.is_empty() {
+                section.finance-section aria-labelledby="my-settlements" {
+                    h2 #my-settlements { "Settle up" }
+                    ul.settlement-list {
+                        @for (index, settlement) in my_settlements.iter().enumerate() {
+                            (my_settlement(me, settlement, index, new_payment))
+                        }
+                    }
                 }
             }
 
@@ -91,6 +118,25 @@ pub fn home(me: MemberId, overview: &Overview, new_expense: &str, new_payment: &
                 }
             }
 
+            section.finance-section aria-labelledby="settlement-plan" {
+                h2 #settlement-plan { "Settlement plan" }
+                @if overview.settlements.is_empty() {
+                    p.lead-in { "Nobody needs to send anything." }
+                } @else {
+                    ul.balance-list {
+                        @for settlement in &overview.settlements {
+                            li {
+                                span.balance-name {
+                                    (settlement.sender.display_name) " → "
+                                    (settlement.recipient.display_name)
+                                }
+                                span.balance-amount { (crowns(settlement.amount)) }
+                            }
+                        }
+                    }
+                }
+            }
+
             section.finance-section aria-labelledby="latest-entries" {
                 h2 #latest-entries { "Latest entries" }
                 @if overview.recent.is_empty() {
@@ -105,6 +151,26 @@ pub fn home(me: MemberId, overview: &Overview, new_expense: &str, new_payment: &
             }
         },
     )
+}
+
+/// A Settlement `me` sends or receives, as the `index`th in their list, with the button that
+/// records it.
+fn my_settlement(me: MemberId, settlement: &Settlement, index: usize, new_payment: &str) -> Markup {
+    let id = format!("my-settlement-{index}");
+    let amount = crowns(settlement.amount);
+    html! {
+        li.settlement {
+            span.settlement-what #(id) {
+                @if settlement.sender.id == me {
+                    "Send " (settlement.recipient.display_name) " " strong { (amount) }
+                } @else {
+                    (settlement.sender.display_name) " should send you " strong { (amount) }
+                }
+            }
+            a.button.button-secondary href=(record_href(new_payment, settlement))
+                aria-describedby=(id) { "Record" }
+        }
+    }
 }
 
 /// One Expense or Payment in a list.
@@ -381,11 +447,13 @@ pub mod fixtures {
     use jiff::civil::{Date, date};
 
     use crate::domain::finance::money::{Amount, Crowns};
+    use crate::domain::finance::settlement::settlement_plan;
     use crate::domain::finance::{
         Description, Entry, ExpenseEntry, ExpenseId, MemberBalance, Overview, PaymentEntry,
         PaymentId,
     };
     use crate::domain::members::{DisplayName, MemberId, MemberName};
+    use crate::views::finance::PaymentValues;
 
     pub const JOSEF: MemberId = MemberId::from_client(1);
     pub const ONDRA: MemberId = MemberId::from_client(2);
@@ -475,7 +543,7 @@ pub mod fixtures {
     /// If a fixture value is invalid, which is a bug in the fixtures.
     #[must_use]
     pub fn overview() -> Overview {
-        let balances = crew()
+        let balances: Vec<MemberBalance> = crew()
             .into_iter()
             .zip([-4160, 4161, -1])
             .map(|(member, crowns)| MemberBalance {
@@ -484,6 +552,7 @@ pub mod fixtures {
             })
             .collect();
         Overview {
+            settlements: settlement_plan(&balances),
             balances,
             recent: vec![
                 payment_entry(None),
@@ -497,6 +566,17 @@ pub mod fixtures {
                     date(2026, 10, 2),
                 ),
             ],
+        }
+    }
+
+    /// The Payment form as Josef's Settlement with Ondra in [`overview`] fills it in.
+    #[must_use]
+    pub const fn prefilled_payment() -> PaymentValues<'static> {
+        PaymentValues {
+            amount: "4160",
+            description: "",
+            sender: JOSEF,
+            recipient: Some(ONDRA),
         }
     }
 
@@ -515,6 +595,7 @@ pub mod fixtures {
                     balance: Crowns::ZERO,
                 })
                 .collect(),
+            settlements: Vec::new(),
             recent: Vec::new(),
         }
     }
@@ -523,7 +604,7 @@ pub mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::fixtures::{
-        JOSEF, ONDRA, SIMON, TODAY, crew, entry, fresh, overview, payment_entry,
+        JOSEF, ONDRA, SIMON, TODAY, crew, entry, fresh, overview, payment_entry, prefilled_payment,
     };
     use super::*;
     use crate::views::assert_html_snapshot;
@@ -600,6 +681,16 @@ mod tests {
             PAYMENT_ACTION,
             &crew(),
             &PaymentValues::blank(ONDRA),
+            &PaymentProblems::default()
+        ));
+    }
+
+    #[test]
+    fn payment_form_prefilled() {
+        assert_html_snapshot!(payment_form(
+            PAYMENT_ACTION,
+            &crew(),
+            &prefilled_payment(),
             &PaymentProblems::default()
         ));
     }

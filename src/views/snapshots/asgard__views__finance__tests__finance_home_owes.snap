@@ -45,6 +45,16 @@ expression: "home(JOSEF, &overview(), NEW_EXPENSE,\nNEW_PAYMENT).into_string().r
 <p class="balance-figure">−4 160 Kč</p>
 <p class="balance-says">You owe the Crew this.</p>
 </section>
+<section class="finance-section" aria-labelledby="my-settlements">
+<h2 id="my-settlements">Settle up</h2>
+<ul class="settlement-list">
+<li class="settlement">
+<span class="settlement-what" id="my-settlement-0">Send Ondra <strong>4 160 Kč</strong>
+</span>
+<a class="button button-secondary" href="/payments/new?sender=1&amp;recipient=2&amp;amount=4160" aria-describedby="my-settlement-0">Record</a>
+</li>
+</ul>
+</section>
 <div class="finance-actions">
 <a class="button button-large" href="/expenses/new">+ Expense</a>
 <a class="button button-secondary" href="/payments/new">+ Payment</a>
@@ -63,6 +73,15 @@ expression: "home(JOSEF, &overview(), NEW_EXPENSE,\nNEW_PAYMENT).into_string().r
 <li class="even">
 <span class="balance-name">Šimon</span>
 <span class="balance-amount">Even</span>
+</li>
+</ul>
+</section>
+<section class="finance-section" aria-labelledby="settlement-plan">
+<h2 id="settlement-plan">Settlement plan</h2>
+<ul class="balance-list">
+<li>
+<span class="balance-name">Josef → Ondra</span>
+<span class="balance-amount">4 160 Kč</span>
 </li>
 </ul>
 </section>

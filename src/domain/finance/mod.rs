@@ -1,14 +1,16 @@
-//! The Crew's shared money: logging Expenses and Payments and working out everyone's Balance
-//! from them.
+//! The Crew's shared money: logging Expenses and Payments, and working out everyone's Balance
+//! and the Settlements that would make them Even.
 
 pub mod ledger;
 pub mod money;
+pub mod settlement;
 
 use jiff::civil::Date;
 use sqlx::{SqliteConnection, SqlitePool};
 
 use self::ledger::{Ledger, LedgerExpense, LedgerPayment, Participant};
 use self::money::{Amount, Crowns};
+use self::settlement::{Settlement, settlement_plan};
 use crate::domain::clock::{Clock, crew_date_of_unix_seconds, unix_seconds};
 use crate::domain::members::{DisplayName, MemberId, MemberName, parse_date};
 
@@ -175,11 +177,14 @@ pub struct MemberBalance {
     pub balance: Crowns,
 }
 
-/// What the Finance home screen shows: everyone's Balance and the latest entries.
+/// What the Finance home screen shows: everyone's Balance, the Settlement plan and the latest
+/// entries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Overview {
     /// Every Member's Balance, in the order they joined.
     pub balances: Vec<MemberBalance>,
+    /// The Settlement plan for those Balances.
+    pub settlements: Vec<Settlement>,
     /// The [`RECENT_ENTRIES`] entries logged last, newest first.
     pub recent: Vec<Entry>,
 }
@@ -192,6 +197,13 @@ impl Overview {
             .iter()
             .find(|balance| balance.member.id == member)
             .map_or(Crowns::ZERO, |balance| balance.balance)
+    }
+
+    /// The Settlements `member` sends or receives.
+    pub fn settlements_of(&self, member: MemberId) -> impl Iterator<Item = &Settlement> {
+        self.settlements.iter().filter(move |settlement| {
+            settlement.sender.id == member || settlement.recipient.id == member
+        })
     }
 }
 
@@ -306,7 +318,8 @@ impl Finance {
         Ok(PaymentId(done.last_insert_rowid()))
     }
 
-    /// Everyone's Balance and the latest entries, read together so they agree.
+    /// Everyone's Balance, the Settlement plan and the latest entries, read together so they
+    /// agree.
     ///
     /// # Errors
     ///
@@ -364,8 +377,13 @@ impl Finance {
                 },
                 balance: balance.crowns,
             })
-            .collect();
-        Ok(Overview { balances, recent })
+            .collect::<Vec<_>>();
+        let settlements = settlement_plan(&balances);
+        Ok(Overview {
+            balances,
+            settlements,
+            recent,
+        })
     }
 }
 
@@ -555,6 +573,34 @@ mod tests {
             [("Josef", -33), ("Ondra", 66), ("Šimon", -33)]
         );
         assert_eq!(overview.balance_of(ondra), Crowns::new(66));
+    }
+
+    #[sqlx::test]
+    async fn suggests_settlements_from_the_balances(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let simon = add_member(&db, "Šimon", false).await;
+        let finance = finance(db);
+        finance
+            .log_expense(josef, &expense(ondra, 900, "Malt", date(2026, 3, 20)))
+            .await
+            .unwrap();
+        finance
+            .log_payment(josef, &payment(josef, ondra, 300, ""))
+            .await
+            .unwrap();
+
+        let overview = finance.overview().await.unwrap();
+
+        let plan: Vec<_> = overview
+            .settlements
+            .iter()
+            .map(|s| (s.sender.id, s.recipient.id, s.amount.get()))
+            .collect();
+        assert_eq!(plan, [(simon, ondra, 300)]);
+        assert_eq!(overview.settlements_of(josef).count(), 0);
+        assert_eq!(overview.settlements_of(ondra).count(), 1);
+        assert_eq!(overview.settlements_of(simon).count(), 1);
     }
 
     #[sqlx::test]
