@@ -1,5 +1,5 @@
-//! The ledger: every Member's Balance from the Crew's Expenses and Payments. Pure, with no I/O, so the
-//! Finance service reads its inputs from the database and recomputes it on every read.
+//! The ledger: every Member's Balance from the Crew's Expenses and Payments. Pure, with no I/O,
+//! so the Finance service reads its inputs from the database and recomputes it on every read.
 
 use jiff::civil::Date;
 
@@ -344,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn a_payment_that_overshoots_what_was_owed_turns_the_debt_around() {
+    fn a_payment_that_overshoots_what_was_owed_flips_the_balances() {
         let mut ledger = Ledger::new(crew());
         ledger.add_expense(&expense(JOSEF, 300, date(2026, 3, 1)));
         ledger.add_payment(&payment(ONDRA, JOSEF, 250));

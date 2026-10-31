@@ -50,7 +50,8 @@ impl PaymentId {
     }
 }
 
-/// What an Expense or Payment was for: trimmed, non-blank and at most [`DESCRIPTION_MAX`] characters.
+/// What an Expense or Payment was for: trimmed, non-blank and at most [`DESCRIPTION_MAX`]
+/// characters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Description(String);
 

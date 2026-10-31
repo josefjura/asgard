@@ -34,6 +34,9 @@ pub const NEW_PAYMENT_PATH: &str = "/payments/new";
 /// Where the Payment form posts.
 const PAYMENTS_PATH: &str = "/payments";
 
+/// What a Member is told when they pick the Sender as the Recipient too.
+const SAME_MEMBER: &str = "Choose someone other than the Sender.";
+
 /// What a Member is told when a Sender or Recipient they chose has left the form's list.
 const NOT_IN_CREW: &str = "That Member isn't in the Crew. Reload the page to see who is.";
 
@@ -214,7 +217,7 @@ async fn log_payment(
                 return Ok(back_to_finance(htmx));
             }
             Err(PaymentError::SameMember) => PaymentProblems {
-                recipient: Some("Choose someone other than the Sender.".to_owned()),
+                recipient: Some(SAME_MEMBER.to_owned()),
                 ..PaymentProblems::default()
             },
             Err(PaymentError::SenderNotInCrew) => PaymentProblems {
@@ -244,7 +247,8 @@ async fn log_payment(
     Ok((StatusCode::UNPROCESSABLE_ENTITY, fresh(body)).into_response())
 }
 
-/// The Payment as typed, or what is wrong with each field that can be checked on its own.
+/// The Payment as typed, or what is wrong with each field that can be checked without the
+/// database.
 fn parse_payment(
     input: &PaymentForm,
     sender: MemberId,
@@ -252,8 +256,13 @@ fn parse_payment(
 ) -> Result<NewPayment, PaymentProblems> {
     let amount = Amount::parse(&input.amount);
     let description = Description::parse_optional(&input.description);
+    let recipient = match recipient {
+        None => Err("Choose who got the money."),
+        Some(recipient) if recipient == sender => Err(SAME_MEMBER),
+        Some(recipient) => Ok(recipient),
+    };
     match (amount, description, recipient) {
-        (Ok(amount), Ok(description), Some(recipient)) => Ok(NewPayment {
+        (Ok(amount), Ok(description), Ok(recipient)) => Ok(NewPayment {
             sender,
             recipient,
             amount,
@@ -263,9 +272,7 @@ fn parse_payment(
             amount: amount.err().map(amount_message),
             description: description.err().map(description_message),
             sender: None,
-            recipient: recipient
-                .is_none()
-                .then(|| "Choose who got the money.".to_owned()),
+            recipient: recipient.err().map(str::to_owned),
         }),
     }
 }
@@ -726,6 +733,27 @@ mod tests {
         }
         let html = page(&app, "/", &josef).await;
         assert!(html.contains("Nothing logged yet."));
+    }
+
+    #[sqlx::test]
+    async fn a_payment_to_oneself_is_refused_along_with_other_mistakes(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (josef, _) = josef_and_ondra(&app).await;
+
+        let changes = [("amount", "0"), ("recipient", "1")];
+        let response = post_payment(
+            &app,
+            &josef,
+            &payment_fields(1, 2, &changes),
+            true,
+            PUBLIC_ORIGIN,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let html = body_text(response).await;
+        assert!(html.contains("Enter an amount from"));
+        assert!(html.contains("Choose someone other than the Sender."));
     }
 
     #[sqlx::test]
