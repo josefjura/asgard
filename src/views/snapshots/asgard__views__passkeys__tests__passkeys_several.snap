@@ -9,7 +9,7 @@ expression: "list(BASE, &several(), None).into_string().replace(\"><\", \">\\n<\
 <label for="passkey-1-name">Passkey added 14 March 2026</label>
 <div class="field-row">
 <input id="passkey-1-name" type="text" name="name" value="iPhone Safari" required autocomplete="off">
-<button class="button" type="submit">Rename</button>
+<button class="button secondary" type="submit">Rename</button>
 </div>
 </form>
 <form class="passkey-delete" method="post" action="/settings/passkeys/1/delete" hx-post="/settings/passkeys/1/delete" hx-target="#passkeys" hx-swap="outerHTML" hx-confirm="Delete the passkey “iPhone Safari”? Any device signed in with it will be signed out.">
@@ -21,7 +21,7 @@ expression: "list(BASE, &several(), None).into_string().replace(\"><\", \">\\n<\
 <label for="passkey-2-name">Passkey added 2 April 2026</label>
 <div class="field-row">
 <input id="passkey-2-name" type="text" name="name" value="Windows Edge" required autocomplete="off">
-<button class="button" type="submit">Rename</button>
+<button class="button secondary" type="submit">Rename</button>
 </div>
 </form>
 <form class="passkey-delete" method="post" action="/settings/passkeys/2/delete" hx-post="/settings/passkeys/2/delete" hx-target="#passkeys" hx-swap="outerHTML" hx-confirm="Delete the passkey “Windows Edge”? Any device signed in with it will be signed out.">
@@ -33,7 +33,7 @@ expression: "list(BASE, &several(), None).into_string().replace(\"><\", \">\\n<\
 <label for="passkey-3-name">Passkey added 28 October 2026</label>
 <div class="field-row">
 <input id="passkey-3-name" type="text" name="name" value="Old Android" required autocomplete="off">
-<button class="button" type="submit">Rename</button>
+<button class="button secondary" type="submit">Rename</button>
 </div>
 </form>
 <form class="passkey-delete" method="post" action="/settings/passkeys/3/delete" hx-post="/settings/passkeys/3/delete" hx-target="#passkeys" hx-swap="outerHTML" hx-confirm="Delete the passkey “Old Android”? Any device signed in with it will be signed out.">

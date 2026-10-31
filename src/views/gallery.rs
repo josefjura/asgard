@@ -11,7 +11,7 @@ use crate::views::admin::{self, Outcome as AdminOutcome};
 use crate::views::brand::header_logo;
 use crate::views::display_name::{self, Outcome};
 use crate::views::finance::{
-    self, ExpenseProblems, ExpenseValues, PaymentProblems, PaymentValues, Purpose,
+    self, EntryPage, ExpenseProblems, ExpenseValues, PaymentProblems, PaymentValues, Purpose,
 };
 use crate::views::history::{self, Filters, NOT_A_MONTH};
 use crate::views::layout::document;
@@ -44,10 +44,10 @@ const ADMIN_HEIGHT: u16 = 1000;
 /// The Finance home screen: a Balance, a Settlement, the buttons, the Crew's Balances, the
 /// Settlement plan and four entries.
 const FINANCE_HEIGHT: u16 = 1500;
-/// The Expense form with a problem under every field.
-const EXPENSE_FORM_HEIGHT: u16 = 760;
-/// The Payment form with its problems.
-const PAYMENT_FORM_HEIGHT: u16 = 720;
+/// The Expense form with a problem under every field, or with the delete button beneath it.
+const EXPENSE_FORM_HEIGHT: u16 = 900;
+/// The Payment form with its problems, or with the delete button beneath it.
+const PAYMENT_FORM_HEIGHT: u16 = 860;
 /// An entry row with the edited line and the edit and delete controls under it.
 const ENTRY_ROW_HEIGHT: u16 = 180;
 /// History: the filters, four entries, the pages and three months' totals.
@@ -272,7 +272,7 @@ fn finance_pages() -> Vec<Fixture> {
         component: "Expense form",
         state: state.to_owned(),
         document: finance::expense_page(
-            purpose,
+            entry_page(purpose, "/expenses/7/delete"),
             &finance::expense_form("/expenses/7", purpose, &crew(), values, &problems, TODAY),
         ),
         height: EXPENSE_FORM_HEIGHT,
@@ -303,6 +303,14 @@ fn finance_pages() -> Vec<Fixture> {
         .chain(rows)
         .chain(history_pages())
         .collect()
+}
+
+/// The page an entry form in `purpose` sits on, its delete button posting to `delete`.
+const fn entry_page(purpose: Purpose, delete: &str) -> EntryPage<'_> {
+    match purpose {
+        Purpose::Log => EntryPage::New,
+        Purpose::Edit => EntryPage::Edit { delete },
+    }
 }
 
 /// History unfiltered, filtered by Member and month, with nothing logged, with nothing to list,
@@ -411,7 +419,7 @@ fn payment_forms() -> [Fixture; 4] {
         component: "Payment form",
         state: state.to_owned(),
         document: finance::payment_page(
-            purpose,
+            entry_page(purpose, "/payments/4/delete"),
             &finance::payment_form("/payments/4", purpose, &crew(), &values, &problems),
         ),
         height: PAYMENT_FORM_HEIGHT,

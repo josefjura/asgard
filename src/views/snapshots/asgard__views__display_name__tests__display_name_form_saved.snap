@@ -6,7 +6,7 @@ expression: "form(\"/welcome/name\", \"Ondřej\",\nSome(Outcome::Saved)).into_st
 <label for="display-name">Display name</label>
 <div class="field-row">
 <input id="display-name" type="text" name="display_name" value="Ondřej" required autocomplete="nickname" aria-describedby="display-name-note">
-<button class="button" type="submit">Save</button>
+<button class="button secondary" type="submit">Save</button>
 </div>
 <p class="note" id="display-name-note" role="status">Saved.</p>
 </form>

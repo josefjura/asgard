@@ -32,6 +32,16 @@ const HASHED: &[Hashed] = &[
         content_type: "text/css; charset=utf-8",
     },
     Hashed {
+        constant: "GRENZE_LATIN",
+        file: "grenze-latin-600.woff2",
+        content_type: "font/woff2",
+    },
+    Hashed {
+        constant: "GRENZE_LATIN_EXT",
+        file: "grenze-latin-ext-600.woff2",
+        content_type: "font/woff2",
+    },
+    Hashed {
         constant: "HTMX",
         file: "htmx-2.0.11.min.js",
         content_type: JAVASCRIPT,

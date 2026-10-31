@@ -16,6 +16,10 @@ expression: "home(&member(ONDRA), &overview()).into_string().replace(\"><\", \">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" type="image/svg+xml" href="/static/icon.[hash].svg">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.[hash].png">
+<link rel="preload" href="/static/grenze-latin-600.[hash].woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/grenze-latin-ext-600.[hash].woff2" as="font" type="font/woff2" crossorigin>
+<style>@font-face { font-family: "Grenze"; font-weight: 600; font-display: swap; src: url("/static/grenze-latin-600.[hash].woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Grenze"; font-weight: 600; font-display: swap; src: url("/static/grenze-latin-ext-600.[hash].woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }</style>
 <link rel="stylesheet" href="/static/app.[hash].css">
 <meta name="htmx-config" content="{&quot;responseHandling&quot;:[{&quot;code&quot;:&quot;204&quot;,&quot;swap&quot;:false},{&quot;code&quot;:&quot;[23]..&quot;,&quot;swap&quot;:true},{&quot;code&quot;:&quot;422&quot;,&quot;swap&quot;:true},{&quot;code&quot;:&quot;[45]..&quot;,&quot;swap&quot;:false,&quot;error&quot;:true},{&quot;code&quot;:&quot;...&quot;,&quot;swap&quot;:false}]}">
 <script src="/static/htmx-2.0.11.min.[hash].js" defer>
@@ -65,6 +69,7 @@ expression: "home(&member(ONDRA), &overview()).into_string().replace(\"><\", \">
 <li class="owes">
 <span class="balance-name">Josef</span>
 <span class="balance-amount">−4 160 Kč</span>
+<span class="balance-sends">Sends Ondra 4 160 Kč</span>
 </li>
 <li class="owed">
 <span class="balance-name">Ondra (you)</span>
@@ -76,51 +81,48 @@ expression: "home(&member(ONDRA), &overview()).into_string().replace(\"><\", \">
 </li>
 </ul>
 </section>
-<section class="section" aria-labelledby="settlement-plan">
-<h2 id="settlement-plan">Settlement plan</h2>
-<ul class="balance-list">
-<li>
-<span class="balance-name">Josef → Ondra</span>
-<span class="balance-amount">4 160 Kč</span>
-</li>
-</ul>
-</section>
 <section class="section" aria-labelledby="latest-entries">
 <h2 id="latest-entries">Latest entries</h2>
 <ul class="entry-list">
-<li class="entry payment">
-<div class="entry-main">
+<li class="entry">
+<div class="entry-link">
+<span class="entry-main">
 <span class="entry-what" id="payment-4">Josef → Ondra</span>
 <span class="entry-meta">Payment · 29 October 2026</span>
-</div>
+</span>
 <span class="entry-amount">4 160 Kč</span>
+</div>
 </li>
 <li class="entry">
-<div class="entry-main">
+<a class="entry-link" href="/expenses/7/edit">
+<span class="entry-main">
 <span class="entry-what" id="expense-7">Pilsner malt, 3 sacks, and a new hydrometer</span>
 <span class="entry-meta">Ondra paid · 28 October 2026</span>
-<div class="entry-controls">
-<a class="button secondary small" href="/expenses/7/edit" aria-describedby="expense-7">Edit</a>
-<form method="post" action="/expenses/7/delete" hx-post="/expenses/7/delete" hx-confirm="Delete the Expense “Pilsner malt, 3 sacks, and a new hydrometer”?">
-<button class="button danger small" type="submit" aria-describedby="expense-7">Delete</button>
-</form>
-</div>
-</div>
+</span>
 <span class="entry-amount">12 480 Kč</span>
+<svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+<path d="M6 3l5 5-5 5">
+</path>
+</svg>
+</a>
 </li>
 <li class="entry">
-<div class="entry-main">
+<div class="entry-link">
+<span class="entry-main">
 <span class="entry-what" id="expense-6">Saaz hops</span>
 <span class="entry-meta">Šimon paid · 21 October 2026</span>
-</div>
+</span>
 <span class="entry-amount">380 Kč</span>
+</div>
 </li>
 <li class="entry">
-<div class="entry-main">
+<div class="entry-link">
+<span class="entry-main">
 <span class="entry-what" id="expense-5">Bottle caps and sanitiser</span>
 <span class="entry-meta">Josef paid · 2 October 2026</span>
-</div>
+</span>
 <span class="entry-amount">1 240 Kč</span>
+</div>
 </li>
 </ul>
 <p class="history-link">

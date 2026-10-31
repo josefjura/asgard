@@ -6,7 +6,7 @@ expression: "form(\"/welcome/name\", \"Josef\",\nSome(Outcome::Refused(\"Someone
 <label for="display-name">Display name</label>
 <div class="field-row">
 <input id="display-name" type="text" name="display_name" value="Josef" required autocomplete="nickname" aria-describedby="display-name-note" aria-invalid="true">
-<button class="button" type="submit">Save</button>
+<button class="button secondary" type="submit">Save</button>
 </div>
 <p class="note refused" id="display-name-note" role="status">Someone in the Crew is already called Josef.</p>
 </form>

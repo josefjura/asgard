@@ -2,10 +2,12 @@
 source: src/views/finance.rs
 expression: "entry_row(&member(SIMON), &payment_entry(Some(\"For the malt\")),\nNone).into_string().replace(\"><\", \">\\n<\")"
 ---
-<li class="entry payment">
-<div class="entry-main">
+<li class="entry">
+<div class="entry-link">
+<span class="entry-main">
 <span class="entry-what" id="payment-4">Josef → Ondra</span>
 <span class="entry-meta">Payment · For the malt · 29 October 2026</span>
-</div>
+</span>
 <span class="entry-amount">4 160 Kč</span>
+</div>
 </li>

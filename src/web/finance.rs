@@ -23,7 +23,8 @@ use crate::domain::finance::{
 use crate::domain::members::{self, MemberId};
 use crate::views;
 use crate::views::finance::{
-    ExpenseProblems, ExpenseValues, PaymentProblems, PaymentValues, Purpose, paths, returning_to,
+    EntryPage, ExpenseProblems, ExpenseValues, PaymentProblems, PaymentValues, Purpose, paths,
+    returning_to,
 };
 use crate::views::history::{Filters, NOT_A_MONTH};
 use crate::views::nav::Tab;
@@ -141,7 +142,7 @@ async fn new_expense(
         &ExpenseProblems::default(),
     )
     .await?;
-    Ok(fresh(views::finance::expense_page(Purpose::Log, &form)))
+    Ok(fresh(views::finance::expense_page(EntryPage::New, &form)))
 }
 
 #[derive(Deserialize)]
@@ -197,7 +198,7 @@ async fn log_expense(
         htmx,
         StatusCode::UNPROCESSABLE_ENTITY,
         form,
-        |form| views::finance::expense_page(Purpose::Log, form),
+        |form| views::finance::expense_page(EntryPage::New, form),
     ))
 }
 
@@ -226,7 +227,11 @@ async fn edit_expense(
         &ExpenseProblems::default(),
     )
     .await?;
-    Ok(fresh(views::finance::expense_page(Purpose::Edit, &form)))
+    let delete = returning_to(paths::delete_expense(id), back.history());
+    Ok(fresh(views::finance::expense_page(
+        EntryPage::Edit { delete: &delete },
+        &form,
+    )))
 }
 
 /// Saves the edited Expense `id` and goes back to History or Finance, or answers with the form showing
@@ -262,11 +267,12 @@ async fn save_expense(
         &problems,
     )
     .await?;
+    let delete = returning_to(paths::delete_expense(id), back.history());
     Ok(fragment_or_page(
         htmx,
         StatusCode::UNPROCESSABLE_ENTITY,
         form,
-        |form| views::finance::expense_page(Purpose::Edit, form),
+        |form| views::finance::expense_page(EntryPage::Edit { delete: &delete }, form),
     ))
 }
 
@@ -375,7 +381,7 @@ async fn new_payment(
         &PaymentProblems::default(),
     )
     .await?;
-    Ok(fresh(views::finance::payment_page(Purpose::Log, &form)))
+    Ok(fresh(views::finance::payment_page(EntryPage::New, &form)))
 }
 
 #[derive(Deserialize)]
@@ -441,7 +447,7 @@ async fn log_payment(
         htmx,
         StatusCode::UNPROCESSABLE_ENTITY,
         form,
-        |form| views::finance::payment_page(Purpose::Log, form),
+        |form| views::finance::payment_page(EntryPage::New, form),
     ))
 }
 
@@ -469,7 +475,11 @@ async fn edit_payment(
         &PaymentProblems::default(),
     )
     .await?;
-    Ok(fresh(views::finance::payment_page(Purpose::Edit, &form)))
+    let delete = returning_to(paths::delete_payment(id), back.history());
+    Ok(fresh(views::finance::payment_page(
+        EntryPage::Edit { delete: &delete },
+        &form,
+    )))
 }
 
 /// Saves the edited Payment `id` and goes back to History or Finance, or answers with the form showing
@@ -505,11 +515,12 @@ async fn save_payment(
         &problems,
     )
     .await?;
+    let delete = returning_to(paths::delete_payment(id), back.history());
     Ok(fragment_or_page(
         htmx,
         StatusCode::UNPROCESSABLE_ENTITY,
         form,
-        |form| views::finance::payment_page(Purpose::Edit, form),
+        |form| views::finance::payment_page(EntryPage::Edit { delete: &delete }, form),
     ))
 }
 
@@ -1139,13 +1150,22 @@ mod tests {
             .collect()
     }
 
+    /// `sender`'s row in the Crew's Balances, owing `amount` and sending it all to `recipient`.
+    fn sends(sender: &str, recipient: &str, amount: &str) -> String {
+        format!(
+            "{}<span class=\"balance-sends\">Sends {recipient} {}</span>",
+            balance_row(sender, &format!("\u{2212}{amount}")),
+            amount.replace(' ', "\u{a0}")
+        )
+    }
+
     /// One of my Settlements as Finance words it.
     fn my_settlement(words: &str, amount: &str) -> String {
         format!("{words} <strong>{}</strong>", amount.replace(' ', "\u{a0}"))
     }
 
     #[sqlx::test]
-    async fn finance_shows_my_settlements_and_the_crews_plan(db: SqlitePool) {
+    async fn finance_shows_my_settlements_and_who_sends_what(db: SqlitePool) {
         let app = TestApp::new(db);
         let (josef, ondra, simon) = three_after_malt(&app).await;
 
@@ -1155,8 +1175,8 @@ mod tests {
             record_links(&html),
             ["/payments/new?sender=2&recipient=1&amount=298"]
         );
-        assert!(html.contains(&balance_row("Šimon → Josef", "301 Kč")));
-        assert!(html.contains(&balance_row("Ondra → Josef", "298 Kč")));
+        assert!(html.contains(&sends("Šimon", "Josef", "301 Kč")));
+        assert!(html.contains(&sends("Ondra (you)", "Josef", "298 Kč")));
 
         let html = page(&app, "/", &josef).await;
         assert!(html.contains(&my_settlement("Šimon should send you", "301 Kč")));
@@ -1203,7 +1223,7 @@ mod tests {
         assert_eq!(record_links(&html), Vec::<String>::new());
         let html = page(&app, "/", &josef).await;
         assert!(html.contains(&balance_row("Ondra", "Even")));
-        assert!(html.contains(&balance_row("Šimon → Josef", "301 Kč")));
+        assert!(html.contains(&sends("Šimon", "Josef", "301 Kč")));
         assert!(!html.contains("Ondra should send you"));
     }
 
@@ -1220,7 +1240,7 @@ mod tests {
         assert!(html.contains(&balance_row("Ondra (you)", "Even")));
         assert!(html.contains(&balance_row("Josef", "Even")));
         assert!(!html.contains("Settle up"));
-        assert!(html.contains("Nobody needs to send anything."));
+        assert!(!html.contains("balance-sends"));
     }
 
     #[sqlx::test]
@@ -1253,13 +1273,12 @@ mod tests {
         (josef, ondra, simon)
     }
 
-    /// Whether Finance shows the browser holding `cookie` the controls of the entry at `path`.
+    /// Whether Finance leads the browser holding `cookie` to the edit page of the entry at
+    /// `path`. Finance itself never deletes: that is on the edit page.
     async fn sees_controls(app: &TestApp, cookie: &str, path: &str) -> bool {
         let html = page(app, "/", cookie).await;
-        let edit = html.contains(&format!("href=\"{path}/edit\""));
-        let delete = html.contains(&format!("action=\"{path}/delete\""));
-        assert_eq!(edit, delete, "{path}");
-        edit
+        assert!(!html.contains(&format!("{path}/delete")), "{path}");
+        html.contains(&format!("href=\"{path}/edit\""))
     }
 
     #[sqlx::test]
@@ -1299,6 +1318,7 @@ mod tests {
         assert!(html.contains("name=\"description\" value=\"Malt\""));
         assert!(html.contains("<option value=\"3\" selected>Šimon</option>"));
         assert!(html.contains(">Save Expense</button>"));
+        assert!(html.contains("action=\"/expenses/1/delete\""));
 
         // Josef paid it, not Šimon, and on New Year's Eve, before anyone had joined: refused.
         let changes = [("amount", "600"), ("expense_date", "2025-12-31")];
@@ -1437,7 +1457,7 @@ mod tests {
         let html = page(&app, "/", &josef).await;
         assert!(html.contains("Nothing logged yet."));
         assert!(html.contains(&balance_row("Šimon", "Even")));
-        assert!(html.contains("Nobody needs to send anything."));
+        assert!(!html.contains("balance-sends"));
         for response in [
             app.post_with("/expenses/1/delete", &simon).await,
             app.get_with("/expenses/1/edit", &josef).await,
@@ -1457,6 +1477,7 @@ mod tests {
         assert!(html.contains(&format!("href=\"/expenses/1/edit?{back}\"")));
         let html = page(&app, &format!("/expenses/1/edit?{back}"), &simon).await;
         assert!(html.contains(&format!("action=\"/expenses/1?{back}\"")));
+        assert!(html.contains(&format!("action=\"/expenses/1/delete?{back}\"")));
 
         let edit = format!("/expenses/1?{back}");
         let changes = [("amount", "600")];

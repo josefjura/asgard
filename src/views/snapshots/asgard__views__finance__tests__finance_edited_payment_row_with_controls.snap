@@ -2,17 +2,17 @@
 source: src/views/finance.rs
 expression: "entry_row(&member(JOSEF), &edited_payment_entry(),\nNone).into_string().replace(\"><\", \">\\n<\")"
 ---
-<li class="entry payment">
-<div class="entry-main">
+<li class="entry">
+<a class="entry-link" href="/payments/4/edit">
+<span class="entry-main">
 <span class="entry-what" id="payment-4">Josef → Ondra</span>
 <span class="entry-meta">Payment · For the malt · 29 October 2026</span>
 <span class="entry-meta entry-edited">edited by Josef · 30 October 2026</span>
-<div class="entry-controls">
-<a class="button secondary small" href="/payments/4/edit" aria-describedby="payment-4">Edit</a>
-<form method="post" action="/payments/4/delete" hx-post="/payments/4/delete" hx-confirm="Delete the Payment from Josef to Ondra?">
-<button class="button danger small" type="submit" aria-describedby="payment-4">Delete</button>
-</form>
-</div>
-</div>
+</span>
 <span class="entry-amount">4 160 Kč</span>
+<svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+<path d="M6 3l5 5-5 5">
+</path>
+</svg>
+</a>
 </li>

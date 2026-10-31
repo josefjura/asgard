@@ -9,6 +9,7 @@ use crate::domain::finance::money::{Crowns, Standing};
 use crate::domain::finance::settlement::Settlement;
 use crate::domain::finance::{DESCRIPTION_MAX, Edit, Entry, ExpenseEntry, Overview, PaymentEntry};
 use crate::domain::members::{Member, MemberId, MemberName};
+use crate::views::icon::chevron;
 use crate::views::layout::shell;
 use crate::views::nav::{Place, Tab};
 
@@ -145,8 +146,8 @@ fn record_href(settlement: &Settlement) -> String {
 /// The Finance home screen for `me`.
 ///
 /// It shows their Balance and Settlements, the buttons that log an Expense or a Payment,
-/// everyone's Balance, the Settlement plan and the latest entries, with the controls for the
-/// ones `me` may change.
+/// everyone's Balance with what each sender sends, and the latest entries, leading to the edit
+/// page of the ones `me` may change.
 #[must_use]
 pub fn home(me: &Member, overview: &Overview) -> Markup {
     let mine = overview.balance_of(me.id);
@@ -194,24 +195,12 @@ pub fn home(me: &Member, overview: &Overview) -> Markup {
                                 @if balance.member.id == me.id { " (you)" }
                             }
                             span.balance-amount { (balance_text(balance.balance)) }
-                        }
-                    }
-                }
-            }
-
-            section.section aria-labelledby="settlement-plan" {
-                h2 #settlement-plan { "Settlement plan" }
-                @if overview.settlements.is_empty() {
-                    p.muted { "Nobody needs to send anything." }
-                } @else {
-                    ul.balance-list {
-                        @for settlement in &overview.settlements {
-                            li {
-                                span.balance-name {
-                                    (settlement.sender.display_name) " → "
-                                    (settlement.recipient.display_name)
+                            @for settlement in overview.settlements.iter()
+                                .filter(|settlement| settlement.sender.id == balance.member.id) {
+                                span.balance-sends {
+                                    "Sends " (settlement.recipient.display_name) " "
+                                    (crowns(settlement.amount))
                                 }
-                                span.balance-amount { (crowns(settlement.amount)) }
                             }
                         }
                     }
@@ -255,84 +244,61 @@ fn my_settlement(me: MemberId, settlement: &Settlement, index: usize) -> Markup 
     }
 }
 
-/// One Expense or Payment in a list, with the controls to edit and delete it if `me` may. They
-/// send `me` back to `back` afterwards, or to Finance without one.
+/// One Expense or Payment in a list. If `me` may change it, the row leads to its edit page,
+/// which sends `me` back to `back` afterwards, or to Finance without one.
 #[must_use]
 pub fn entry_row(me: &Member, entry: &Entry, back: Option<&str>) -> Markup {
-    let may_change = entry.may_be_changed_by(me);
-    match entry {
-        Entry::Expense(expense) => {
-            let controls = may_change.then(|| Controls {
-                edit: returning_to(paths::edit_expense(expense.id), back),
-                delete: returning_to(paths::delete_expense(expense.id), back),
-                confirm: format!(
-                    "Delete the Expense \u{201c}{}\u{201d}?",
-                    expense.description.as_str()
-                ),
-            });
-            expense_row(expense, controls.as_ref())
-        }
-        Entry::Payment(payment) => {
-            let controls = may_change.then(|| Controls {
-                edit: returning_to(paths::edit_payment(payment.id), back),
-                delete: returning_to(paths::delete_payment(payment.id), back),
-                confirm: format!(
-                    "Delete the Payment from {} to {}?",
-                    payment.sender.display_name, payment.recipient
-                ),
-            });
-            payment_row(payment, controls.as_ref())
+    let edit = entry.may_be_changed_by(me).then(|| match entry {
+        Entry::Expense(expense) => returning_to(paths::edit_expense(expense.id), back),
+        Entry::Payment(payment) => returning_to(paths::edit_payment(payment.id), back),
+    });
+    let row = match entry {
+        Entry::Expense(expense) => expense_row(expense),
+        Entry::Payment(payment) => payment_row(payment),
+    };
+    html! {
+        li.entry {
+            @if let Some(edit) = edit {
+                a.entry-link href=(edit) { (row) (chevron()) }
+            } @else {
+                div.entry-link { (row) }
+            }
         }
     }
 }
 
-/// Where an entry's edit and delete controls lead, and what deleting it asks first.
-struct Controls {
-    edit: String,
-    delete: String,
-    confirm: String,
-}
-
 /// An Expense: what it was for, who paid, when, how much, and who edited it last.
-fn expense_row(entry: &ExpenseEntry, controls: Option<&Controls>) -> Markup {
-    let what = format!("expense-{}", entry.id.get());
+fn expense_row(entry: &ExpenseEntry) -> Markup {
     html! {
-        li.entry {
-            div.entry-main {
-                span.entry-what #(what) { (entry.description.as_str()) }
-                span.entry-meta {
-                    (entry.payer.display_name) " paid · " (day(entry.expense_date))
-                }
-                (edited(entry.edited.as_ref()))
-                (entry_controls(controls, &what))
+        span.entry-main {
+            span.entry-what #{ "expense-" (entry.id.get()) } { (entry.description.as_str()) }
+            span.entry-meta {
+                (entry.payer.display_name) " paid · " (day(entry.expense_date))
             }
-            span.entry-amount { (crowns(entry.amount.crowns())) }
+            (edited(entry.edited.as_ref()))
         }
+        span.entry-amount { (crowns(entry.amount.crowns())) }
     }
 }
 
 /// A Payment: who sent it to whom, what for if anything, when, how much, and who edited it
 /// last.
-fn payment_row(entry: &PaymentEntry, controls: Option<&Controls>) -> Markup {
-    let what = format!("payment-{}", entry.id.get());
+fn payment_row(entry: &PaymentEntry) -> Markup {
     html! {
-        li.entry.payment {
-            div.entry-main {
-                span.entry-what #(what) {
-                    (entry.sender.display_name) " → " (entry.recipient)
-                }
-                span.entry-meta {
-                    "Payment · "
-                    @if let Some(description) = &entry.description {
-                        (description.as_str()) " · "
-                    }
-                    (day(entry.logged_on))
-                }
-                (edited(entry.edited.as_ref()))
-                (entry_controls(controls, &what))
+        span.entry-main {
+            span.entry-what #{ "payment-" (entry.id.get()) } {
+                (entry.sender.display_name) " → " (entry.recipient)
             }
-            span.entry-amount { (crowns(entry.amount.crowns())) }
+            span.entry-meta {
+                "Payment · "
+                @if let Some(description) = &entry.description {
+                    (description.as_str()) " · "
+                }
+                (day(entry.logged_on))
+            }
+            (edited(entry.edited.as_ref()))
         }
+        span.entry-amount { (crowns(entry.amount.crowns())) }
     }
 }
 
@@ -345,19 +311,23 @@ fn edited(edit: Option<&Edit>) -> Markup {
     }
 }
 
-/// The edit link and delete button of the entry described by the element `what`. Deleting asks
-/// first; without htmx, it posts as a plain form.
-fn entry_controls(controls: Option<&Controls>, what: &str) -> Markup {
+/// Which page an entry's form sits on: a new entry's, or the edit page of a logged one, with the
+/// button that deletes it posting to `delete`.
+#[derive(Debug, Clone, Copy)]
+pub enum EntryPage<'a> {
+    New,
+    Edit { delete: &'a str },
+}
+
+/// The foot of an edit page: what deleting the `kind` of entry takes it out of, and the button
+/// that deletes it after asking. Without htmx, it posts as a plain form.
+fn delete_entry(kind: &str, balances: &str, delete: &str) -> Markup {
     html! {
-        @if let Some(controls) = controls {
-            div.entry-controls {
-                a.button.secondary.small href=(controls.edit) aria-describedby=(what) { "Edit" }
-                form method="post" action=(controls.delete) hx-post=(controls.delete)
-                    hx-confirm=(controls.confirm) {
-                    button.button.danger.small type="submit" aria-describedby=(what) {
-                        "Delete"
-                    }
-                }
+        section.delete-entry aria-label={ "Delete this " (kind) } {
+            p { "Deleting this " (kind) " takes it out of " (balances) "." }
+            form method="post" action=(delete) hx-post=(delete)
+                hx-confirm={ "Delete this " (kind) "? It comes out of " (balances) "." } {
+                button.button.danger type="submit" { "Delete " (kind) }
             }
         }
     }
@@ -394,19 +364,23 @@ pub struct ExpenseProblems {
     pub expense_date: Option<String>,
 }
 
-/// The page around the Expense form.
+/// The page around the Expense form, with the delete button at its foot when editing.
 #[must_use]
-pub fn expense_page(purpose: Purpose, form: &Markup) -> Markup {
+pub fn expense_page(page: EntryPage, form: &Markup) -> Markup {
     shell(
         Place::Tab(Tab::Finance),
         &html! {
-            h1 {
-                @match purpose {
-                    Purpose::Log => "New Expense",
-                    Purpose::Edit => "Edit Expense",
+            @match page {
+                EntryPage::New => {
+                    h1 { "New Expense" }
+                    (form)
+                }
+                EntryPage::Edit { delete } => {
+                    h1 { "Edit Expense" }
+                    (form)
+                    (delete_entry("Expense", "everyone's Balance", delete))
                 }
             }
-            (form)
         },
     )
 }
@@ -519,19 +493,23 @@ pub struct PaymentProblems {
     pub recipient: Option<String>,
 }
 
-/// The page around the Payment form.
+/// The page around the Payment form, with the delete button at its foot when editing.
 #[must_use]
-pub fn payment_page(purpose: Purpose, form: &Markup) -> Markup {
+pub fn payment_page(page: EntryPage, form: &Markup) -> Markup {
     shell(
         Place::Tab(Tab::Finance),
         &html! {
-            h1 {
-                @match purpose {
-                    Purpose::Log => "New Payment",
-                    Purpose::Edit => "Edit Payment",
+            @match page {
+                EntryPage::New => {
+                    h1 { "New Payment" }
+                    (form)
+                }
+                EntryPage::Edit { delete } => {
+                    h1 { "Edit Payment" }
+                    (form)
+                    (delete_entry("Payment", "both Members' Balances", delete))
                 }
             }
-            (form)
         },
     )
 }
@@ -927,26 +905,51 @@ mod tests {
     }
 
     #[test]
-    fn only_the_payer_or_sender_and_the_admin_see_the_controls() {
-        let controls = |me, entry: &Entry| {
+    fn only_the_payer_or_sender_and_the_admin_get_a_row_that_leads_to_editing() {
+        let leads_to_editing = |me, entry: &Entry| {
             let html = entry_row(&member(me), entry, None).into_string();
-            (html.contains("/edit\""), html.contains("/delete\""))
+            assert!(!html.contains("/delete"), "a row never deletes");
+            html.contains("/edit\"")
         };
 
-        assert_eq!(controls(ONDRA, &entry()), (true, true));
-        assert_eq!(controls(JOSEF, &entry()), (true, true));
-        assert_eq!(controls(SIMON, &entry()), (false, false));
-        assert_eq!(controls(JOSEF, &payment_entry(None)), (true, true));
-        assert_eq!(controls(ONDRA, &payment_entry(None)), (false, false));
+        assert!(leads_to_editing(ONDRA, &entry()));
+        assert!(leads_to_editing(JOSEF, &entry()));
+        assert!(!leads_to_editing(SIMON, &entry()));
+        assert!(leads_to_editing(JOSEF, &payment_entry(None)));
+        assert!(!leads_to_editing(ONDRA, &payment_entry(None)));
     }
 
     #[test]
-    fn the_controls_lead_to_the_entry() {
+    fn a_row_that_may_be_changed_links_to_its_edit_page() {
         let html = entry_row(&member(JOSEF), &payment_entry(None), None).into_string();
 
-        assert!(html.contains("href=\"/payments/4/edit\" aria-describedby=\"payment-4\""));
-        assert!(html.contains("hx-post=\"/payments/4/delete\""));
-        assert!(html.contains("hx-confirm=\"Delete the Payment from Josef to Ondra?\""));
+        assert!(
+            html.starts_with(
+                "<li class=\"entry\"><a class=\"entry-link\" href=\"/payments/4/edit\">"
+            )
+        );
+    }
+
+    #[test]
+    fn only_the_edit_page_deletes_and_asks_first() {
+        let form = html! { form {} };
+        let edit = expense_page(
+            EntryPage::Edit {
+                delete: "/expenses/7/delete",
+            },
+            &form,
+        )
+        .into_string();
+        let new = expense_page(EntryPage::New, &form).into_string();
+
+        assert!(edit.contains("hx-post=\"/expenses/7/delete\""));
+        assert!(
+            edit.contains(
+                "hx-confirm=\"Delete this Expense? It comes out of everyone's Balance.\""
+            )
+        );
+        assert!(edit.contains(">Delete Expense</button>"));
+        assert!(!new.contains("delete"));
     }
 
     #[test]
@@ -965,7 +968,9 @@ mod tests {
             expense_date: "2026-10-28",
         };
         assert_html_snapshot!(expense_page(
-            Purpose::Edit,
+            EntryPage::Edit {
+                delete: "/expenses/7/delete"
+            },
             &expense_form(
                 EDIT_ACTION,
                 Purpose::Edit,
@@ -980,7 +985,9 @@ mod tests {
     #[test]
     fn payment_edit_form() {
         assert_html_snapshot!(payment_page(
-            Purpose::Edit,
+            EntryPage::Edit {
+                delete: "/payments/4/delete"
+            },
             &payment_form(
                 "/payments/4",
                 Purpose::Edit,

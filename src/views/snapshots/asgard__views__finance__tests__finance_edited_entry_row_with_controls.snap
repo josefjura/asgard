@@ -3,16 +3,16 @@ source: src/views/finance.rs
 expression: "entry_row(&member(ONDRA), &edited_entry(),\nNone).into_string().replace(\"><\", \">\\n<\")"
 ---
 <li class="entry">
-<div class="entry-main">
+<a class="entry-link" href="/expenses/7/edit">
+<span class="entry-main">
 <span class="entry-what" id="expense-7">Pilsner malt, 3 sacks, and a new hydrometer</span>
 <span class="entry-meta">Ondra paid · 28 October 2026</span>
 <span class="entry-meta entry-edited">edited by Josef · 30 October 2026</span>
-<div class="entry-controls">
-<a class="button secondary small" href="/expenses/7/edit" aria-describedby="expense-7">Edit</a>
-<form method="post" action="/expenses/7/delete" hx-post="/expenses/7/delete" hx-confirm="Delete the Expense “Pilsner malt, 3 sacks, and a new hydrometer”?">
-<button class="button danger small" type="submit" aria-describedby="expense-7">Delete</button>
-</form>
-</div>
-</div>
+</span>
 <span class="entry-amount">12 480 Kč</span>
+<svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+<path d="M6 3l5 5-5 5">
+</path>
+</svg>
+</a>
 </li>

@@ -21,7 +21,7 @@ pub fn form(action: &str, value: &str, outcome: Option<Outcome>) -> Markup {
                 input #display-name type="text" name="display_name" value=(value) required
                     autocomplete="nickname" aria-describedby="display-name-note"
                     aria-invalid=[refused.then_some("true")];
-                button.button type="submit" { "Save" }
+                button.button.secondary type="submit" { "Save" }
             }
             p #display-name-note .note .refused[refused] role="status" {
                 @match outcome {
