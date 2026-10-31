@@ -158,6 +158,7 @@ pub fn fixtures() -> Vec<Fixture> {
         .chain(passkey_lists())
         .chain(admin_pages())
         .chain(finance_pages())
+        .chain(crate::views::prototype::fixtures())
         .collect()
 }
 
