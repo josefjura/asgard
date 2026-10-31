@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/josefjura/asgard/compare/v0.3.0...v0.4.0) (2026-10-31)
+
+
+### Features
+
+* edit and delete Expenses and Payments ([#58](https://github.com/josefjura/asgard/issues/58)) ([7413b7f](https://github.com/josefjura/asgard/commit/7413b7f182710e7404814b2187c6e08a08a95926))
+* emit Finance domain events ([#59](https://github.com/josefjura/asgard/issues/59)) ([1e74a5a](https://github.com/josefjura/asgard/commit/1e74a5aaa409ac5971e7fe60082e0e775b6862d8))
+* History page with Member and month filters and monthly totals ([#61](https://github.com/josefjura/asgard/issues/61)) ([867795f](https://github.com/josefjura/asgard/commit/867795f32acc6dd53502db1dd50af47e03ea1ccf))
+* log a Payment and see it in Balances on Finance ([#55](https://github.com/josefjura/asgard/issues/55)) ([80b066b](https://github.com/josefjura/asgard/commit/80b066b372a4b707c8abe9939ad2c3376e98ff78))
+* Settlement plan and one-tap Record on Finance ([#57](https://github.com/josefjura/asgard/issues/57)) ([d9a9a1a](https://github.com/josefjura/asgard/commit/d9a9a1aa7a6574f07b9453731fd72f24ddad6f78))
+
 ## [0.3.0](https://github.com/josefjura/asgard/compare/v0.2.0...v0.3.0) (2026-10-30)
 
 
