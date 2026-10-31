@@ -3,7 +3,7 @@ use maud::{Markup, html};
 use crate::domain::auth::{LINK_LIFETIME_HOURS, LinkKind};
 use crate::domain::members::DisplayName;
 use crate::views::layout::standalone;
-use crate::views::passkey::{self, Ceremony, CeremonyUrls};
+use crate::views::passkey::{self, Ceremony, CeremonyUrls, Emphasis};
 
 /// What an Invite link opens: whose Crew it is, the name the new Member will appear under, and
 /// the button that creates their passkey.
@@ -18,7 +18,7 @@ pub fn page(crew: &str, display_name: &DisplayName, ceremony: &CeremonyUrls) -> 
                 "Asgard signs you in with a passkey: the fingerprint, face or screen lock you "
                 "already use on this device. There's no password to remember."
             }
-            (passkey::button("Create a passkey", Ceremony::Register, ceremony))
+            (passkey::button("Create a passkey", Ceremony::Register, Emphasis::Primary, ceremony))
         },
     )
 }
@@ -36,7 +36,7 @@ pub fn device_page(crew: &str, display_name: &DisplayName, ceremony: &CeremonyUr
                 "Create a passkey on this device: the fingerprint, face or screen lock you "
                 "already use on it. Your other passkeys keep working."
             }
-            (passkey::button("Create a passkey", Ceremony::Register, ceremony))
+            (passkey::button("Create a passkey", Ceremony::Register, Emphasis::Primary, ceremony))
         },
     )
 }

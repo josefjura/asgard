@@ -1,8 +1,9 @@
 use maud::{Markup, html};
 
+use crate::views::icon::chevron;
 use crate::views::layout::shell;
 use crate::views::nav::Place;
-use crate::views::passkey::{self, Ceremony, CeremonyUrls};
+use crate::views::passkey::{self, Ceremony, CeremonyUrls, Emphasis};
 use crate::views::push;
 
 /// A Member's settings page.
@@ -23,8 +24,8 @@ pub fn page(
         &html! {
             h1 { "Settings" }
 
-            section.section.narrow aria-labelledby="settings-name" {
-                h2 #settings-name { "Your name" }
+            // The name field's label heads its section.
+            section.section.narrow.label-heads {
                 (name_form)
             }
 
@@ -34,7 +35,7 @@ pub fn page(
                 p.muted {
                     "Add a passkey on each device you sign in from, unless your passkeys already sync to it."
                 }
-                (passkey::button("Add a passkey", Ceremony::Register, add_passkey))
+                (passkey::button("Add a passkey", Ceremony::Register, Emphasis::Secondary, add_passkey))
             }
 
             section.section.narrow aria-labelledby="settings-push" {
@@ -45,16 +46,15 @@ pub fn page(
             @if let Some(admin) = admin {
                 section.section.narrow aria-labelledby="settings-admin" {
                     h2 #settings-admin { "Admin" }
-                    p.muted { "Bring someone into the Crew with an Invite link." }
-                    a.button href=(admin) { "Invite links" }
+                    a.row-link href=(admin) { "Invite links" (chevron()) }
                 }
             }
 
             section.section.narrow aria-labelledby="settings-device" {
                 h2 #settings-device { "This device" }
-                p { "Logging out signs this device out. Your passkey stays, so you can sign back in." }
+                p.muted { "Logging out signs this device out. Your passkey stays, so you can sign back in." }
                 form method="post" action=(log_out) {
-                    button.button type="submit" { "Log out" }
+                    button.button.secondary type="submit" { "Log out" }
                 }
             }
         },

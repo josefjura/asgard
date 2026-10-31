@@ -7,6 +7,7 @@ pub mod finance;
 #[cfg(debug_assertions)]
 pub mod gallery;
 pub mod history;
+pub mod icon;
 pub mod invite;
 pub mod layout;
 pub mod nav;

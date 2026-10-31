@@ -6,7 +6,7 @@ expression: "form(\"/welcome/name\", \"Ondra\", None).into_string().replace(\"><
 <label for="display-name">Display name</label>
 <div class="field-row">
 <input id="display-name" type="text" name="display_name" value="Ondra" required autocomplete="nickname" aria-describedby="display-name-note">
-<button class="button" type="submit">Save</button>
+<button class="button secondary" type="submit">Save</button>
 </div>
 <p class="note" id="display-name-note" role="status">This is how the Crew sees you.</p>
 </form>

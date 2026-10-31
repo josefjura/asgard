@@ -26,12 +26,21 @@ impl Ceremony {
     }
 }
 
+/// How much a passkey button stands out: filled when it is the page's main action, outlined
+/// beside others.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Emphasis {
+    Primary,
+    Secondary,
+}
+
 /// The button that runs `ceremony` through `urls`, with the line beneath it where the script
 /// says what went wrong.
 #[must_use]
-pub fn button(label: &str, ceremony: Ceremony, urls: &CeremonyUrls) -> Markup {
+pub fn button(label: &str, ceremony: Ceremony, emphasis: Emphasis, urls: &CeremonyUrls) -> Markup {
     html! {
-        button.button type="button" data-passkey=(ceremony.attribute())
+        button.button.secondary[emphasis == Emphasis::Secondary] type="button"
+            data-passkey=(ceremony.attribute())
             data-passkey-start=(urls.start) data-passkey-finish=(urls.finish)
             aria-describedby="passkey-status" {
             (label)

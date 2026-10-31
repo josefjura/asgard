@@ -84,7 +84,7 @@ fn item(base: &str, passkey: &PasskeySummary, deletable: bool, outcome: Option<O
                     input #(input_id) type="text" name="name" value=(value) required
                         autocomplete="off" aria-describedby=[note.map(|_| &note_id)]
                         aria-invalid=[refused.then_some("true")];
-                    button.button type="submit" { "Rename" }
+                    button.button.secondary type="submit" { "Rename" }
                 }
                 @if let Some(note) = note {
                     p #(note_id) .note .refused[refused] role="status" { (note) }

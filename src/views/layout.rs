@@ -1,4 +1,4 @@
-use maud::{DOCTYPE, Markup, html};
+use maud::{DOCTYPE, Markup, PreEscaped, html};
 
 use crate::assets;
 use crate::views::brand::{header_logo, hero_logo};
@@ -7,6 +7,33 @@ use crate::views::nav::{Place, bottom_nav, settings_link};
 /// htmx's default response handling, except that a 422 is swapped in too: it is a form
 /// answering with what to fix.
 const HTMX_CONFIG: &str = r#"{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}"#;
+
+/// Grenze, the display face of page titles and the Balance figure: its Latin subset, and the
+/// extended one that holds Czech letters such as "č" and "Š". Each loads only when a page uses
+/// one of its characters. The ranges are the ones Fontsource cut the files with.
+fn display_faces() -> String {
+    [
+        (
+            assets::GRENZE_LATIN.url,
+            "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, \
+             U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, \
+             U+FFFD",
+        ),
+        (
+            assets::GRENZE_LATIN_EXT.url,
+            "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, \
+             U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, \
+             U+2113, U+2C60-2C7F, U+A720-A7FF",
+        ),
+    ]
+    .map(|(url, range)| {
+        format!(
+            "@font-face {{ font-family: \"Grenze\"; font-weight: 600; font-display: swap; \
+             src: url(\"{url}\") format(\"woff2\"); unicode-range: {range}; }}"
+        )
+    })
+    .join("\n")
+}
 
 /// A complete HTML document with the shared head: stylesheet, scripts, icons and manifest.
 #[must_use]
@@ -26,6 +53,9 @@ pub fn document(title: &str, body: &Markup) -> Markup {
                 link rel="manifest" href=(assets::MANIFEST.url);
                 link rel="icon" type="image/svg+xml" href=(assets::ICON_SVG.url);
                 link rel="apple-touch-icon" href=(assets::APPLE_TOUCH_ICON.url);
+                link rel="preload" href=(assets::GRENZE_LATIN.url) as="font" type="font/woff2" crossorigin;
+                link rel="preload" href=(assets::GRENZE_LATIN_EXT.url) as="font" type="font/woff2" crossorigin;
+                style { (PreEscaped(display_faces())) }
                 link rel="stylesheet" href=(assets::APP_CSS.url);
                 meta name="htmx-config" content=(HTMX_CONFIG);
                 script src=(assets::HTMX.url) defer {}

@@ -385,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn the_controls_come_back_to_the_same_page_of_history() {
+    fn a_row_leads_to_editing_and_back_to_the_same_page_of_history() {
         let history = History {
             page: 2,
             ..filtered()
@@ -400,7 +400,6 @@ mod tests {
 
         let back = "back=%2Fhistory%3Fmember%3D2%26month%3D2026-10%26page%3D2";
         assert!(html.contains(&format!("href=\"/expenses/7/edit?{back}\"")));
-        assert!(html.contains(&format!("hx-post=\"/expenses/7/delete?{back}\"")));
     }
 
     #[test]

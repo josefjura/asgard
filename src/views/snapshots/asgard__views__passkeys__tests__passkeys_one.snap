@@ -9,7 +9,7 @@ expression: "list(BASE, &one(), None).into_string().replace(\"><\", \">\\n<\")"
 <label for="passkey-1-name">Passkey added 14 March 2026</label>
 <div class="field-row">
 <input id="passkey-1-name" type="text" name="name" value="iPhone Safari" required autocomplete="off">
-<button class="button" type="submit">Rename</button>
+<button class="button secondary" type="submit">Rename</button>
 </div>
 </form>
 </li>

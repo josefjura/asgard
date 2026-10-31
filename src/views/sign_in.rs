@@ -1,7 +1,7 @@
 use maud::{Markup, html};
 
 use crate::views::layout::standalone;
-use crate::views::passkey::{self, Ceremony, CeremonyUrls};
+use crate::views::passkey::{self, Ceremony, CeremonyUrls, Emphasis};
 
 /// Where a signed-out visitor is sent: one button, and no username, since the passkey says who
 /// the Member is.
@@ -12,7 +12,7 @@ pub fn page(ceremony: &CeremonyUrls) -> Markup {
         &html! {
             h1 { "Sign in" }
             p.lead { "Welcome back to the Crew." }
-            (passkey::button("Sign in with passkey", Ceremony::SignIn, ceremony))
+            (passkey::button("Sign in with passkey", Ceremony::SignIn, Emphasis::Primary, ceremony))
             p { "New here? Open the Invite link the Admin sent you." }
         },
     )
