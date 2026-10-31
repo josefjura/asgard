@@ -1,6 +1,6 @@
 # SQLite in a single replica
 
-Asgard stores everything in one SQLite file (via sqlx, with compile-time-checked queries) on a persistent volume, and runs as exactly one pod with `strategy: Recreate`, so two processes never write to the file. A handful of users don't need a database server, and SQLite gives every test a fresh database in milliseconds. Backups must use `VACUUM INTO`, never a copy of the live file.
+Asgard stores everything in one SQLite file (via sqlx, with compile-time-checked queries) on a persistent volume, and runs as exactly one pod with `strategy: Recreate`, so two processes never write to the file. A handful of users don't need a database server, and SQLite gives every test a fresh database in milliseconds. Backups must use SQLite's own backup (`sqlite3 .backup` or `VACUUM INTO`), never a copy of the live file; the VPS's nightly job takes them, not Asgard.
 
 ## Considered Options
 

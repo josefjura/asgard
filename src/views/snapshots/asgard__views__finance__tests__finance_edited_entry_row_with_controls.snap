@@ -1,7 +1,6 @@
 ---
 source: src/views/finance.rs
-assertion_line: 885
-expression: "entry_row(&member(ONDRA), &edited_entry(),\nPATHS).into_string().replace(\"><\", \">\\n<\")"
+expression: "entry_row(&member(ONDRA), &edited_entry(),\nNone).into_string().replace(\"><\", \">\\n<\")"
 ---
 <li class="entry">
 <div class="entry-main">

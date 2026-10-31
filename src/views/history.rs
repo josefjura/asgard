@@ -5,7 +5,7 @@ use maud::{Markup, html};
 
 use crate::domain::finance::history::{History, HistoryFilter, Month};
 use crate::domain::members::{Member, MemberName};
-use crate::views::finance::{Paths, crowns, entry_row, problem};
+use crate::views::finance::{crowns, entry_row, paths, problem};
 use crate::views::layout::shell;
 use crate::views::nav::{Place, Tab};
 
@@ -33,8 +33,8 @@ impl Filters<'_> {
     }
 }
 
-/// History at `path` with `filter` applied, on page `page`.
-fn href(path: &str, filter: HistoryFilter, page: usize) -> String {
+/// History with `filter` applied, on page `page`.
+fn href(filter: HistoryFilter, page: usize) -> String {
     let mut query = Vec::new();
     if let Some(member) = filter.member {
         query.push(format!("member={}", member.get()));
@@ -46,9 +46,9 @@ fn href(path: &str, filter: HistoryFilter, page: usize) -> String {
         query.push(format!("page={page}"));
     }
     if query.is_empty() {
-        path.to_owned()
+        paths::HISTORY.to_owned()
     } else {
-        format!("{path}?{}", query.join("&"))
+        format!("{}?{}", paths::HISTORY, query.join("&"))
     }
 }
 
@@ -63,22 +63,16 @@ fn month_name(month: Month) -> String {
 /// the controls for the ones `me` may change, which come back to this page, the way to the other
 /// pages, and the whole Crew's monthly totals in the filter's month.
 #[must_use]
-pub fn page(
-    me: &Member,
-    members: &[MemberName],
-    filters: &Filters,
-    history: &History,
-    paths: Paths,
-) -> Markup {
+pub fn page(me: &Member, members: &[MemberName], filters: &Filters, history: &History) -> Markup {
     let applied = filters.applied;
     let filtered = !applied.is_empty() || filters.month_problem.is_some();
-    let here = href(paths.history, applied, history.page);
+    let here = href(applied, history.page);
     shell(
         Place::Tab(Tab::Finance),
         &html! {
             h1 { "History" }
 
-            form.history-filters method="get" action=(paths.history) {
+            form.history-filters method="get" action=(paths::HISTORY) {
                 div.field {
                     label for="history-member" { "Member" }
                     select #history-member name="member" {
@@ -101,7 +95,7 @@ pub fn page(
                 div.history-filter-actions {
                     button.button type="submit" { "Show" }
                     @if filtered {
-                        a.button.button-secondary href=(paths.history) { "Clear" }
+                        a.button.button-secondary href=(paths::HISTORY) { "Clear" }
                     }
                 }
             }
@@ -119,7 +113,7 @@ pub fn page(
                 } @else {
                     ul.entry-list {
                         @for entry in &history.entries {
-                            (entry_row(me, entry, paths, Some(&here)))
+                            (entry_row(me, entry, Some(&here)))
                         }
                     }
                 }
@@ -127,12 +121,12 @@ pub fn page(
                     nav.pages aria-label="Pages" {
                         @if history.page > 1 {
                             a.button.button-small rel="prev"
-                                href=(href(paths.history, applied, history.page - 1)) { "Newer" }
+                                href=(href(applied, history.page - 1)) { "Newer" }
                         }
                         span.pages-at { "Page " (history.page) " of " (history.pages) }
                         @if history.page < history.pages {
                             a.button.button-small rel="next"
-                                href=(href(paths.history, applied, history.page + 1)) { "Older" }
+                                href=(href(applied, history.page + 1)) { "Older" }
                         }
                     }
                 }
@@ -157,7 +151,7 @@ pub fn page(
                                 @let month = HistoryFilter { month: Some(total.month), ..applied };
                                 tr {
                                     th scope="row" {
-                                        a href=(href(paths.history, month, 1)) { (month_name(total.month)) }
+                                        a href=(href(month, 1)) { (month_name(total.month)) }
                                     }
                                     td { (crowns(total.expenses)) }
                                     td { (crowns(total.payments)) }
@@ -262,7 +256,7 @@ mod tests {
     use super::fixtures::{empty, filtered, october, ondra_in_october, unfiltered};
     use super::*;
     use crate::views::assert_html_snapshot;
-    use crate::views::finance::fixtures::{JOSEF, ONDRA, PATHS, SIMON, crew, member};
+    use crate::views::finance::fixtures::{JOSEF, ONDRA, SIMON, crew, member};
 
     #[test]
     fn history_unfiltered() {
@@ -271,7 +265,6 @@ mod tests {
             &crew(),
             &Filters::of(HistoryFilter::default(), ""),
             &unfiltered(),
-            PATHS
         ));
     }
 
@@ -282,7 +275,6 @@ mod tests {
             &crew(),
             &Filters::of(ondra_in_october(), "2026-10"),
             &filtered(),
-            PATHS
         ));
     }
 
@@ -297,7 +289,6 @@ mod tests {
             &crew(),
             &Filters::of(filter, "2026-10"),
             &empty(),
-            PATHS
         ));
     }
 
@@ -308,13 +299,7 @@ mod tests {
             month: "Oct",
             month_problem: Some(NOT_A_MONTH),
         };
-        assert_html_snapshot!(page(
-            &member(JOSEF),
-            &crew(),
-            &filters,
-            &unfiltered(),
-            PATHS
-        ));
+        assert_html_snapshot!(page(&member(JOSEF), &crew(), &filters, &unfiltered(),));
     }
 
     #[test]
@@ -324,7 +309,6 @@ mod tests {
             &crew(),
             &Filters::of(HistoryFilter::default(), ""),
             &empty(),
-            PATHS
         ));
     }
 
@@ -335,7 +319,6 @@ mod tests {
             &crew(),
             &Filters::of(HistoryFilter::default(), ""),
             &empty(),
-            PATHS,
         )
         .into_string();
 
@@ -356,7 +339,6 @@ mod tests {
             &crew(),
             &Filters::of(ondra_in_october(), "2026-10"),
             &history,
-            PATHS,
         )
         .into_string();
 
@@ -378,7 +360,6 @@ mod tests {
             &crew(),
             &Filters::of(filter, ""),
             &unfiltered(),
-            PATHS,
         )
         .into_string();
 
@@ -395,7 +376,6 @@ mod tests {
             &crew(),
             &Filters::of(HistoryFilter::default(), ""),
             &unfiltered(),
-            PATHS,
         )
         .into_string();
 
@@ -415,7 +395,6 @@ mod tests {
             &crew(),
             &Filters::of(ondra_in_october(), "2026-10"),
             &history,
-            PATHS,
         )
         .into_string();
 
@@ -432,7 +411,6 @@ mod tests {
                 &crew(),
                 &Filters::of(filter, ""),
                 &unfiltered(),
-                PATHS,
             )
             .into_string()
             .contains("Everyone's entries")

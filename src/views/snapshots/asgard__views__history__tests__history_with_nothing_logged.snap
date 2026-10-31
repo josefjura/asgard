@@ -1,7 +1,6 @@
 ---
 source: src/views/history.rs
-assertion_line: 322
-expression: "page(&member(JOSEF), &crew(), &Filters::of(HistoryFilter::default(), \"\"),\n&empty(), PATHS).into_string().replace(\"><\", \">\\n<\")"
+expression: "page(&member(JOSEF), &crew(), &Filters::of(HistoryFilter::default(), \"\"),\n&empty(),).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">

@@ -7,7 +7,7 @@ image:
   tag: 0.2.0
 host: asgard.joseforge.cz
 
-# DATABASE_URL, BACKUP_DIR and PORT come from the image and point into /data.
+# DATABASE_URL and PORT come from the image and point into /data.
 config:
   # Also the WebAuthn relying party: never change it (ADR 0005).
   PUBLIC_URL: https://asgard.joseforge.cz

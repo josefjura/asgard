@@ -1,6 +1,6 @@
 ---
 source: src/views/finance.rs
-expression: "expense_form(ACTION, &crew(), &values, &problems,\nTODAY).into_string().replace(\"><\", \">\\n<\")"
+expression: "expense_form(ACTION, Purpose::Log, &crew(), &values, &problems,\nTODAY).into_string().replace(\"><\", \">\\n<\")"
 ---
 <form class="entry-form" method="post" action="/expenses" hx-post="/expenses" hx-swap="outerHTML">
 <div class="field">

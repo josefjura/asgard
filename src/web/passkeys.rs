@@ -11,8 +11,7 @@ use serde::Deserialize;
 
 use super::access::{Member, SessionCookie, removed_session_cookie};
 use super::error::passkey_name_message;
-use super::htmx::Htmx;
-use super::pages::fresh;
+use super::htmx::{Htmx, fragment_or_page};
 use super::registration::{Challenge, DefaultPasskeyName, NewPasskey};
 use super::settings;
 use super::sign_in::Landing;
@@ -159,12 +158,9 @@ async fn answer(
     htmx: bool,
 ) -> Result<Response, AppError> {
     let list = list(state, member, Some(outcome)).await?;
-    let body = if htmx {
-        list
-    } else {
-        settings::page(member, &settings::name_form(member), &list)
-    };
-    Ok((status, fresh(body)).into_response())
+    Ok(fragment_or_page(htmx, status, list, |list| {
+        settings::page(member, &settings::name_form(member), list)
+    }))
 }
 
 #[cfg(test)]
@@ -175,9 +171,10 @@ mod tests {
     use sqlx::SqlitePool;
     use url::form_urlencoded;
 
-    use crate::domain::auth::{PasskeyId, PasskeySummary, SessionToken};
+    use crate::domain::auth::{LinkKind, PasskeyId, PasskeySummary, SessionToken};
     use crate::domain::members::{DisplayName, MemberId};
     use crate::web::htmx::{HX_REDIRECT, HX_REQUEST};
+    use crate::web::links;
     use crate::web::test_support::{
         Authenticator, PUBLIC_ORIGIN, Started, TestApp, authenticator, body_text, cookie_pair,
         json_request, request,
@@ -209,7 +206,7 @@ mod tests {
             .await;
         let mut authenticator = authenticator();
         let response = app
-            .join(&crate::web::invite::path(&token), &mut authenticator)
+            .join(&links::path(LinkKind::Invite, &token), &mut authenticator)
             .await;
         assert_eq!(response.status(), StatusCode::OK, "joining failed");
         Device {

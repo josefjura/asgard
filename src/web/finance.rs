@@ -12,7 +12,7 @@ use serde::Deserialize;
 
 use super::access::Member;
 use super::error::{amount_message, description_message};
-use super::htmx::{HX_REDIRECT, Htmx};
+use super::htmx::{Htmx, fragment_or_page, go_to};
 use super::pages::fresh;
 use super::{AppError, AppState, welcome};
 use crate::domain::finance::history::{HistoryFilter, Month};
@@ -23,17 +23,10 @@ use crate::domain::finance::{
 use crate::domain::members::{self, MemberId};
 use crate::views;
 use crate::views::finance::{
-    ExpenseProblems, ExpenseValues, Paths, PaymentProblems, PaymentValues, Purpose, returning_to,
+    ExpenseProblems, ExpenseValues, PaymentProblems, PaymentValues, Purpose, paths, returning_to,
 };
 use crate::views::history::{Filters, NOT_A_MONTH};
 use crate::views::nav::Tab;
-
-/// Where Finance's links and forms lead. The routes below spell out the same paths.
-const PATHS: Paths = Paths {
-    expenses: "/expenses",
-    payments: "/payments",
-    history: "/history",
-};
 
 /// What a Member is told when they pick the Sender as the Recipient too.
 const SAME_MEMBER: &str = "Choose someone other than the Sender.";
@@ -44,17 +37,17 @@ const NOT_IN_CREW: &str = "That Member isn't in the Crew. Reload the page to see
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route(Tab::Finance.href(), get(home))
-        .route("/expenses/new", get(new_expense))
-        .route(PATHS.expenses, post(log_expense))
+        .route(paths::NEW_EXPENSE, get(new_expense))
+        .route(paths::EXPENSES, post(log_expense))
         .route("/expenses/{id}/edit", get(edit_expense))
         .route("/expenses/{id}", post(save_expense))
         .route("/expenses/{id}/delete", post(delete_expense))
-        .route("/payments/new", get(new_payment))
-        .route(PATHS.payments, post(log_payment))
+        .route(paths::NEW_PAYMENT, get(new_payment))
+        .route(paths::PAYMENTS, post(log_payment))
         .route("/payments/{id}/edit", get(edit_payment))
         .route("/payments/{id}", post(save_payment))
         .route("/payments/{id}/delete", post(delete_payment))
-        .route(PATHS.history, get(history))
+        .route(paths::HISTORY, get(history))
 }
 
 /// Where a Member goes once they have edited or deleted an entry, as the entry's controls send
@@ -69,7 +62,7 @@ impl Back {
     /// Member off Asgard.
     fn history(&self) -> Option<&str> {
         self.back.as_deref().filter(|back| {
-            back.strip_prefix(PATHS.history)
+            back.strip_prefix(paths::HISTORY)
                 .is_some_and(|query| query.is_empty() || query.starts_with('?'))
         })
     }
@@ -119,7 +112,7 @@ async fn history(
         month_problem,
     };
     Ok(fresh(views::history::page(
-        &member, &members, &filters, &history, PATHS,
+        &member, &members, &filters, &history,
     )))
 }
 
@@ -130,7 +123,7 @@ async fn home(State(state): State<AppState>, Member(member): Member) -> Result<R
         return Ok(Redirect::to(welcome::PATH).into_response());
     }
     let overview = state.finance.overview().await?;
-    Ok(fresh(views::finance::home(&member, &overview, PATHS)).into_response())
+    Ok(fresh(views::finance::home(&member, &overview)).into_response())
 }
 
 /// The empty Expense form: the Payer is the Member asking, and the Expense date is today.
@@ -142,7 +135,7 @@ async fn new_expense(
     let values = ExpenseValues::blank(member.id, &today);
     let form = expense_form(
         &state,
-        PATHS.expenses,
+        paths::EXPENSES,
         Purpose::Log,
         &values,
         &ExpenseProblems::default(),
@@ -186,7 +179,7 @@ async fn log_expense(
         Ok(expense) => match state.finance.log_expense(member.id, &expense).await {
             Ok(_) => {
                 tracing::info!(member = member.id.get(), "a Member logged an Expense");
-                return Ok(go_back(htmx, Tab::Finance.href()));
+                return Ok(go_to(htmx, Tab::Finance.href()));
             }
             Err(err) => expense_problems(err)?,
         },
@@ -194,15 +187,18 @@ async fn log_expense(
     };
     let form = expense_form(
         &state,
-        PATHS.expenses,
+        paths::EXPENSES,
         Purpose::Log,
         &input.values(),
         &problems,
     )
     .await?;
-    Ok(refused(htmx, form, |form| {
-        views::finance::expense_page(Purpose::Log, form)
-    }))
+    Ok(fragment_or_page(
+        htmx,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        form,
+        |form| views::finance::expense_page(Purpose::Log, form),
+    ))
 }
 
 /// The Expense `id` in its form, for its Payer or the Admin to edit.
@@ -224,7 +220,7 @@ async fn edit_expense(
     };
     let form = expense_form(
         &state,
-        &returning_to(PATHS.expense(id), back.history()),
+        &returning_to(paths::expense(id), back.history()),
         Purpose::Edit,
         &values,
         &ExpenseProblems::default(),
@@ -248,7 +244,7 @@ async fn save_expense(
         Ok(expense) => match state.finance.edit_expense(&member, id, &expense).await {
             Ok(()) => {
                 tracing::info!(member = member.id.get(), "a Member edited an Expense");
-                return Ok(go_back(htmx, back.to()));
+                return Ok(go_to(htmx, back.to()));
             }
             Err(err) => expense_problems(err)?,
         },
@@ -260,15 +256,18 @@ async fn save_expense(
     };
     let form = expense_form(
         &state,
-        &returning_to(PATHS.expense(id), back.history()),
+        &returning_to(paths::expense(id), back.history()),
         Purpose::Edit,
         &input.values(),
         &problems,
     )
     .await?;
-    Ok(refused(htmx, form, |form| {
-        views::finance::expense_page(Purpose::Edit, form)
-    }))
+    Ok(fragment_or_page(
+        htmx,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        form,
+        |form| views::finance::expense_page(Purpose::Edit, form),
+    ))
 }
 
 /// Deletes the Expense `id` and goes back to History or Finance.
@@ -284,23 +283,7 @@ async fn delete_expense(
         .delete_expense(&member, ExpenseId::from_client(id))
         .await?;
     tracing::info!(member = member.id.get(), "a Member deleted an Expense");
-    Ok(go_back(htmx, back.to()))
-}
-
-/// Sends a Member to the page at `to`. htmx can't follow a redirect to a whole page, so it is
-/// told to load the page instead.
-fn go_back(htmx: bool, to: &str) -> Response {
-    if htmx {
-        (StatusCode::OK, [(HX_REDIRECT, to)]).into_response()
-    } else {
-        Redirect::to(to).into_response()
-    }
-}
-
-/// A refused form: alone for htmx to swap in, or inside the page `page` puts it in.
-fn refused(htmx: bool, form: Markup, page: impl FnOnce(&Markup) -> Markup) -> Response {
-    let body = if htmx { form } else { page(&form) };
-    (StatusCode::UNPROCESSABLE_ENTITY, fresh(body)).into_response()
+    Ok(go_to(htmx, back.to()))
 }
 
 /// The Expense as typed, or what is wrong with each field that can be checked on its own.
@@ -386,7 +369,7 @@ async fn new_payment(
     };
     let form = payment_form(
         &state,
-        PATHS.payments,
+        paths::PAYMENTS,
         Purpose::Log,
         &values,
         &PaymentProblems::default(),
@@ -440,7 +423,7 @@ async fn log_payment(
         Ok(payment) => match state.finance.log_payment(member.id, &payment).await {
             Ok(_) => {
                 tracing::info!(member = member.id.get(), "a Member logged a Payment");
-                return Ok(go_back(htmx, Tab::Finance.href()));
+                return Ok(go_to(htmx, Tab::Finance.href()));
             }
             Err(err) => payment_problems(err)?,
         },
@@ -448,15 +431,18 @@ async fn log_payment(
     };
     let form = payment_form(
         &state,
-        PATHS.payments,
+        paths::PAYMENTS,
         Purpose::Log,
         &input.values(),
         &problems,
     )
     .await?;
-    Ok(refused(htmx, form, |form| {
-        views::finance::payment_page(Purpose::Log, form)
-    }))
+    Ok(fragment_or_page(
+        htmx,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        form,
+        |form| views::finance::payment_page(Purpose::Log, form),
+    ))
 }
 
 /// The Payment `id` in its form, for its Sender or the Admin to edit.
@@ -477,7 +463,7 @@ async fn edit_payment(
     };
     let form = payment_form(
         &state,
-        &returning_to(PATHS.payment(id), back.history()),
+        &returning_to(paths::payment(id), back.history()),
         Purpose::Edit,
         &values,
         &PaymentProblems::default(),
@@ -501,7 +487,7 @@ async fn save_payment(
         Ok(payment) => match state.finance.edit_payment(&member, id, &payment).await {
             Ok(()) => {
                 tracing::info!(member = member.id.get(), "a Member edited a Payment");
-                return Ok(go_back(htmx, back.to()));
+                return Ok(go_to(htmx, back.to()));
             }
             Err(err) => payment_problems(err)?,
         },
@@ -513,15 +499,18 @@ async fn save_payment(
     };
     let form = payment_form(
         &state,
-        &returning_to(PATHS.payment(id), back.history()),
+        &returning_to(paths::payment(id), back.history()),
         Purpose::Edit,
         &input.values(),
         &problems,
     )
     .await?;
-    Ok(refused(htmx, form, |form| {
-        views::finance::payment_page(Purpose::Edit, form)
-    }))
+    Ok(fragment_or_page(
+        htmx,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        form,
+        |form| views::finance::payment_page(Purpose::Edit, form),
+    ))
 }
 
 /// Deletes the Payment `id` and goes back to History or Finance.
@@ -537,7 +526,7 @@ async fn delete_payment(
         .delete_payment(&member, PaymentId::from_client(id))
         .await?;
     tracing::info!(member = member.id.get(), "a Member deleted a Payment");
-    Ok(go_back(htmx, back.to()))
+    Ok(go_to(htmx, back.to()))
 }
 
 /// The Payment as typed, or what is wrong with each field that can be checked without the

@@ -4,7 +4,7 @@ Asgard runs as a single-replica Deployment in the MicroK8s cluster on our VPS, a
 
 ## Build and deploy
 
-- A multi-stage `Dockerfile` builds a static musl binary with the `dist` profile (LTO, stripped) and copies it onto `gcr.io/distroless/static-debian12`, built for `linux/amd64`. The image runs as uid/gid 10001, the VPS's default, has no shell, and owns `/data`, where `DATABASE_URL` and `BACKUP_DIR` point by default.
+- A multi-stage `Dockerfile` builds a static musl binary with the `dist` profile (LTO, stripped) and copies it onto `gcr.io/distroless/static-debian12`, built for `linux/amd64`. The image runs as uid/gid 10001, the VPS's default, has no shell, and owns `/data`, where `DATABASE_URL` points by default.
 - The VPS defines every app with one values file rendered by a shared Helm chart. Asgard's is `deploy/asgard.yaml`; the operator deploys it into the namespace `asgard` with `./deploy.sh apply asgard`. The chart enforces a non-root user, a read-only root filesystem and no capabilities, and adds the Ingress with a Let's Encrypt certificate.
 - The chart runs exactly one replica and stops the old pod before starting the new one (ADR 0004). Both probes check `/health/ready`. Only `/data` (the volume) and `/tmp` (for SQLite's temporary files) are writable.
 - `deploy/asgard-secret.example.yaml` lists the Secret's keys only. The real Secret is sent to the operator encrypted (see [Secrets](#secrets)).
@@ -138,7 +138,6 @@ Environment variables, validated at startup. Secrets come from a Kubernetes Secr
 | `DATABASE_URL` | SQLite file on the volume |
 | `PUBLIC_URL` | `https://asgard.joseforge.cz`; also the WebAuthn relying party, never change it (ADR 0005) |
 | `VAPID_PRIVATE_KEY` | Web Push signing key |
-| `BACKUP_DIR` | Where nightly snapshots are written |
 | `HOST` / `PORT` | Listen address |
 | `RUST_LOG` | Log filter |
 
@@ -159,9 +158,9 @@ It prints a link that works once, for 24 hours. Opening it registers a passkey a
 
 ## Backups and restore
 
-- Asgard writes a consistent nightly snapshot with `VACUUM INTO` to `BACKUP_DIR`. Never copy the live file; that can produce a corrupt backup.
-- The VPS's existing daily job uploads the snapshot to OneDrive and keeps the last 14.
-- To restore, replace the database file on the volume with a snapshot and restart the pod.
+- Asgard takes no backups itself. The VPS backs up every `*.db` file on the app volumes nightly, encrypted and offsite, with `sqlite3 .backup`, which is consistent even in WAL mode. `/data/asgard.db` is covered with no setup on Asgard's side.
+- Never copy the live file by hand; that can produce a corrupt backup.
+- To restore, replace the database file on the volume with a backup and restart the pod.
 
 ## Heimdall import
 

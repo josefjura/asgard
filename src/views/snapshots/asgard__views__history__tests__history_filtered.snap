@@ -1,7 +1,6 @@
 ---
 source: src/views/history.rs
-assertion_line: 280
-expression: "page(&member(ONDRA), &crew(), &Filters::of(ondra_in_october(), \"2026-10\"),\n&filtered(), PATHS).into_string().replace(\"><\", \">\\n<\")"
+expression: "page(&member(ONDRA), &crew(), &Filters::of(ondra_in_october(), \"2026-10\"),\n&filtered(),).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">

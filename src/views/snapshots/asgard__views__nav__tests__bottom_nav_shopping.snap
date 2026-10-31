@@ -1,6 +1,6 @@
 ---
 source: src/views/nav.rs
-expression: "super::bottom_nav(tab).into_string().replace(\"><\", \">\\n<\")"
+expression: "super::bottom_nav(Place::Tab(tab)).into_string().replace(\"><\", \">\\n<\")"
 ---
 <nav class="tabs" aria-label="Sections">
 <a class="tab" href="/">

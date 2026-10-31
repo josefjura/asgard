@@ -2,9 +2,9 @@
 
 use url::Url;
 
-use crate::domain::auth::{Auth, AuthError};
+use crate::domain::auth::{Auth, AuthError, LinkKind};
 use crate::domain::members::DisplayName;
-use crate::web::invite;
+use crate::web::links;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
@@ -51,7 +51,7 @@ pub async fn bootstrap_admin(
     let name = DisplayName::parse(display_name)?;
     let token = auth.create_admin_invite(&name).await?;
     let mut link = public_url.clone();
-    link.set_path(&invite::path(&token));
+    link.set_path(&links::path(LinkKind::Invite, &token));
     Ok(link)
 }
 

@@ -76,8 +76,10 @@ mod tests {
     use sqlx::SqlitePool;
     use url::form_urlencoded;
 
+    use crate::domain::auth::LinkKind;
     use crate::domain::members::{DISPLAY_NAME_MAX, DisplayName};
     use crate::views::nav::Tab;
+    use crate::web::links;
     use crate::web::test_support::{
         PUBLIC_ORIGIN, TestApp, authenticator, body_text, cookie_pair, request,
     };
@@ -92,7 +94,7 @@ mod tests {
             .create_test_invite(&DisplayName::parse("Ondra").unwrap())
             .await;
         let response = app
-            .join(&crate::web::invite::path(&token), &mut authenticator())
+            .join(&links::path(LinkKind::Invite, &token), &mut authenticator())
             .await;
         assert_eq!(response.status(), StatusCode::OK, "joining failed");
         let cookie = cookie_pair(&response);
@@ -199,7 +201,7 @@ mod tests {
             .create_test_invite(&DisplayName::parse("Karel").unwrap())
             .await;
         let invite = app
-            .get_with(&crate::web::invite::path(&token), &cookie)
+            .get_with(&links::path(LinkKind::Invite, &token), &cookie)
             .await;
         let html = body_text(invite).await;
         assert!(html.contains("signed in as <strong>Ondřej</strong>"));

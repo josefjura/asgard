@@ -1,7 +1,6 @@
 ---
 source: src/views/history.rs
-assertion_line: 289
-expression: "page(&member(SIMON), &crew(), &Filters::of(filter, \"2026-10\"), &empty(),\nPATHS).into_string().replace(\"><\", \">\\n<\")"
+expression: "page(&member(SIMON), &crew(), &Filters::of(filter, \"2026-10\"),\n&empty(),).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">

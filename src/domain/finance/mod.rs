@@ -65,7 +65,7 @@ impl PaymentId {
 pub struct Description(String);
 
 impl Description {
-    /// Trims `input` and checks it can describe an Expense.
+    /// Trims `input` and checks it can describe an Expense or Payment.
     ///
     /// # Errors
     ///
@@ -347,8 +347,7 @@ impl Finance {
         logger: MemberId,
         expense: &NewExpense,
     ) -> Result<ExpenseId, ExpenseError> {
-        self.check_expense(expense).await?;
-        let split = self.split_on(expense.expense_date).await?;
+        let split = self.check_expense(expense).await?;
         let payer = expense.payer.get();
         let amount = expense.amount.get();
         let expense_date = expense.expense_date.to_string();
@@ -371,16 +370,23 @@ impl Finance {
         Ok(id)
     }
 
-    /// Everyone in the Crew on `date`: the Members an Expense of that date is split between.
+    /// Everyone in the Crew on `date`, by [`Participant::shares_on`]: the Members an Expense of
+    /// that date is split between.
     async fn split_on(&self, date: Date) -> Result<Vec<MemberId>, sqlx::Error> {
-        let date = date.to_string();
-        let split = sqlx::query_scalar!(
-            r#"SELECT id AS "id!" FROM members WHERE joined_on <= ?"#,
-            date
-        )
-        .fetch_all(&self.db)
-        .await?;
-        Ok(split.into_iter().map(MemberId::from_stored).collect())
+        let members = sqlx::query!(r#"SELECT id AS "id!", joined_on FROM members ORDER BY id"#)
+            .fetch_all(&self.db)
+            .await?;
+        let mut split = Vec::new();
+        for row in members {
+            let member = Participant {
+                id: MemberId::from_stored(row.id),
+                joined_on: parse_date(&row.joined_on)?,
+            };
+            if member.shares_on(date) {
+                split.push(member.id);
+            }
+        }
+        Ok(split)
     }
 
     /// Emits that `actor` did `action` to `entry`, for everyone `involved` but the actor to hear.
@@ -406,18 +412,16 @@ impl Finance {
     }
 
     /// Refuses an Expense dated after today, or paid by someone who hadn't joined by its
-    /// Expense date.
-    async fn check_expense(&self, expense: &NewExpense) -> Result<(), ExpenseError> {
+    /// Expense date. Otherwise, the Members it is split between.
+    async fn check_expense(&self, expense: &NewExpense) -> Result<Vec<MemberId>, ExpenseError> {
         if expense.expense_date > self.today() {
             return Err(ExpenseError::FutureDate);
         }
-        let payer = expense.payer.get();
-        let joined_on = sqlx::query_scalar!("SELECT joined_on FROM members WHERE id = ?", payer)
-            .fetch_optional(&self.db)
-            .await?;
-        match joined_on.as_deref().map(parse_date).transpose()? {
-            Some(joined_on) if joined_on <= expense.expense_date => Ok(()),
-            _ => Err(ExpenseError::PayerNotInCrew),
+        let split = self.split_on(expense.expense_date).await?;
+        if split.contains(&expense.payer) {
+            Ok(split)
+        } else {
+            Err(ExpenseError::PayerNotInCrew)
         }
     }
 
@@ -466,9 +470,9 @@ impl Finance {
         expense: &NewExpense,
     ) -> Result<(), ExpenseError> {
         let before = self.expense_to_edit(editor, id).await?;
-        self.check_expense(expense).await?;
+        let split = self.check_expense(expense).await?;
         let mut involved = self.split_on(before.expense_date).await?;
-        involved.extend(self.split_on(expense.expense_date).await?);
+        involved.extend(split);
         let payer = before.payer.get();
         let new_payer = expense.payer.get();
         let amount = expense.amount.get();

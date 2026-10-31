@@ -1,7 +1,6 @@
 ---
 source: src/views/finance.rs
-assertion_line: 876
-expression: "entry_row(&member(SIMON), &payment_entry(Some(\"For the malt\")),\nPATHS).into_string().replace(\"><\", \">\\n<\")"
+expression: "entry_row(&member(SIMON), &payment_entry(Some(\"For the malt\")),\nNone).into_string().replace(\"><\", \">\\n<\")"
 ---
 <li class="entry payment">
 <div class="entry-main">

@@ -1,9 +1,9 @@
 //! Whole crowns: the only currency the Crew uses, and never a float.
 
-/// The smallest amount an Expense can be for.
+/// The smallest amount an Expense or Payment can be for.
 pub const AMOUNT_MIN: i64 = 1;
 
-/// The largest amount an Expense can be for.
+/// The largest amount an Expense or Payment can be for.
 pub const AMOUNT_MAX: i64 = 1_000_000;
 
 /// A signed number of whole crowns, such as a Balance or a Share.
@@ -52,7 +52,7 @@ pub enum Standing {
     Even,
 }
 
-/// What an Expense is for: from [`AMOUNT_MIN`] to [`AMOUNT_MAX`] whole crowns.
+/// How much an Expense or Payment is for: from [`AMOUNT_MIN`] to [`AMOUNT_MAX`] whole crowns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Amount(i64);
 
