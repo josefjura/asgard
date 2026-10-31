@@ -13,12 +13,13 @@ use crate::domain::members::{Member, MemberId, MemberName};
 use crate::views::layout::shell;
 use crate::views::nav::{Place, Tab};
 
-/// Where Finance's links and forms lead: everything about Expenses under `expenses`, and about
-/// Payments under `payments`.
+/// Where Finance's links and forms lead: everything about Expenses under `expenses`, about
+/// Payments under `payments`, and History at `history`.
 #[derive(Debug, Clone, Copy)]
 pub struct Paths {
     pub expenses: &'static str,
     pub payments: &'static str,
+    pub history: &'static str,
 }
 
 impl Paths {
@@ -216,6 +217,7 @@ pub fn home(me: &Member, overview: &Overview, paths: Paths) -> Markup {
                             (entry_row(me, entry, paths))
                         }
                     }
+                    p.history-link { a href=(paths.history) { "See every entry in History" } }
                 }
             }
         },
@@ -590,7 +592,8 @@ pub fn payment_form(
     }
 }
 
-fn problem(id: &str, message: Option<&str>) -> Markup {
+/// What was wrong with a field, as the element `id` its field is described by.
+pub(super) fn problem(id: &str, message: Option<&str>) -> Markup {
     html! {
         @if let Some(message) = message {
             p.field-problem id=(id) { (message) }
@@ -623,6 +626,7 @@ pub mod fixtures {
     pub const PATHS: Paths = Paths {
         expenses: "/expenses",
         payments: "/payments",
+        history: "/history",
     };
 
     fn name(name: &str) -> DisplayName {

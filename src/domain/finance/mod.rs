@@ -1,6 +1,7 @@
 //! The Crew's shared money: logging Expenses and Payments, and working out everyone's Balance
 //! and the Settlements that would make them Even.
 
+pub mod history;
 pub mod ledger;
 pub mod money;
 pub mod settlement;
@@ -10,11 +11,14 @@ use std::collections::BTreeSet;
 use jiff::civil::Date;
 use sqlx::{SqliteConnection, SqlitePool};
 
+use self::history::{History, HistoryFilter, Month};
 use self::ledger::{Ledger, LedgerExpense, LedgerPayment, Participant};
 use self::money::{Amount, Crowns};
 use self::settlement::{Settlement, settlement_plan};
 use crate::domain::channel::Emitter;
-use crate::domain::clock::{Clock, crew_date_of_unix_seconds, unix_seconds};
+use crate::domain::clock::{
+    Clock, crew_date_of_unix_seconds, unix_seconds, unix_seconds_at_crew_midnight,
+};
 use crate::domain::members::{DisplayName, Member, MemberId, MemberName, parse_date};
 
 /// The longest description of an Expense or Payment, in characters.
@@ -225,6 +229,15 @@ impl Entry {
             Self::Payment(payment) => payment.sender.id,
         };
         may_change(member, payer_or_sender)
+    }
+
+    /// The day the entry is dated: an Expense's Expense date, or the day a Payment was logged on.
+    #[must_use]
+    pub const fn date(&self) -> Date {
+        match self {
+            Self::Expense(expense) => expense.expense_date,
+            Self::Payment(payment) => payment.logged_on,
+        }
     }
 }
 
@@ -758,11 +771,57 @@ impl Finance {
             recent,
         })
     }
+
+    /// The `page`th page of the entries `filter` lets through, and their monthly totals, as
+    /// [`History::of`] lays them out.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the database does.
+    pub async fn history(
+        &self,
+        filter: &HistoryFilter,
+        page: usize,
+    ) -> Result<History, sqlx::Error> {
+        let mut conn = self.db.acquire().await?;
+        let all = entries(&mut conn, filter, -1).await?;
+        Ok(History::of(all, page))
+    }
 }
 
 /// The [`RECENT_ENTRIES`] Expenses and Payments logged last, newest first.
 async fn recent_entries(conn: &mut SqliteConnection) -> Result<Vec<Entry>, sqlx::Error> {
-    let recent_expenses = sqlx::query!(
+    let mut recent = entries(conn, &HistoryFilter::default(), RECENT_ENTRIES).await?;
+    // A stable sort keeps the order [`entries`] gives entries logged in the same second.
+    recent.sort_by_key(|&(logged_at, _)| std::cmp::Reverse(logged_at));
+    Ok(recent
+        .into_iter()
+        .map(|(_, entry)| entry)
+        .take(usize::try_from(RECENT_ENTRIES).unwrap_or(usize::MAX))
+        .collect())
+}
+
+/// The Expenses and Payments `filter` lets through, each with the Unix second it was logged at:
+/// the `limit` of each logged last, or all of them for a negative `limit`. Expenses come first,
+/// each kind the latest logged first.
+async fn entries(
+    conn: &mut SqliteConnection,
+    filter: &HistoryFilter,
+    limit: i64,
+) -> Result<Vec<(i64, Entry)>, sqlx::Error> {
+    let member = filter.member.map(MemberId::get);
+    let first_day = filter.month.map(Month::first_day);
+    let next_first_day = filter.month.and_then(Month::next).map(Month::first_day);
+    let expense_dates = (
+        first_day.map(|day| day.to_string()),
+        next_first_day.map(|day| day.to_string()),
+    );
+    // A Payment falls in the month it was logged in, in the Crew's time zone.
+    let logged = (
+        first_day.map(unix_seconds_at_crew_midnight),
+        next_first_day.map(unix_seconds_at_crew_midnight),
+    );
+    let expenses = sqlx::query!(
         r#"SELECT expenses.id AS "id!", payer_id, payers.display_name AS payer, amount,
                   description, expense_date, logged_at, editors.display_name AS "editor?",
                   edited_at
@@ -770,13 +829,19 @@ async fn recent_entries(conn: &mut SqliteConnection) -> Result<Vec<Entry>, sqlx:
            JOIN members AS payers ON payers.id = expenses.payer_id
            LEFT JOIN members AS editors ON editors.id = expenses.edited_by
            WHERE deleted_at IS NULL
+             AND (?1 IS NULL OR payer_id = ?1)
+             AND (?2 IS NULL OR expense_date >= ?2)
+             AND (?3 IS NULL OR expense_date < ?3)
            ORDER BY logged_at DESC, expenses.id DESC
-           LIMIT ?"#,
-        RECENT_ENTRIES
+           LIMIT ?4"#,
+        member,
+        expense_dates.0,
+        expense_dates.1,
+        limit,
     )
     .fetch_all(&mut *conn)
     .await?;
-    let recent_payments = sqlx::query!(
+    let payments = sqlx::query!(
         r#"SELECT payments.id AS "id!", sender_id, senders.display_name AS sender,
                   recipients.display_name AS recipient, amount, description, logged_at,
                   editors.display_name AS "editor?", edited_at
@@ -785,16 +850,20 @@ async fn recent_entries(conn: &mut SqliteConnection) -> Result<Vec<Entry>, sqlx:
            JOIN members AS recipients ON recipients.id = payments.recipient_id
            LEFT JOIN members AS editors ON editors.id = payments.edited_by
            WHERE deleted_at IS NULL
+             AND (?1 IS NULL OR sender_id = ?1 OR recipient_id = ?1)
+             AND (?2 IS NULL OR logged_at >= ?2)
+             AND (?3 IS NULL OR logged_at < ?3)
            ORDER BY logged_at DESC, payments.id DESC
-           LIMIT ?"#,
-        RECENT_ENTRIES
+           LIMIT ?4"#,
+        member,
+        logged.0,
+        logged.1,
+        limit,
     )
     .fetch_all(&mut *conn)
     .await?;
 
-    // Each list is newest first already; a stable sort keeps that order between entries
-    // logged in the same second.
-    let mut recent = recent_expenses
+    let mut entries = expenses
         .into_iter()
         .map(|row| {
             let entry = Entry::Expense(ExpenseEntry {
@@ -811,7 +880,7 @@ async fn recent_entries(conn: &mut SqliteConnection) -> Result<Vec<Entry>, sqlx:
             Ok((row.logged_at, entry))
         })
         .collect::<Result<Vec<_>, sqlx::Error>>()?;
-    recent.extend(recent_payments.into_iter().map(|row| {
+    entries.extend(payments.into_iter().map(|row| {
         let entry = Entry::Payment(PaymentEntry {
             id: PaymentId(row.id),
             sender: MemberName {
@@ -826,12 +895,7 @@ async fn recent_entries(conn: &mut SqliteConnection) -> Result<Vec<Entry>, sqlx:
         });
         (row.logged_at, entry)
     }));
-    recent.sort_by_key(|&(logged_at, _)| std::cmp::Reverse(logged_at));
-    Ok(recent
-        .into_iter()
-        .map(|(_, entry)| entry)
-        .take(usize::try_from(RECENT_ENTRIES).unwrap_or(usize::MAX))
-        .collect())
+    Ok(entries)
 }
 
 /// An entry's last edit from its stored editor and instant, if it was ever edited.
@@ -852,6 +916,7 @@ mod tests {
     use jiff::tz::TimeZone;
     use tokio::sync::broadcast;
 
+    use super::history::{HISTORY_PAGE, MonthlyTotal};
     use super::*;
     use crate::domain::channel::Channel;
     use crate::domain::clock::ManualClock;
@@ -1945,6 +2010,175 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(emitted(&mut events), []);
+    }
+
+    /// An instant as a [`ManualClock`] is set to it, `seconds` after the Unix epoch.
+    fn at_unix_seconds(seconds: u64) -> SystemTime {
+        SystemTime::UNIX_EPOCH + Duration::from_secs(seconds)
+    }
+
+    fn history_amounts(history: &History) -> Vec<i64> {
+        history.entries.iter().map(amount_of).collect()
+    }
+
+    #[sqlx::test]
+    async fn history_lists_every_entry_but_the_deleted_newest_first(db: SqlitePool) {
+        let (josef, ondra, _) = crew_of_three(&db).await;
+        let (finance, clock) = finance_and_clock(db);
+        finance
+            .log_expense(josef.id, &expense(josef.id, 100, "Malt", date(2026, 3, 20)))
+            .await
+            .unwrap();
+        let deleted = finance
+            .log_expense(josef.id, &expense(josef.id, 200, "Hops", date(2026, 3, 25)))
+            .await
+            .unwrap();
+        clock.advance(Duration::from_secs(60));
+        finance
+            .log_payment(ondra.id, &payment(ondra.id, josef.id, 300, ""))
+            .await
+            .unwrap();
+        let deleted_payment = finance
+            .log_payment(ondra.id, &payment(ondra.id, josef.id, 400, ""))
+            .await
+            .unwrap();
+        finance
+            .log_expense(
+                ondra.id,
+                &expense(ondra.id, 500, "Yeast", date(2026, 3, 15)),
+            )
+            .await
+            .unwrap();
+        finance.delete_expense(&josef, deleted).await.unwrap();
+        finance
+            .delete_payment(&ondra, deleted_payment)
+            .await
+            .unwrap();
+
+        let history = finance.history(&HistoryFilter::default(), 1).await.unwrap();
+
+        // The Payment is dated 2 April, the day it was logged on.
+        assert_eq!(history_amounts(&history), [300, 100, 500]);
+        assert_eq!(
+            history
+                .totals
+                .iter()
+                .map(|total| (
+                    total.month.to_string(),
+                    total.expenses.get(),
+                    total.payments.get()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("2026-04".to_owned(), 0, 300),
+                ("2026-03".to_owned(), 600, 0)
+            ]
+        );
+    }
+
+    #[sqlx::test]
+    async fn history_filters_by_payer_sender_or_recipient(db: SqlitePool) {
+        let (josef, ondra, simon) = crew_of_three(&db).await;
+        let finance = finance(db);
+        // Josef logs everything: being the Logger doesn't count.
+        for (payer, crowns) in [(ondra.id, 1), (simon.id, 2)] {
+            finance
+                .log_expense(josef.id, &expense(payer, crowns, "Malt", date(2026, 3, 20)))
+                .await
+                .unwrap();
+        }
+        for (sender, recipient, crowns) in [(ondra.id, simon.id, 3), (simon.id, ondra.id, 4)] {
+            finance
+                .log_payment(josef.id, &payment(sender, recipient, crowns, ""))
+                .await
+                .unwrap();
+        }
+        let filter = |member: &Member| HistoryFilter {
+            member: Some(member.id),
+            month: None,
+        };
+
+        let mut ondras = history_amounts(&finance.history(&filter(&ondra), 1).await.unwrap());
+        ondras.sort_unstable();
+        assert_eq!(ondras, [1, 3, 4]);
+        let mut simons = history_amounts(&finance.history(&filter(&simon), 1).await.unwrap());
+        simons.sort_unstable();
+        assert_eq!(simons, [2, 3, 4]);
+        let josefs = finance.history(&filter(&josef), 1).await.unwrap();
+        assert_eq!(josefs.entries, []);
+        assert_eq!(josefs.totals, []);
+    }
+
+    #[sqlx::test]
+    async fn history_months_turn_at_midnight_in_prague(db: SqlitePool) {
+        let (josef, ondra, _) = crew_of_three(&db).await;
+        let (finance, clock) = finance_and_clock(db);
+        // 2026-04-30T21:59:59Z is 23:59:59 on 30 April in Prague (UTC+2); a second later it's May.
+        clock.set(at_unix_seconds(1_777_586_399));
+        finance
+            .log_payment(ondra.id, &payment(ondra.id, josef.id, 1, ""))
+            .await
+            .unwrap();
+        clock.advance(Duration::from_secs(1));
+        finance
+            .log_payment(ondra.id, &payment(ondra.id, josef.id, 2, ""))
+            .await
+            .unwrap();
+        finance
+            .log_expense(ondra.id, &expense(ondra.id, 30, "Malt", date(2026, 4, 30)))
+            .await
+            .unwrap();
+        finance
+            .log_expense(ondra.id, &expense(ondra.id, 40, "Hops", date(2026, 5, 1)))
+            .await
+            .unwrap();
+        let month = |month: &str| HistoryFilter {
+            member: None,
+            month: Some(Month::parse(month).unwrap()),
+        };
+
+        let april = finance.history(&month("2026-04"), 1).await.unwrap();
+        let may = finance.history(&month("2026-05"), 1).await.unwrap();
+
+        assert_eq!(history_amounts(&april), [30, 1]);
+        // Logged in the same second, on the same day: Expenses come first.
+        assert_eq!(history_amounts(&may), [40, 2]);
+        assert_eq!(
+            may.totals,
+            [MonthlyTotal {
+                month: Month::parse("2026-05").unwrap(),
+                expenses: Crowns::new(40),
+                payments: Crowns::new(2),
+            }]
+        );
+        assert_eq!(
+            finance.history(&month("2026-03"), 1).await.unwrap().entries,
+            []
+        );
+    }
+
+    #[sqlx::test]
+    async fn history_pages_through_more_entries_than_the_home_screen_shows(db: SqlitePool) {
+        let (josef, ..) = crew_of_three(&db).await;
+        let finance = finance(db);
+        let count = i64::try_from(HISTORY_PAGE).unwrap() + 1;
+        for crowns in 1..=count {
+            finance
+                .log_expense(
+                    josef.id,
+                    &expense(josef.id, crowns, "Malt", date(2026, 3, 20)),
+                )
+                .await
+                .unwrap();
+        }
+
+        let first = finance.history(&HistoryFilter::default(), 1).await.unwrap();
+        let second = finance.history(&HistoryFilter::default(), 2).await.unwrap();
+
+        assert_eq!(first.pages, 2);
+        assert_eq!(first.entries.len(), HISTORY_PAGE);
+        assert_eq!(history_amounts(&first)[0], count);
+        assert_eq!(history_amounts(&second), [1]);
     }
 
     #[sqlx::test]

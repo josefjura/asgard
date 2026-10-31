@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT payments.id AS \"id!\", sender_id, senders.display_name AS sender,\n                  recipients.display_name AS recipient, amount, description, logged_at,\n                  editors.display_name AS \"editor?\", edited_at\n           FROM payments\n           JOIN members AS senders ON senders.id = payments.sender_id\n           JOIN members AS recipients ON recipients.id = payments.recipient_id\n           LEFT JOIN members AS editors ON editors.id = payments.edited_by\n           WHERE deleted_at IS NULL\n           ORDER BY logged_at DESC, payments.id DESC\n           LIMIT ?",
+  "query": "SELECT payments.id AS \"id!\", sender_id, senders.display_name AS sender,\n                  recipients.display_name AS recipient, amount, description, logged_at,\n                  editors.display_name AS \"editor?\", edited_at\n           FROM payments\n           JOIN members AS senders ON senders.id = payments.sender_id\n           JOIN members AS recipients ON recipients.id = payments.recipient_id\n           LEFT JOIN members AS editors ON editors.id = payments.edited_by\n           WHERE deleted_at IS NULL\n             AND (?1 IS NULL OR sender_id = ?1 OR recipient_id = ?1)\n             AND (?2 IS NULL OR logged_at >= ?2)\n             AND (?3 IS NULL OR logged_at < ?3)\n           ORDER BY logged_at DESC, payments.id DESC\n           LIMIT ?4",
   "describe": {
     "columns": [
       {
@@ -50,7 +50,7 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 4
     },
     "nullable": [
       false,
@@ -64,5 +64,5 @@
       true
     ]
   },
-  "hash": "d70b4c05cfcfde2a6b6be5574c1316b35bd9d845acce3c46facfa8b288e3d254"
+  "hash": "a66a69d7a13dd7d88f2c3d59df3aad5565c6809a313593ce7fa2b71950fa5b49"
 }

@@ -15,6 +15,7 @@ use super::error::{amount_message, description_message};
 use super::htmx::{HX_REDIRECT, Htmx};
 use super::pages::fresh;
 use super::{AppError, AppState, welcome};
+use crate::domain::finance::history::{HistoryFilter, Month};
 use crate::domain::finance::money::Amount;
 use crate::domain::finance::{
     Description, ExpenseError, ExpenseId, NewExpense, NewPayment, PaymentError, PaymentId,
@@ -24,13 +25,18 @@ use crate::views;
 use crate::views::finance::{
     ExpenseProblems, ExpenseValues, Paths, PaymentProblems, PaymentValues, Purpose,
 };
+use crate::views::history::Filters;
 use crate::views::nav::Tab;
 
 /// Where Finance's links and forms lead. The routes below spell out the same paths.
 const PATHS: Paths = Paths {
     expenses: "/expenses",
     payments: "/payments",
+    history: "/history",
 };
+
+/// What a Member is told when the month they typed into History's filter isn't one.
+const NOT_A_MONTH: &str = "Enter a month as YYYY-MM, like 2026-10.";
 
 /// What a Member is told when they pick the Sender as the Recipient too.
 const SAME_MEMBER: &str = "Choose someone other than the Sender.";
@@ -51,6 +57,50 @@ pub fn routes() -> Router<AppState> {
         .route("/payments/{id}/edit", get(edit_payment))
         .route("/payments/{id}", post(save_payment))
         .route("/payments/{id}/delete", post(delete_payment))
+        .route(PATHS.history, get(history))
+}
+
+/// History's filter and page, as its form and links send them.
+#[derive(Deserialize)]
+struct HistoryQuery {
+    /// Empty for everyone.
+    #[serde(default)]
+    member: String,
+    /// Empty for every month.
+    #[serde(default)]
+    month: String,
+    page: Option<usize>,
+}
+
+/// A page of History with the filter applied. A month that isn't one is left out of the filter
+/// and shown with what to fix.
+async fn history(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Query(query): Query<HistoryQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let (month, month_problem) = if query.month.trim().is_empty() {
+        (None, None)
+    } else {
+        Month::parse(&query.month).map_or((None, Some(NOT_A_MONTH)), |month| (Some(month), None))
+    };
+    let applied = HistoryFilter {
+        member: query.member.trim().parse().ok().map(MemberId::from_client),
+        month,
+    };
+    let history = state
+        .finance
+        .history(&applied, query.page.unwrap_or(1))
+        .await?;
+    let members = state.members.all().await?;
+    let filters = Filters {
+        applied,
+        month: &query.month,
+        month_problem,
+    };
+    Ok(fresh(views::history::page(
+        &member, &members, &filters, &history, PATHS,
+    )))
 }
 
 /// The home page. It sends a Member to the welcome page until they have pressed "Got it"
@@ -1398,6 +1448,166 @@ mod tests {
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         let html = page(&app, "/", &josef).await;
         assert!(html.contains("<span class=\"entry-what\" id=\"expense-1\">Malt</span>"));
+    }
+
+    #[sqlx::test]
+    async fn signed_out_history_redirects_to_sign_in(db: SqlitePool) {
+        let app = TestApp::new(db);
+
+        for uri in ["/history", "/history?member=1&month=2026-01&page=2"] {
+            let response = app.get(uri).await;
+            assert_eq!(response.status(), StatusCode::SEE_OTHER, "{uri}");
+            assert_eq!(response.headers()[LOCATION], "/sign-in", "{uri}");
+        }
+    }
+
+    /// The ids of the Expenses a page lists, in order.
+    fn expense_ids(html: &str) -> Vec<i64> {
+        html.match_indices("id=\"expense-")
+            .filter_map(|(start, found)| {
+                let id = &html[start + found.len()..];
+                id[..id.find('"')?].parse().ok()
+            })
+            .collect()
+    }
+
+    #[sqlx::test]
+    async fn history_lists_every_entry_but_the_deleted_across_pages(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (josef, _) = josef_and_ondra(&app).await;
+        for crowns in 1..=27 {
+            let amount = crowns.to_string();
+            let changes = [("amount", amount.as_str())];
+            post_expense(&app, &josef, &fields(1, &changes), true, PUBLIC_ORIGIN).await;
+        }
+        app.post_with("/expenses/27/delete", &josef).await;
+
+        let html = page(&app, "/", &josef).await;
+        assert!(html.contains("<a href=\"/history\">See every entry in History</a>"));
+
+        let first = page(&app, "/history", &josef).await;
+        assert!(first.contains("<h1>History</h1>"));
+        assert_eq!(expense_ids(&first), (2..=26).rev().collect::<Vec<_>>());
+        assert!(first.contains("Page 1 of 2"));
+        assert!(first.contains("rel=\"next\" href=\"/history?page=2\">Older</a>"));
+        // The Admin may change every entry.
+        assert!(first.contains("href=\"/expenses/26/edit\""));
+        let second = page(&app, "/history?page=2", &josef).await;
+        assert_eq!(expense_ids(&second), [1]);
+        assert!(second.contains("rel=\"prev\" href=\"/history\">Newer</a>"));
+        // 1 + 2 + … + 26 Kč, without the deleted 27 Kč.
+        assert!(second.contains(&format!(
+            "January 2026</a></th><td>{}</td><td>{}</td>",
+            crowns(Crowns::new(351)),
+            crowns(Crowns::ZERO)
+        )));
+    }
+
+    #[sqlx::test]
+    async fn history_filters_by_payer_sender_or_recipient(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (josef, ondra, _) = simon_paid_ondra_logged(&app).await;
+        post_payment(
+            &app,
+            &josef,
+            &payment_fields(2, 1, &[]),
+            true,
+            PUBLIC_ORIGIN,
+        )
+        .await;
+        let lists = |html: &str| {
+            (
+                html.contains("id=\"expense-1\""),
+                html.contains("id=\"payment-1\""),
+            )
+        };
+
+        // Šimon paid the Malt; Ondra sent Josef the Payment and logged the Malt.
+        let simons = page(&app, "/history?member=3", &ondra).await;
+        assert_eq!(lists(&simons), (true, false));
+        assert!(simons.contains("<option value=\"3\" selected>Šimon</option>"));
+        assert_eq!(
+            lists(&page(&app, "/history?member=2", &ondra).await),
+            (false, true)
+        );
+        assert_eq!(
+            lists(&page(&app, "/history?member=1", &ondra).await),
+            (false, true)
+        );
+        assert_eq!(
+            lists(&page(&app, "/history?member=&month=", &ondra).await),
+            (true, true)
+        );
+        let nobodys = page(&app, "/history?member=99", &ondra).await;
+        assert_eq!(lists(&nobodys), (false, false));
+        assert!(nobodys.contains("No entries match."));
+        assert!(nobodys.contains(">Clear</a>"));
+    }
+
+    #[sqlx::test]
+    async fn history_months_turn_at_midnight_in_prague(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (josef, ondra) = josef_and_ondra(&app).await;
+        // 2026-01-31T22:59:59Z is 23:59:59 on 31 January in Prague (UTC+1); a second later it's
+        // February.
+        app.clock.advance(Duration::from_secs(
+            30 * 24 * 60 * 60 + 22 * 60 * 60 + 59 * 60 + 59,
+        ));
+        post_payment(
+            &app,
+            &ondra,
+            &payment_fields(2, 1, &[]),
+            true,
+            PUBLIC_ORIGIN,
+        )
+        .await;
+        app.clock.advance(Duration::from_secs(1));
+        let changes = [("amount", "400")];
+        post_payment(
+            &app,
+            &ondra,
+            &payment_fields(2, 1, &changes),
+            true,
+            PUBLIC_ORIGIN,
+        )
+        .await;
+        let changes = [("expense_date", "2026-01-31")];
+        post_expense(&app, &josef, &fields(1, &changes), true, PUBLIC_ORIGIN).await;
+
+        let january = page(&app, "/history?month=2026-01", &josef).await;
+        assert!(january.contains("id=\"payment-1\""));
+        assert!(!january.contains("id=\"payment-2\""));
+        assert!(january.contains("id=\"expense-1\""));
+        assert!(january.contains("value=\"2026-01\""));
+        assert!(january.contains(&format!(
+            "January 2026</a></th><td>{}</td><td>{}</td>",
+            crowns(Crowns::new(1_000)),
+            crowns(Crowns::new(300))
+        )));
+        assert!(!january.contains("February 2026"));
+
+        let february = page(&app, "/history?month=2026-02", &josef).await;
+        assert!(february.contains("id=\"payment-2\""));
+        assert!(!february.contains("id=\"payment-1\""));
+        assert!(!february.contains("id=\"expense-1\""));
+
+        let everything = page(&app, "/history", &josef).await;
+        assert!(everything.contains("<a href=\"/history?month=2026-02\">February 2026</a>"));
+        assert!(everything.contains("<a href=\"/history?month=2026-01\">January 2026</a>"));
+    }
+
+    #[sqlx::test]
+    async fn a_mistyped_month_is_shown_with_what_to_fix(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let (josef, _) = josef_and_ondra(&app).await;
+        post_expense(&app, &josef, &fields(1, &[]), true, PUBLIC_ORIGIN).await;
+
+        let html = page(&app, "/history?month=Oct", &josef).await;
+
+        assert!(html.contains("value=\"Oct\""));
+        assert!(html.contains("aria-invalid=\"true\""));
+        assert!(html.contains("Enter a month as YYYY-MM, like 2026-10."));
+        assert!(html.contains("id=\"expense-1\""));
     }
 
     #[sqlx::test]

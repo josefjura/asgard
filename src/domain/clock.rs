@@ -72,15 +72,31 @@ fn timestamp_of_unix_seconds(seconds: i64) -> Timestamp {
     })
 }
 
+/// The instant `date` begins in the Crew's time zone, as Unix seconds.
+///
+/// # Panics
+///
+/// Never in practice: midnight of every date jiff can hold is within its range of instants.
+#[must_use]
+pub fn unix_seconds_at_crew_midnight(date: Date) -> i64 {
+    date.to_zoned(crew_zone())
+        .expect("a date's midnight is within jiff's range")
+        .timestamp()
+        .as_second()
+}
+
 fn crew_date(at: Timestamp) -> Date {
     crew_zoned(at).date()
 }
 
 fn crew_zoned(at: Timestamp) -> Zoned {
-    let zone = tz::db()
+    at.to_zoned(crew_zone())
+}
+
+fn crew_zone() -> tz::TimeZone {
+    tz::db()
         .get(CREW_TIME_ZONE)
-        .expect("the bundled time zone database has the Crew's zone");
-    at.to_zoned(zone)
+        .expect("the bundled time zone database has the Crew's zone")
 }
 
 /// `time` as whole seconds since the Unix epoch, the way the database stores instants.
@@ -193,6 +209,19 @@ mod tests {
         assert_eq!(
             crew_time_of_unix_seconds(1_782_907_200),
             jiff::civil::date(2026, 7, 1).at(14, 0, 0, 0)
+        );
+    }
+
+    #[test]
+    fn a_date_begins_at_midnight_in_prague() {
+        // 2026-01-01T23:00:00Z in winter (UTC+1), and 2026-04-30T22:00:00Z in summer (UTC+2).
+        assert_eq!(
+            unix_seconds_at_crew_midnight(jiff::civil::date(2026, 1, 2)),
+            1_767_308_400
+        );
+        assert_eq!(
+            unix_seconds_at_crew_midnight(jiff::civil::date(2026, 5, 1)),
+            1_777_586_400
         );
     }
 

@@ -1,6 +1,6 @@
 ---
 source: src/views/finance.rs
-assertion_line: 851
+assertion_line: 874
 expression: "home(&member(JOSEF), &overview(), PATHS).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
@@ -142,6 +142,9 @@ expression: "home(&member(JOSEF), &overview(), PATHS).into_string().replace(\"><
 <span class="entry-amount">1 240 Kč</span>
 </li>
 </ul>
+<p class="history-link">
+<a href="/history">See every entry in History</a>
+</p>
 </section>
 </main>
 <nav class="tabs" aria-label="Sections">
