@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0](https://github.com/josefjura/asgard/compare/v0.4.1...v0.5.0) (2026-10-31)
+
+
+### Features
+
+* Grenze titles, entries that open their edit page, and calmer Settings ([#79](https://github.com/josefjura/asgard/issues/79)) ([d1936ae](https://github.com/josefjura/asgard/commit/d1936ae171ba156d784b44d39d56e7c70f630d19))
+
+
+### Bug Fixes
+
+* stop Settings scrolling sideways and lift focus, border and dark-button contrast ([#75](https://github.com/josefjura/asgard/issues/75)) ([89afa5e](https://github.com/josefjura/asgard/commit/89afa5e0db076791915a0b47fea7b4797c24a0e1))
+
 ## [0.4.1](https://github.com/josefjura/asgard/compare/v0.4.0...v0.4.1) (2026-10-31)
 
 
