@@ -147,7 +147,7 @@ pub fn fixtures() -> Vec<Fixture> {
         component: "Brand",
         state: "Logos on every background".to_owned(),
         document: brand(),
-        height: 560,
+        height: 780,
     };
     nav.chain(pages)
         .chain([brand, offline, invite, signed_in])
@@ -517,7 +517,8 @@ fn passkey_lists() -> Vec<Fixture> {
     .into()
 }
 
-/// Each logo on every background it was drawn for, whatever scheme the viewer's browser is in.
+/// Each logo on every background it was drawn for, whatever scheme the viewer's browser is in,
+/// and the app icon on the manifest's background colour, as Android's splash screen shows it.
 fn brand() -> Markup {
     let hero = |asset: assets::Asset, background: &str| {
         html! {
@@ -535,6 +536,7 @@ fn brand() -> Markup {
             div style="display: flex; flex-wrap: wrap" {
                 (hero(assets::LOGO_HERO_LIGHT, "#EEF0E4"))
                 (hero(assets::LOGO_HERO_DARK, "#15180F"))
+                (hero(assets::ICON_512, "#3E5B2B"))
             }
         },
     )

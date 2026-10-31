@@ -171,6 +171,15 @@ mod tests {
         assert_eq!(icons, [ICON_192.url, ICON_512.url, ICON_MASKABLE_512.url]);
     }
 
+    /// Android paints the splash screen and the system bar with these, in either scheme.
+    #[test]
+    fn manifest_paints_the_installed_app_band_green() {
+        let manifest: serde_json::Value = serde_json::from_slice(MANIFEST.body).unwrap();
+
+        assert_eq!(manifest["background_color"], "#3E5B2B");
+        assert_eq!(manifest["theme_color"], "#3E5B2B");
+    }
+
     #[test]
     fn finds_assets_by_their_own_url_only() {
         assert_eq!(hashed(APP_CSS.url), Some(APP_CSS));
