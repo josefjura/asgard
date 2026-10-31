@@ -2,14 +2,13 @@
 
 mod access;
 mod admin;
-mod device;
 mod error;
 mod finance;
 #[cfg(debug_assertions)]
 mod gallery;
 mod health;
 mod htmx;
-pub mod invite;
+pub mod links;
 mod name_form;
 mod origin;
 mod pages;
@@ -90,8 +89,7 @@ fn routes() -> Router<AppState> {
         .route(assets::MANIFEST.url, get(static_files::manifest))
         .merge(finance::routes())
         .merge(sign_in::routes())
-        .merge(invite::routes())
-        .merge(device::routes())
+        .merge(links::routes())
         .merge(welcome::routes())
         .merge(settings::routes())
         .merge(passkeys::routes())
@@ -139,6 +137,7 @@ pub(crate) mod test_support {
     use webauthn_rs_proto::AllowCredentials;
 
     use super::{AppState, routes, with_layers};
+    use crate::domain::auth::LinkKind;
     use crate::domain::clock::ManualClock;
     use crate::domain::members::DisplayName;
 
@@ -306,7 +305,7 @@ pub(crate) mod test_support {
                 .create_admin_invite(&DisplayName::parse(name).unwrap())
                 .await
                 .unwrap();
-            super::invite::path(&token)
+            super::links::path(LinkKind::Invite, &token)
         }
 
         /// Asks to register a passkey through the Invite link at `invite_path`, the way the
@@ -388,7 +387,10 @@ pub(crate) mod test_support {
                 .create_test_invite(&DisplayName::parse(name).unwrap())
                 .await;
             let response = self
-                .join(&super::invite::path(&token), &mut authenticator())
+                .join(
+                    &super::links::path(LinkKind::Invite, &token),
+                    &mut authenticator(),
+                )
                 .await;
             assert_eq!(response.status(), StatusCode::OK, "joining failed");
             let cookie = cookie_pair(&response);

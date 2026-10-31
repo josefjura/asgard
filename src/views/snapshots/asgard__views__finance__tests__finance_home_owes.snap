@@ -1,7 +1,6 @@
 ---
 source: src/views/finance.rs
-assertion_line: 874
-expression: "home(&member(JOSEF), &overview(), PATHS).into_string().replace(\"><\", \">\\n<\")"
+expression: "home(&member(JOSEF), &overview()).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">

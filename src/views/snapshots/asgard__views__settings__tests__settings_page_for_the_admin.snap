@@ -1,6 +1,6 @@
 ---
 source: src/views/settings.rs
-expression: "page(&display_name::form(\"/settings/name\", \"Josef\", None),\n&passkeys::list(BASE, &fixtures::one(), None), &add_passkey(), Some(\"/admin\"),\n\"/log-out\",).into_string().replace(\"><\", \">\\n<\")"
+expression: "page(&display_name::form(\"/settings/name\", \"Josef\", None),\n&passkeys::list(BASE, &fixtures::one(), None), &add_passkey(),\nSome(ADMIN_HREF), \"/log-out\",).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">

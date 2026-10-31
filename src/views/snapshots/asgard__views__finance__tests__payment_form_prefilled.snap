@@ -1,6 +1,6 @@
 ---
 source: src/views/finance.rs
-expression: "payment_form(PAYMENT_ACTION, &crew(), &prefilled_payment(),\n&PaymentProblems::default()).into_string().replace(\"><\", \">\\n<\")"
+expression: "payment_form(PAYMENT_ACTION, Purpose::Log, &crew(), &prefilled_payment(),\n&PaymentProblems::default()).into_string().replace(\"><\", \">\\n<\")"
 ---
 <form class="entry-form" method="post" action="/payments" hx-post="/payments" hx-swap="outerHTML">
 <div class="field">

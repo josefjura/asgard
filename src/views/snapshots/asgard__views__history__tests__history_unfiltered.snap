@@ -1,7 +1,6 @@
 ---
 source: src/views/history.rs
-assertion_line: 269
-expression: "page(&member(ONDRA), &crew(), &Filters::of(HistoryFilter::default(), \"\"),\n&unfiltered(), PATHS).into_string().replace(\"><\", \">\\n<\")"
+expression: "page(&member(ONDRA), &crew(), &Filters::of(HistoryFilter::default(), \"\"),\n&unfiltered(),).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">

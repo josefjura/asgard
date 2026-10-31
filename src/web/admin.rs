@@ -3,16 +3,15 @@
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Form, Router};
 use serde::Deserialize;
 
 use super::access::Admin;
 use super::error::name_message;
-use super::htmx::Htmx;
-use super::pages::fresh;
-use super::{AppError, AppState, device, invite};
+use super::htmx::{Htmx, fragment_or_page};
+use super::{AppError, AppState, links};
 use crate::domain::auth::{AuthError, LinkId, LinkKind};
 use crate::domain::members::{DisplayName, MemberId};
 use crate::views;
@@ -53,7 +52,9 @@ async fn create_invite(
     match created {
         Ok((name, token)) => {
             tracing::info!(admin = admin.id.get(), "the Admin made an Invite link");
-            let url = state.public_origin.url(&invite::path(&token));
+            let url = state
+                .public_origin
+                .url(&links::path(LinkKind::Invite, &token));
             let outcome = Outcome::Created {
                 kind: LinkKind::Invite,
                 name: &name,
@@ -98,7 +99,9 @@ async fn create_device_link(
         member = member.get(),
         "the Admin made a Device link"
     );
-    let url = state.public_origin.url(&device::path(&token));
+    let url = state
+        .public_origin
+        .url(&links::path(LinkKind::Device, &token));
     let outcome = Outcome::Created {
         kind: LinkKind::Device,
         name: &name,
@@ -138,12 +141,7 @@ async fn answer(
     let mut members = state.members.all().await?;
     members.retain(|member| member.id != admin);
     let links = views::admin::links(ADMIN_HREF, &open, &members, outcome);
-    let body = if htmx {
-        links
-    } else {
-        views::admin::page(&links)
-    };
-    Ok((status, fresh(body)).into_response())
+    Ok(fragment_or_page(htmx, status, links, views::admin::page))
 }
 
 #[cfg(test)]

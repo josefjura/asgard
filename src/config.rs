@@ -4,7 +4,6 @@
 
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
 use std::str::FromStr;
 
 use base64::Engine;
@@ -20,7 +19,6 @@ pub struct Config {
     pub database: SqliteConnectOptions,
     pub public_url: Url,
     pub vapid_private_key: VapidPrivateKey,
-    pub backup_dir: PathBuf,
     pub listen: SocketAddr,
 }
 
@@ -71,7 +69,6 @@ impl Config {
         let database = parse_database(&require("DATABASE_URL")?)?;
         let public_url = parse_public_url(&require("PUBLIC_URL")?)?;
         let vapid_private_key = parse_vapid_private_key(require("VAPID_PRIVATE_KEY")?)?;
-        let backup_dir = PathBuf::from(require("BACKUP_DIR")?);
         let host = parse_or("HOST", get("HOST"), DEFAULT_HOST, "expected an IP address")?;
         let port = parse_or("PORT", get("PORT"), DEFAULT_PORT, "expected a port number")?;
 
@@ -79,7 +76,6 @@ impl Config {
             database,
             public_url,
             vapid_private_key,
-            backup_dir,
             listen: SocketAddr::new(host, port),
         })
     }
@@ -149,7 +145,6 @@ mod tests {
             ("DATABASE_URL", "sqlite:asgard.db".to_owned()),
             ("PUBLIC_URL", "https://asgard.joseforge.cz".to_owned()),
             ("VAPID_PRIVATE_KEY", VALID_KEY.to_owned()),
-            ("BACKUP_DIR", "/data/backups".to_owned()),
         ])
     }
 
@@ -176,7 +171,6 @@ mod tests {
 
         assert_eq!(config.public_url.as_str(), "https://asgard.joseforge.cz/");
         assert_eq!(config.vapid_private_key.as_base64(), VALID_KEY);
-        assert_eq!(config.backup_dir, PathBuf::from("/data/backups"));
         assert_eq!(config.listen, "0.0.0.0:8080".parse().unwrap());
     }
 
@@ -193,12 +187,7 @@ mod tests {
 
     #[test]
     fn names_each_missing_required_variable() {
-        for var in [
-            "DATABASE_URL",
-            "PUBLIC_URL",
-            "VAPID_PRIVATE_KEY",
-            "BACKUP_DIR",
-        ] {
+        for var in ["DATABASE_URL", "PUBLIC_URL", "VAPID_PRIVATE_KEY"] {
             let mut env = valid_env();
             env.remove(var);
             assert_eq!(load(&env).unwrap_err(), ConfigError::Missing(var));
@@ -208,8 +197,8 @@ mod tests {
     #[test]
     fn treats_a_blank_value_as_missing() {
         assert_eq!(
-            load_with("BACKUP_DIR", "  ").unwrap_err(),
-            ConfigError::Missing("BACKUP_DIR")
+            load_with("PUBLIC_URL", "  ").unwrap_err(),
+            ConfigError::Missing("PUBLIC_URL")
         );
     }
 

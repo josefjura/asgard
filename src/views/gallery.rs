@@ -222,8 +222,8 @@ fn admin_pages() -> Vec<Fixture> {
 /// forms, and each kind of entry on its own.
 fn finance_pages() -> Vec<Fixture> {
     use finance::fixtures::{
-        JOSEF, ONDRA, PATHS, SIMON, TODAY, crew, edited_entry, edited_payment_entry, entry, fresh,
-        member, overview, payment_entry,
+        JOSEF, ONDRA, SIMON, TODAY, crew, edited_entry, edited_payment_entry, entry, fresh, member,
+        overview, payment_entry,
     };
 
     let homes = [
@@ -235,7 +235,7 @@ fn finance_pages() -> Vec<Fixture> {
     .map(|(state, me, overview)| Fixture {
         component: "Finance home",
         state: state.to_owned(),
-        document: finance::home(&member(me), &overview, PATHS),
+        document: finance::home(&member(me), &overview),
         height: FINANCE_HEIGHT,
     });
     let today = TODAY.to_string();
@@ -291,7 +291,7 @@ fn finance_pages() -> Vec<Fixture> {
         document: document(
             "Entry row",
             &html! {
-                main.shell-main { ul.entry-list { (finance::entry_row(&member(me), &entry, PATHS, None)) } }
+                main.shell-main { ul.entry-list { (finance::entry_row(&member(me), &entry, None)) } }
             },
         ),
         height: ENTRY_ROW_HEIGHT,
@@ -308,7 +308,7 @@ fn finance_pages() -> Vec<Fixture> {
 /// History unfiltered, filtered by Member and month, with nothing logged, with nothing to list,
 /// and with a month that isn't one.
 fn history_pages() -> [Fixture; 5] {
-    use finance::fixtures::{JOSEF, ONDRA, PATHS, SIMON, crew, member};
+    use finance::fixtures::{JOSEF, ONDRA, SIMON, crew, member};
     use history::fixtures::{empty, filtered, october, ondra_in_october, unfiltered};
 
     let nobody = HistoryFilter {
@@ -360,7 +360,7 @@ fn history_pages() -> [Fixture; 5] {
     .map(|(state, me, filters, history, height)| Fixture {
         component: "History",
         state: state.to_owned(),
-        document: history::page(&member(me), &crew(), &filters, &history, PATHS),
+        document: history::page(&member(me), &crew(), &filters, &history),
         height,
     })
 }

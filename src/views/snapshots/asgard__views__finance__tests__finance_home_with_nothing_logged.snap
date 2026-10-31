@@ -1,6 +1,6 @@
 ---
 source: src/views/finance.rs
-expression: "home(JOSEF, &fresh(), NEW_EXPENSE,\nNEW_PAYMENT).into_string().replace(\"><\", \">\\n<\")"
+expression: "home(&member(JOSEF), &fresh()).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">

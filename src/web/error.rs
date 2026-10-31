@@ -148,7 +148,7 @@ pub fn passkey_name_message(err: &PasskeyNameError) -> String {
     }
 }
 
-/// What a Member is told when the amount they typed for an Expense can't be used.
+/// What a Member is told when the amount they typed for an Expense or Payment can't be used.
 pub fn amount_message(err: AmountError) -> String {
     match err {
         AmountError::NotWholeCrowns => "Enter the amount in whole crowns.".to_owned(),
@@ -160,7 +160,8 @@ pub fn amount_message(err: AmountError) -> String {
     }
 }
 
-/// What a Member is told when the description they typed for an Expense can't be used.
+/// What a Member is told when the description they typed for an Expense or Payment can't be
+/// used.
 pub fn description_message(err: DescriptionError) -> String {
     match err {
         DescriptionError::Blank => "Say what the money was for.".to_owned(),

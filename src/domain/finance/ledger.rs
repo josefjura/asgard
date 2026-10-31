@@ -13,6 +13,15 @@ pub struct Participant {
     pub joined_on: Date,
 }
 
+impl Participant {
+    /// Whether an Expense dated `date` is shared with them: whether they had joined the Crew by
+    /// then.
+    #[must_use]
+    pub fn shares_on(self, date: Date) -> bool {
+        self.joined_on <= date
+    }
+}
+
 /// An Expense as the ledger sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LedgerExpense {
@@ -68,7 +77,7 @@ impl Ledger {
         let split: Vec<MemberId> = self
             .members
             .iter()
-            .filter(|member| member.joined_on <= expense.expense_date)
+            .filter(|member| member.shares_on(expense.expense_date))
             .map(|member| member.id)
             .collect();
         let Ok(count) = i64::try_from(split.len()) else {

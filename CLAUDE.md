@@ -20,7 +20,7 @@ One crate, thin routes:
 | `web/` | Routes, extractors, forms, htmx helpers | Parse input, call a service, render a view |
 | `views/` | Maud components and pages | Pure functions from data to HTML, no DB access |
 | `assets/` | Files from `static/`, embedded and content-hashed by `build.rs` | Reference an asset by its generated constant, never by a literal URL |
-| `tasks/` | Background loops (reminder ticker, notifier, nightly backup) | Depend on domain services only |
+| `tasks/` | Background loops (reminder ticker, notifier) | Depend on domain services only |
 | `db.rs`, `config.rs` | Pool setup, migrations, env config | Config validated once at startup |
 
 - **State:** services are built once at startup and held in an `AppState`. Routes extract what they need; no lazy getters.

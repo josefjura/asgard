@@ -1,6 +1,6 @@
 ---
 source: src/views/invite.rs
-expression: "signed_in(&name(\"Josef\"),\n\"/invite/abc/log-out\").into_string().replace(\"><\", \">\\n<\")"
+expression: "signed_in(&name(\"Josef\"), LinkKind::Invite,\n\"/invite/abc/log-out\").into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">

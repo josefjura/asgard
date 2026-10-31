@@ -1,12 +1,12 @@
 //! The display-name form the welcome page and settings share.
 
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use maud::Markup;
 use serde::Deserialize;
 
 use super::error::name_message;
-use super::pages::fresh;
+use super::htmx::fragment_or_page;
 use super::{AppError, AppState};
 use crate::domain::members::{DisplayName, Member, MemberError};
 use crate::views::display_name::{self, Outcome};
@@ -32,8 +32,7 @@ pub async fn submit(
     page: impl FnOnce(&Markup) -> Markup,
 ) -> Result<Response, AppError> {
     let (status, form) = answer(state, member, input, action).await?;
-    let body = if htmx { form } else { page(&form) };
-    Ok((status, fresh(body)).into_response())
+    Ok(fragment_or_page(htmx, status, form, page))
 }
 
 async fn answer(
