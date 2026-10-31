@@ -74,6 +74,14 @@ _Avoid_: debt, owing, pairwise debt
 The state where a Member's Balance is within about a crown of zero.
 _Avoid_: kvit, settled
 
+**History**:
+Every Entry that hasn't been deleted, newest first by its Expense date or the day a Payment was logged on, filterable by a Member (as Payer, Sender or Recipient) and a calendar month in Prague.
+_Avoid_: log, ledger, transactions
+
+**Monthly total**:
+What the whole Crew's Expenses, and separately its Payments, added up to in one calendar month. It says what the brewery cost, not what anyone owes, so it ignores the Member filter.
+_Avoid_: Balance, stats
+
 ## Shopping
 
 **Shopping list**:

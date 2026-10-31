@@ -754,3 +754,91 @@ a.button {
 .expense-date[open] summary {
   margin-bottom: var(--space-1);
 }
+
+/* History: the Member and month filters side by side when there's room, the entries with the
+   way to the other pages, and a table of each month's totals. */
+
+.history-link {
+  margin: var(--space-2) 0 0;
+}
+
+.history-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+  margin-bottom: var(--space-5);
+}
+
+.history-filters label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-weight: 600;
+}
+
+.history-filters input,
+.history-filters select {
+  width: 100%;
+  min-height: 3rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.history-filters [aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.history-filter-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.pages {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: center;
+  margin-top: var(--space-3);
+}
+
+.pages-at {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.monthly-totals {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.monthly-totals th,
+.monthly-totals td {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.monthly-totals th:first-child {
+  text-align: left;
+}
+
+.monthly-totals thead th {
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.monthly-totals tbody th {
+  font-weight: 400;
+}
+
+.monthly-totals td {
+  padding-left: var(--space-3);
+  font-weight: 600;
+}

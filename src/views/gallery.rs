@@ -5,6 +5,7 @@ use maud::{DOCTYPE, Markup, html};
 
 use crate::assets;
 use crate::domain::auth::{LinkKind, PasskeyName};
+use crate::domain::finance::history::HistoryFilter;
 use crate::domain::members::{CREW_NAME, DisplayName};
 use crate::views::admin::{self, Outcome as AdminOutcome};
 use crate::views::brand::header_logo;
@@ -12,6 +13,7 @@ use crate::views::display_name::{self, Outcome};
 use crate::views::finance::{
     self, ExpenseProblems, ExpenseValues, PaymentProblems, PaymentValues, Purpose,
 };
+use crate::views::history::{self, Filters, NOT_A_MONTH};
 use crate::views::layout::document;
 use crate::views::nav::{ADMIN_HREF, Place, Tab, bottom_nav};
 use crate::views::passkey::CeremonyUrls;
@@ -48,6 +50,10 @@ const EXPENSE_FORM_HEIGHT: u16 = 760;
 const PAYMENT_FORM_HEIGHT: u16 = 720;
 /// An entry row with the edited line and the edit and delete controls under it.
 const ENTRY_ROW_HEIGHT: u16 = 180;
+/// History: the filters, four entries, the pages and three months' totals.
+const HISTORY_HEIGHT: u16 = 1250;
+/// History filtered down to two entries and one month.
+const FILTERED_HISTORY_HEIGHT: u16 = 950;
 /// Where the fixture passkey lists' forms post.
 const PASSKEYS_BASE: &str = "/settings/passkeys";
 const DESKTOP_WIDTH: u16 = 1280;
@@ -285,7 +291,7 @@ fn finance_pages() -> Vec<Fixture> {
         document: document(
             "Entry row",
             &html! {
-                main.shell-main { ul.entry-list { (finance::entry_row(&member(me), &entry, PATHS)) } }
+                main.shell-main { ul.entry-list { (finance::entry_row(&member(me), &entry, PATHS, None)) } }
             },
         ),
         height: ENTRY_ROW_HEIGHT,
@@ -295,7 +301,68 @@ fn finance_pages() -> Vec<Fixture> {
         .chain(forms)
         .chain(payment_forms())
         .chain(rows)
+        .chain(history_pages())
         .collect()
+}
+
+/// History unfiltered, filtered by Member and month, with nothing logged, with nothing to list,
+/// and with a month that isn't one.
+fn history_pages() -> [Fixture; 5] {
+    use finance::fixtures::{JOSEF, ONDRA, PATHS, SIMON, crew, member};
+    use history::fixtures::{empty, filtered, october, ondra_in_october, unfiltered};
+
+    let nobody = HistoryFilter {
+        member: Some(SIMON),
+        month: Some(october()),
+    };
+    let mistyped = Filters {
+        applied: HistoryFilter::default(),
+        month: "Oct",
+        month_problem: Some(NOT_A_MONTH),
+    };
+    [
+        (
+            "Unfiltered",
+            ONDRA,
+            Filters::of(HistoryFilter::default(), ""),
+            unfiltered(),
+            HISTORY_HEIGHT,
+        ),
+        (
+            "Filtered",
+            ONDRA,
+            Filters::of(ondra_in_october(), "2026-10"),
+            filtered(),
+            FILTERED_HISTORY_HEIGHT,
+        ),
+        (
+            "Nothing logged",
+            JOSEF,
+            Filters::of(HistoryFilter::default(), ""),
+            empty(),
+            PAGE_HEIGHT,
+        ),
+        (
+            "Nothing matches",
+            SIMON,
+            Filters::of(nobody, "2026-10"),
+            empty(),
+            PAGE_HEIGHT,
+        ),
+        (
+            "Mistyped month",
+            JOSEF,
+            mistyped,
+            unfiltered(),
+            HISTORY_HEIGHT,
+        ),
+    ]
+    .map(|(state, me, filters, history, height)| Fixture {
+        component: "History",
+        state: state.to_owned(),
+        document: history::page(&member(me), &crew(), &filters, &history, PATHS),
+        height,
+    })
 }
 
 /// The Payment form empty, pre-filled from a Settlement, with problems, and editing a Payment.
@@ -553,6 +620,7 @@ mod tests {
             "Expense form",
             "Payment form",
             "Entry row",
+            "History",
         ] {
             assert!(
                 html.contains(&format!("<h2>{component}</h2>")),
@@ -602,6 +670,10 @@ mod tests {
             "Edited",
             "Edited Payment",
             "Editing",
+            "Unfiltered",
+            "Filtered",
+            "Nothing matches",
+            "Mistyped month",
         ] {
             assert!(html.contains(&format!("<h3>{state}</h3>")), "{state}");
         }

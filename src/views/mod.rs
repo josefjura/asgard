@@ -6,6 +6,7 @@ pub mod display_name;
 pub mod finance;
 #[cfg(debug_assertions)]
 pub mod gallery;
+pub mod history;
 pub mod invite;
 pub mod layout;
 pub mod nav;
