@@ -431,6 +431,7 @@ async fn save_payment(
             Err(err) => payment_problems(err)?,
         },
         Err(problems) => {
+            // Refused like an Expense in [`save_expense`].
             state.finance.payment_to_edit(&member, id).await?;
             problems
         }

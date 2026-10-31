@@ -216,8 +216,8 @@ fn admin_pages() -> Vec<Fixture> {
 /// forms, and each kind of entry on its own.
 fn finance_pages() -> Vec<Fixture> {
     use finance::fixtures::{
-        JOSEF, ONDRA, PATHS, SIMON, TODAY, crew, edited_entry, entry, fresh, member, overview,
-        payment_entry,
+        JOSEF, ONDRA, PATHS, SIMON, TODAY, crew, edited_entry, edited_payment_entry, entry, fresh,
+        member, overview, payment_entry,
     };
 
     let homes = [
@@ -267,7 +267,7 @@ fn finance_pages() -> Vec<Fixture> {
         state: state.to_owned(),
         document: finance::expense_page(
             purpose,
-            &finance::expense_form("/expenses", purpose, &crew(), values, &problems, TODAY),
+            &finance::expense_form("/expenses/7", purpose, &crew(), values, &problems, TODAY),
         ),
         height: EXPENSE_FORM_HEIGHT,
     });
@@ -277,6 +277,7 @@ fn finance_pages() -> Vec<Fixture> {
         ("Payment without a description", SIMON, payment_entry(None)),
         ("Expense its Payer may change", ONDRA, entry()),
         ("Edited", ONDRA, edited_entry()),
+        ("Edited Payment", JOSEF, edited_payment_entry()),
     ]
     .map(|(state, me, entry)| Fixture {
         component: "Entry row",
@@ -344,7 +345,7 @@ fn payment_forms() -> [Fixture; 4] {
         state: state.to_owned(),
         document: finance::payment_page(
             purpose,
-            &finance::payment_form("/payments", purpose, &crew(), &values, &problems),
+            &finance::payment_form("/payments/4", purpose, &crew(), &values, &problems),
         ),
         height: PAYMENT_FORM_HEIGHT,
     })
@@ -599,6 +600,7 @@ mod tests {
             "Payment without a description",
             "Expense its Payer may change",
             "Edited",
+            "Edited Payment",
             "Editing",
         ] {
             assert!(html.contains(&format!("<h3>{state}</h3>")), "{state}");

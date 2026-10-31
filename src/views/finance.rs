@@ -704,6 +704,23 @@ pub mod fixtures {
         entry
     }
 
+    /// [`payment_entry`] after Josef, its Sender, edited it.
+    ///
+    /// # Panics
+    ///
+    /// If a fixture value is invalid, which is a bug in the fixtures.
+    #[must_use]
+    pub fn edited_payment_entry() -> Entry {
+        let mut entry = payment_entry(Some("For the malt"));
+        if let Entry::Payment(payment) = &mut entry {
+            payment.edited = Some(Edit {
+                by: name("Josef"),
+                on: date(2026, 10, 30),
+            });
+        }
+        entry
+    }
+
     fn expense(id: i64, payer: &str, crowns: i64, description: &str, expense_date: Date) -> Entry {
         Entry::Expense(ExpenseEntry {
             id: ExpenseId::from_client(id),
@@ -813,8 +830,8 @@ pub mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::fixtures::{
-        JOSEF, ONDRA, PATHS, SIMON, TODAY, crew, edited_entry, entry, fresh, member, overview,
-        payment_entry, prefilled_payment,
+        JOSEF, ONDRA, PATHS, SIMON, TODAY, crew, edited_entry, edited_payment_entry, entry, fresh,
+        member, overview, payment_entry, prefilled_payment,
     };
     use super::*;
     use crate::views::assert_html_snapshot;
@@ -885,6 +902,11 @@ mod tests {
     #[test]
     fn finance_edited_entry_row_with_controls() {
         assert_html_snapshot!(entry_row(&member(ONDRA), &edited_entry(), PATHS));
+    }
+
+    #[test]
+    fn finance_edited_payment_row_with_controls() {
+        assert_html_snapshot!(entry_row(&member(JOSEF), &edited_payment_entry(), PATHS));
     }
 
     #[test]

@@ -135,11 +135,11 @@ pub enum EntryError {
     Database(#[from] sqlx::Error),
 }
 
-/// Whether `member` may edit or delete an entry whose money is `owner`'s: the Payer of an
+/// Whether `member` may edit or delete an entry whose money is `payer_or_sender`'s: the Payer of an
 /// Expense or the Sender of a Payment. The Admin may change anyone's.
 #[must_use]
-pub fn may_change(member: &Member, owner: MemberId) -> bool {
-    member.is_admin || member.id == owner
+pub fn may_change(member: &Member, payer_or_sender: MemberId) -> bool {
+    member.is_admin || member.id == payer_or_sender
 }
 
 /// A Payment as a Member enters it. It is dated when it's logged.
@@ -209,11 +209,11 @@ impl Entry {
     /// Whether `member` may edit or delete the entry, by [`may_change`].
     #[must_use]
     pub fn may_be_changed_by(&self, member: &Member) -> bool {
-        let owner = match self {
+        let payer_or_sender = match self {
             Self::Expense(expense) => expense.payer.id,
             Self::Payment(payment) => payment.sender.id,
         };
-        may_change(member, owner)
+        may_change(member, payer_or_sender)
     }
 }
 
@@ -1282,8 +1282,8 @@ mod tests {
     }
 
     #[test]
-    fn the_owner_and_the_admin_may_change_an_entry() {
-        let owner = MemberId::from_client(2);
+    fn the_payer_or_sender_and_the_admin_may_change_an_entry() {
+        let payer_or_sender = MemberId::from_client(2);
         let member = |id, is_admin| Member {
             id: MemberId::from_client(id),
             display_name: name("Anyone"),
@@ -1292,9 +1292,9 @@ mod tests {
             welcomed: true,
         };
 
-        assert!(may_change(&member(2, false), owner));
-        assert!(may_change(&member(1, true), owner));
-        assert!(!may_change(&member(3, false), owner));
+        assert!(may_change(&member(2, false), payer_or_sender));
+        assert!(may_change(&member(1, true), payer_or_sender));
+        assert!(!may_change(&member(3, false), payer_or_sender));
     }
 
     #[sqlx::test]

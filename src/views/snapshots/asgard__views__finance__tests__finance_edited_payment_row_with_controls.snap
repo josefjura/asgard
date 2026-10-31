@@ -1,0 +1,19 @@
+---
+source: src/views/finance.rs
+assertion_line: 909
+expression: "entry_row(&member(JOSEF), &edited_payment_entry(),\nPATHS).into_string().replace(\"><\", \">\\n<\")"
+---
+<li class="entry payment">
+<div class="entry-main">
+<span class="entry-what" id="payment-4">Josef → Ondra</span>
+<span class="entry-meta">Payment · For the malt · 29 October 2026</span>
+<span class="entry-meta entry-edited">edited by Josef · 30 October 2026</span>
+<div class="entry-controls">
+<a class="button button-small" href="/payments/4/edit" aria-describedby="payment-4">Edit</a>
+<form method="post" action="/payments/4/delete" hx-post="/payments/4/delete" hx-confirm="Delete the Payment from Josef to Ondra?">
+<button class="button button-small quiet" type="submit" aria-describedby="payment-4">Delete</button>
+</form>
+</div>
+</div>
+<span class="entry-amount">4 160 Kč</span>
+</li>
