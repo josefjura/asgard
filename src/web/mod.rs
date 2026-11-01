@@ -81,7 +81,11 @@ impl AppState {
             members,
             finance: Finance::new(db.clone(), clock.clone(), events.emitter(Event::Finance)),
             push: PushSubscriptions::new(db.clone(), clock.clone()),
-            reminders: Reminders::new(db.clone(), clock.clone()),
+            reminders: Reminders::new(
+                db.clone(),
+                clock.clone(),
+                events.emitter(Event::ReminderDue),
+            ),
             vapid_public_key: vapid_public_key.into(),
             events,
             public_origin: PublicOrigin::of(public_url),

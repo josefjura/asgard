@@ -66,8 +66,8 @@ const PUSH_URLS: PushUrls<'static> = PushUrls {
 };
 /// The notifications control, alone in a section.
 const PUSH_CONTROL_HEIGHT: u16 = 300;
-/// The Reminders tab: the form, and three pending Reminders under it on a phone.
-const REMINDERS_HEIGHT: u16 = 1000;
+/// The Reminders tab: the form, and three pending and two sent Reminders under it on a phone.
+const REMINDERS_HEIGHT: u16 = 1100;
 /// A Reminder's edit page: the form, and delete beneath it.
 const REMINDER_EDIT_HEIGHT: u16 = 700;
 const DESKTOP_WIDTH: u16 = 1280;
@@ -324,7 +324,7 @@ fn finance_pages() -> Vec<Fixture> {
 /// The Reminders tab with nothing pending, with Reminders pending, and with a refused form; and
 /// a Reminder's edit page as it opens and refused.
 fn reminder_pages() -> Vec<Fixture> {
-    use reminders::fixtures::{NOW, pending, refused};
+    use reminders::fixtures::{NOW, pending, refused, sent};
 
     let new = |values, problems: &ReminderProblems| {
         reminders::form(reminders::Purpose::Create, values, problems, NOW)
@@ -333,14 +333,15 @@ fn reminder_pages() -> Vec<Fixture> {
     let (values, problems) = refused();
     let refused_new = new(values, &problems);
     let tabs = [
-        ("Nothing pending", &empty, Vec::new()),
-        ("Pending", &empty, pending()),
-        ("Form with errors", &refused_new, pending()),
+        ("Nothing pending", &empty, Vec::new(), Vec::new()),
+        ("Pending", &empty, pending(), Vec::new()),
+        ("Pending and sent", &empty, pending(), sent()),
+        ("Form with errors", &refused_new, pending(), Vec::new()),
     ]
-    .map(|(state, form, pending)| Fixture {
+    .map(|(state, form, pending, sent)| Fixture {
         component: "Reminders tab",
         state: state.to_owned(),
-        document: reminders::page(form, &pending),
+        document: reminders::page(form, &pending, &sent),
         height: REMINDERS_HEIGHT,
     });
 

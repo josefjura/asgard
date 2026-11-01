@@ -1,10 +1,11 @@
 //! The Reminders tab: the form a Member creates a Reminder for the whole Crew with, the
-//! Reminders still pending, and the page a pending Reminder is edited or deleted on.
+//! Reminders still pending, those recently sent, and the page a pending Reminder is edited or
+//! deleted on.
 
 use jiff::civil::DateTime;
 use maud::{Markup, html};
 
-use crate::domain::reminders::{PendingReminder, ReminderId, TEXT_MAX};
+use crate::domain::reminders::{PendingReminder, ReminderId, SentReminder, TEXT_MAX};
 use crate::views::delete::{Deletion, delete_section};
 use crate::views::finance::problem;
 use crate::views::icon::chevron;
@@ -79,15 +80,15 @@ fn field_time(time: DateTime) -> String {
     time.strftime("%Y-%m-%dT%H:%M").to_string()
 }
 
-/// A due time the way Pending shows it, in the Crew's time zone.
-fn shown_due(time: DateTime) -> String {
+/// A due or sent time the way the lists show it, in the Crew's time zone.
+fn shown_time(time: DateTime) -> String {
     time.strftime("%A %-d %B %Y, %H:%M").to_string()
 }
 
-/// The Reminders tab: `form` to create a Reminder, and every one in `pending`, soonest first. On
-/// a wide screen they sit side by side.
+/// The Reminders tab: `form` to create a Reminder, every one in `pending`, soonest first, and
+/// those recently `sent`, newest first. On a wide screen the form sits beside the lists.
 #[must_use]
-pub fn page(form: &Markup, pending: &[PendingReminder]) -> Markup {
+pub fn page(form: &Markup, pending: &[PendingReminder], sent: &[SentReminder]) -> Markup {
     shell(
         Place::Tab(Tab::Reminders),
         &html! {
@@ -98,14 +99,29 @@ pub fn page(form: &Markup, pending: &[PendingReminder]) -> Markup {
                     p.muted { "The whole Crew is notified when it's due." }
                     (form)
                 }
-                section.section aria-labelledby="pending" {
-                    h2 #pending { "Pending" }
-                    @if pending.is_empty() {
-                        p.muted { "Nothing pending. Create a Reminder and it waits here until it's due." }
-                    } @else {
-                        ul.reminder-list {
-                            @for reminder in pending {
-                                (pending_row(reminder))
+                div {
+                    section.section aria-labelledby="pending" {
+                        h2 #pending { "Pending" }
+                        @if pending.is_empty() {
+                            p.muted { "Nothing pending. Create a Reminder and it waits here until it's due." }
+                        } @else {
+                            ul.reminder-list {
+                                @for reminder in pending {
+                                    (pending_row(reminder))
+                                }
+                            }
+                        }
+                    }
+                    section.section aria-labelledby="sent" {
+                        h2 #sent { "Sent" }
+                        @if sent.is_empty() {
+                            p.muted { "Nothing sent in the last 30 days." }
+                        } @else {
+                            p.muted { "The last 30 days, newest first." }
+                            ul.reminder-list {
+                                @for reminder in sent {
+                                    (sent_row(reminder))
+                                }
                             }
                         }
                     }
@@ -127,11 +143,38 @@ fn pending_row(reminder: &PendingReminder) -> Markup {
                         (reminder.text.as_str())
                     }
                     span.reminder-meta {
-                        time datetime=(field_time(time)) { (shown_due(time)) }
+                        time datetime=(field_time(time)) { (shown_time(time)) }
                         " · " (reminder.created_by)
                     }
                 }
                 (chevron())
+            }
+        }
+    }
+}
+
+/// A sent Reminder: what it said, when it went out in Prague time, and who created it. It can't
+/// be edited, so history isn't rewritten, but any Member may delete it after asking.
+fn sent_row(reminder: &SentReminder) -> Markup {
+    let time = reminder.sent_at.crew_time();
+    let text_id = format!("reminder-{}", reminder.id.get());
+    let delete = paths::delete_reminder(reminder.id);
+    html! {
+        li.reminder {
+            div.reminder-sent {
+                span.reminder-main {
+                    span.reminder-text #(text_id) { (reminder.text.as_str()) }
+                    span.reminder-meta {
+                        "Sent " time datetime=(field_time(time)) { (shown_time(time)) }
+                        " · " (reminder.created_by)
+                    }
+                }
+                form method="post" action=(delete) hx-post=(delete)
+                    hx-confirm="Delete this sent Reminder? It leaves the Sent list for everyone." {
+                    button.button.small.danger type="submit" aria-describedby=(text_id) {
+                        "Delete"
+                    }
+                }
             }
         }
     }
@@ -217,8 +260,8 @@ pub mod fixtures {
     use super::{ReminderProblems, ReminderValues};
     use jiff::civil::{DateTime, date};
 
-    use crate::domain::reminders::PendingReminder;
-    use crate::domain::reminders::fixtures::pending as reminder;
+    use crate::domain::reminders::fixtures::{pending as reminder, sent as sent_reminder};
+    use crate::domain::reminders::{PendingReminder, SentReminder};
 
     /// 10:00 in Prague on Saturday 24 October 2026, the day before the clocks go back.
     pub const NOW: DateTime = date(2026, 10, 24).at(10, 0, 0, 0);
@@ -252,11 +295,25 @@ pub mod fixtures {
             reminder(3, "Clean the fermenter", "2026-11-07T10:00", "Ondra"),
         ]
     }
+
+    /// Two sent Reminders, newest first, the older one sent late.
+    #[must_use]
+    pub fn sent() -> Vec<SentReminder> {
+        vec![
+            sent_reminder(
+                5,
+                "Transfer the beer to the keg",
+                "2026-10-24T09:00",
+                "Šimon",
+            ),
+            sent_reminder(4, "Pick up the CO₂ bottle", "2026-10-17T19:42", "Josef"),
+        ]
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::fixtures::{NOW, pending, refused};
+    use super::fixtures::{NOW, pending, refused, sent};
     use super::*;
     use crate::views::assert_html_snapshot;
 
@@ -299,7 +356,7 @@ mod tests {
 
     #[test]
     fn each_pending_reminder_leads_to_its_edit_page() {
-        let html = page(&empty_form(), &pending()).into_string();
+        let html = page(&empty_form(), &pending(), &[]).into_string();
 
         for id in 1..=3 {
             assert!(html.contains(&format!(r#"href="/reminders/{id}/edit""#)));
@@ -308,12 +365,43 @@ mod tests {
 
     #[test]
     fn reminders_empty() {
-        assert_html_snapshot!(page(&empty_form(), &[]));
+        assert_html_snapshot!(page(&empty_form(), &[], &[]));
     }
 
     #[test]
     fn reminders_pending() {
-        assert_html_snapshot!(page(&empty_form(), &pending()));
+        assert_html_snapshot!(page(&empty_form(), &pending(), &[]));
+    }
+
+    #[test]
+    fn reminders_pending_and_sent() {
+        assert_html_snapshot!(page(&empty_form(), &pending(), &sent()));
+    }
+
+    #[test]
+    fn shows_when_each_sent_reminder_went_out_in_prague_and_who_created_it() {
+        let html = page(&empty_form(), &[], &sent()).into_string();
+
+        assert!(html.contains(
+            r#"Sent <time datetime="2026-10-24T09:00">Saturday 24 October 2026, 09:00</time> · Šimon"#
+        ));
+    }
+
+    #[test]
+    fn a_sent_reminder_cant_be_edited_but_can_be_deleted_after_asking() {
+        let html = page(&empty_form(), &[], &sent()).into_string();
+
+        assert!(!html.contains("/edit"));
+        assert!(html.contains(r#"action="/reminders/5/delete" hx-post="/reminders/5/delete""#));
+        assert!(html.contains(r#"aria-describedby="reminder-5""#));
+        assert!(html.contains("hx-confirm="));
+    }
+
+    #[test]
+    fn nothing_sent_says_so() {
+        let html = page(&empty_form(), &pending(), &[]).into_string();
+
+        assert!(html.contains("Nothing sent in the last 30 days."));
     }
 
     #[test]
@@ -324,7 +412,7 @@ mod tests {
 
     #[test]
     fn shows_the_due_time_in_prague_with_who_created_it() {
-        let html = page(&empty_form(), &pending()).into_string();
+        let html = page(&empty_form(), &pending(), &[]).into_string();
 
         assert!(html.contains(
             r#"<time datetime="2026-10-24T18:00">Saturday 24 October 2026, 18:00</time> · Josef"#
