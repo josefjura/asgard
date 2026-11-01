@@ -715,10 +715,6 @@ select {
   text-decoration: none;
 }
 
-a.entry-link:hover .entry-what {
-  text-decoration: underline;
-}
-
 .balance-amount,
 .entry-amount {
   flex: none;
@@ -863,4 +859,75 @@ a.entry-link:hover .entry-what {
 .monthly-totals td {
   padding-left: var(--space-3);
   font-weight: 600;
+}
+
+/* Hover: only where a pointer can hover, so a tap never leaves a control stuck in its hover
+   look. Each change stays inside the palette and only raises contrast; focus keeps its outline. */
+
+@media (hover: hover) {
+  /* The current tab keeps its own colour. */
+  .tab:not([aria-current="page"]):hover {
+    color: var(--ink);
+  }
+
+  /* In the band, the cog brightens and shows a faint copy of the current page's bar. */
+  .settings-link:hover {
+    opacity: 1;
+  }
+
+  .settings-link:not([aria-current="page"]):hover::before {
+    content: "";
+    position: absolute;
+    inset: auto var(--space-2) calc(-1 * var(--space-2));
+    height: 3px;
+    border-radius: 3px 3px 0 0;
+    background: currentcolor;
+    opacity: 0.5;
+  }
+
+  /* A row that leads somewhere underlines its words and darkens its chevron. */
+  .row-link:hover,
+  a.entry-link:hover .entry-what {
+    text-decoration: underline;
+  }
+
+  .row-link:hover .chevron,
+  a.entry-link:hover .chevron {
+    stroke: var(--ink);
+  }
+
+  /* The filled button deepens; mixing towards black raises its lettering's contrast in both
+     schemes. */
+  .button:not(:disabled):hover {
+    background: color-mix(in srgb, var(--primary) 85%, black);
+  }
+
+  .button.secondary:not(:disabled):hover,
+  .button.danger:not(:disabled):hover {
+    border-color: var(--ink);
+    background: var(--surface);
+  }
+
+  .button.danger:not(:disabled):hover {
+    border-color: var(--danger);
+  }
+}
+
+/* Once the tabs move up into the band, they hover like the cog. */
+@media (hover: hover) and (min-width: 48rem) {
+  .tab:hover,
+  .tab:not([aria-current="page"]):hover {
+    color: var(--band-ink);
+    opacity: 1;
+  }
+
+  .tab:not([aria-current="page"]):hover::before {
+    content: "";
+    position: absolute;
+    inset: auto var(--space-3) 0;
+    height: 3px;
+    border-radius: 3px 3px 0 0;
+    background: currentcolor;
+    opacity: 0.5;
+  }
 }
