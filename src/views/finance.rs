@@ -148,7 +148,8 @@ fn sent_href(settlement: &Settlement) -> String {
 /// Expenses come first, since the Crew logs them all the time: my Balance, the buttons that log
 /// an Expense or a Payment, and the latest entries, leading to the edit page of the ones `me` may
 /// change. Settling up happens now and then, so everyone's Balance and the Settlement plan close
-/// the page; `me` logs the Payment for a Settlement there once they have sent it.
+/// the page; `me` logs the Payment for a Settlement there once they have sent it. On a wide
+/// screen the latest entries and everyone's Balance sit side by side.
 #[must_use]
 pub fn home(me: &Member, overview: &Overview) -> Markup {
     let mine = overview.balance_of(me.id);
@@ -187,33 +188,35 @@ pub fn home(me: &Member, overview: &Overview) -> Markup {
                 a.button.secondary href=(paths::NEW_PAYMENT) { "+ Payment" }
             }
 
-            section.section aria-labelledby="latest-entries" {
-                h2 #latest-entries { "Latest entries" }
-                @if overview.recent.is_empty() {
-                    p.muted { "Nothing logged yet. Log the first Expense when someone buys something for the brewery." }
-                } @else {
-                    ul.entry-list {
-                        @for entry in &overview.recent {
-                            (entry_row(me, entry, None))
-                        }
-                    }
-                    p.history-link { a href=(paths::HISTORY) { "See every entry in History" } }
-                }
-            }
-
-            section.section aria-labelledby="crew-balances" {
-                h2 #crew-balances { "Crew Balances" }
-                ul.balance-list {
-                    @for balance in &overview.balances {
-                        li.(standing_class(balance.balance)) {
-                            span.balance-name {
-                                (balance.member.display_name)
-                                @if balance.member.id == me.id { " (you)" }
+            div.columns {
+                section.section aria-labelledby="latest-entries" {
+                    h2 #latest-entries { "Latest entries" }
+                    @if overview.recent.is_empty() {
+                        p.muted { "Nothing logged yet. Log the first Expense when someone buys something for the brewery." }
+                    } @else {
+                        ul.entry-list {
+                            @for entry in &overview.recent {
+                                (entry_row(me, entry, None))
                             }
-                            span.balance-amount { (balance_text(balance.balance)) }
-                            @for (index, settlement) in overview.settlements.iter().enumerate()
-                                .filter(|(_, settlement)| settlement.sender.id == balance.member.id) {
-                                (crew_settlement(me.id, settlement, index))
+                        }
+                        p.history-link { a href=(paths::HISTORY) { "See every entry in History" } }
+                    }
+                }
+
+                section.section aria-labelledby="crew-balances" {
+                    h2 #crew-balances { "Crew Balances" }
+                    ul.balance-list {
+                        @for balance in &overview.balances {
+                            li.(standing_class(balance.balance)) {
+                                span.balance-name {
+                                    (balance.member.display_name)
+                                    @if balance.member.id == me.id { " (you)" }
+                                }
+                                span.balance-amount { (balance_text(balance.balance)) }
+                                @for (index, settlement) in overview.settlements.iter().enumerate()
+                                    .filter(|(_, settlement)| settlement.sender.id == balance.member.id) {
+                                    (crew_settlement(me.id, settlement, index))
+                                }
                             }
                         }
                     }
@@ -902,6 +905,18 @@ mod tests {
              Šimon <strong>100\u{a0}Kč</strong>. "
         ));
         assert_eq!(html.matches(">I've sent it</a>").count(), 2);
+    }
+
+    #[test]
+    fn the_latest_entries_and_the_crew_balances_share_the_columns_under_the_buttons() {
+        let html = home(&member(JOSEF), &overview()).into_string();
+
+        let actions = html.find("class=\"finance-actions\"").unwrap();
+        let columns = html.find("<div class=\"columns\">").unwrap();
+        let latest = html.find("id=\"latest-entries\"").unwrap();
+        let crew = html.find("id=\"crew-balances\"").unwrap();
+        assert!(actions < columns && columns < latest && latest < crew);
+        assert!(html[columns..].contains("</ul></section></div></main>"));
     }
 
     #[test]

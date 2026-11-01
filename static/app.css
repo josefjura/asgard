@@ -307,6 +307,17 @@ a {
   max-width: 28rem;
 }
 
+/* Sections that stack on a phone and sit side by side, in two equal columns, on a wide screen.
+   minmax(0, …): a long line wraps inside its column instead of widening it. */
+@media (min-width: 48rem) {
+  .columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 var(--space-4);
+    align-items: start;
+  }
+}
+
 .section h2 {
   margin: 0 0 var(--space-2);
   font-size: var(--text-lead);
@@ -585,7 +596,8 @@ select {
 }
 
 /* Finance: the Member's own Balance up top, the big "+ Expense" button, the latest entries, then
-   the Crew's Balances with the Settlements. Owed is green, owes is red, Even is muted. */
+   the Crew's Balances with the Settlements, beside the entries on a wide screen. Owed is green,
+   owes is red, Even is muted. */
 
 .my-balance {
   margin-bottom: var(--space-4);

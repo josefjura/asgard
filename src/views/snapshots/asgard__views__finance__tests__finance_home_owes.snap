@@ -55,6 +55,7 @@ expression: "home(&member(JOSEF), &overview()).into_string().replace(\"><\", \">
 <a class="button large" href="/expenses/new">+ Expense</a>
 <a class="button secondary" href="/payments/new">+ Payment</a>
 </div>
+<div class="columns">
 <section class="section" aria-labelledby="latest-entries">
 <h2 id="latest-entries">Latest entries</h2>
 <ul class="entry-list">
@@ -136,6 +137,7 @@ expression: "home(&member(JOSEF), &overview()).into_string().replace(\"><\", \">
 </li>
 </ul>
 </section>
+</div>
 </main>
 <nav class="tabs" aria-label="Sections">
 <a class="tab" href="/" aria-current="page">
