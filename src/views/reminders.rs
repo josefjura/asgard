@@ -1,13 +1,62 @@
-//! The Reminders tab: the form a Member creates a Reminder for the whole Crew with, and the
-//! Reminders still pending.
+//! The Reminders tab: the form a Member creates a Reminder for the whole Crew with, the
+//! Reminders still pending, and the page a pending Reminder is edited or deleted on.
 
 use jiff::civil::DateTime;
 use maud::{Markup, html};
 
-use crate::domain::reminders::{PendingReminder, TEXT_MAX};
+use crate::domain::reminders::{PendingReminder, ReminderId, TEXT_MAX};
 use crate::views::finance::problem;
+use crate::views::icon::chevron;
 use crate::views::layout::shell;
 use crate::views::nav::{Place, Tab};
+
+/// Where a Reminder's links and forms lead. The routes in `web::reminders` spell out the same
+/// paths.
+pub mod paths {
+    use crate::domain::reminders::ReminderId;
+    use crate::views::nav::Tab;
+
+    /// The Reminder `id`, which its edit form posts to.
+    #[must_use]
+    pub fn reminder(id: ReminderId) -> String {
+        format!("{}/{}", Tab::Reminders.href(), id.get())
+    }
+
+    /// The Reminder `id` in its edit form.
+    #[must_use]
+    pub fn edit_reminder(id: ReminderId) -> String {
+        format!("{}/edit", reminder(id))
+    }
+
+    /// Where the Reminder `id`'s delete button posts.
+    #[must_use]
+    pub fn delete_reminder(id: ReminderId) -> String {
+        format!("{}/delete", reminder(id))
+    }
+}
+
+/// Which Reminder the form is for: a new one, or the pending Reminder it edits.
+#[derive(Debug, Clone, Copy)]
+pub enum FormFor {
+    New,
+    Edit(ReminderId),
+}
+
+impl FormFor {
+    fn action(self) -> String {
+        match self {
+            Self::New => Tab::Reminders.href().to_owned(),
+            Self::Edit(id) => paths::reminder(id),
+        }
+    }
+
+    const fn submit(self) -> &'static str {
+        match self {
+            Self::New => "Create Reminder",
+            Self::Edit(_) => "Save Reminder",
+        }
+    }
+}
 
 /// What the Reminder form shows in its fields: what was typed, or nothing yet.
 #[derive(Debug, Clone, Copy, Default)]
@@ -25,7 +74,8 @@ pub struct ReminderProblems {
 }
 
 /// A date and time the way a `datetime-local` field holds it, to the minute.
-fn field_time(time: DateTime) -> String {
+#[must_use]
+pub fn field_time(time: DateTime) -> String {
     time.strftime("%Y-%m-%dT%H:%M").to_string()
 }
 
@@ -65,30 +115,64 @@ pub fn page(form: &Markup, pending: &[PendingReminder]) -> Markup {
     )
 }
 
-/// A pending Reminder: what it says, when it's due in Prague time, and who created it.
+/// A pending Reminder: what it says, when it's due in Prague time, and who created it. Any
+/// Member may change it, so it leads to its edit page.
 fn pending_row(reminder: &PendingReminder) -> Markup {
     let time = reminder.due_at.crew_time();
     html! {
         li.reminder {
-            span.reminder-text #{ "reminder-" (reminder.id.get()) } { (reminder.text.as_str()) }
-            span.reminder-meta {
-                time datetime=(field_time(time)) { (shown_due(time)) }
-                " · " (reminder.created_by)
+            a.reminder-link href=(paths::edit_reminder(reminder.id)) {
+                span.reminder-main {
+                    span.reminder-text #{ "reminder-" (reminder.id.get()) } {
+                        (reminder.text.as_str())
+                    }
+                    span.reminder-meta {
+                        time datetime=(field_time(time)) { (shown_due(time)) }
+                        " · " (reminder.created_by)
+                    }
+                }
+                (chevron())
             }
         }
     }
 }
 
-/// The form a Reminder is created with.
+/// The page a pending Reminder is edited on: `form`, and at its foot the button that deletes
+/// the Reminder `id` after asking. Without htmx, delete posts as a plain form.
+#[must_use]
+pub fn edit_page(id: ReminderId, form: &Markup) -> Markup {
+    let delete = paths::delete_reminder(id);
+    shell(
+        Place::Tab(Tab::Reminders),
+        &html! {
+            h1 { "Edit Reminder" }
+            (form)
+            section.delete-entry aria-label="Delete this Reminder" {
+                p { "Deleting this Reminder means nobody is notified about it." }
+                form method="post" action=(delete) hx-post=(delete)
+                    hx-confirm="Delete this Reminder? Nobody will be notified about it." {
+                    button.button.danger type="submit" { "Delete Reminder" }
+                }
+            }
+        },
+    )
+}
+
+/// The form a Reminder is created or edited with, as `purpose` says.
 ///
 /// It shows `values` and, beside each field, what was wrong with it. The due time is entered in
-/// Prague time and can't be before `now`, Prague time too. htmx swaps the form for the one the server answers with; without htmx, it posts as a plain
-/// form.
+/// Prague time and can't be before `now`, Prague time too. htmx swaps the form for the one the
+/// server answers with; without htmx, it posts as a plain form.
 #[must_use]
-pub fn form(values: ReminderValues, problems: &ReminderProblems, now: DateTime) -> Markup {
+pub fn form(
+    purpose: FormFor,
+    values: ReminderValues,
+    problems: &ReminderProblems,
+    now: DateTime,
+) -> Markup {
+    let action = purpose.action();
     html! {
-        form.entry-form method="post" action=(Tab::Reminders.href())
-            hx-post=(Tab::Reminders.href()) hx-swap="outerHTML" {
+        form.entry-form method="post" action=(action) hx-post=(action) hx-swap="outerHTML" {
             div.field {
                 label for="reminder-text" { "What to remember" }
                 input #reminder-text type="text" name="text" value=(values.text) required
@@ -105,7 +189,7 @@ pub fn form(values: ReminderValues, problems: &ReminderProblems, now: DateTime) 
                     aria-describedby=[problems.due_at.is_some().then_some("reminder-due-problem")];
                 (problem("reminder-due-problem", problems.due_at.as_deref()))
             }
-            button.button.large type="submit" { "Create Reminder" }
+            button.button.large type="submit" { (purpose.submit()) }
         }
     }
 }
@@ -161,7 +245,49 @@ mod tests {
     use crate::views::assert_html_snapshot;
 
     fn empty_form() -> Markup {
-        form(ReminderValues::default(), &ReminderProblems::default(), NOW)
+        form(
+            FormFor::New,
+            ReminderValues::default(),
+            &ReminderProblems::default(),
+            NOW,
+        )
+    }
+
+    fn edit_form_with_errors() -> Markup {
+        let (values, problems) = refused();
+        form(
+            FormFor::Edit(ReminderId::from_client(3)),
+            values,
+            &problems,
+            NOW,
+        )
+    }
+
+    #[test]
+    fn reminder_edit_page_with_errors() {
+        assert_html_snapshot!(edit_page(
+            ReminderId::from_client(3),
+            &edit_form_with_errors()
+        ));
+    }
+
+    #[test]
+    fn the_edit_form_saves_the_reminder_and_its_page_deletes_it_after_asking() {
+        let html = edit_page(ReminderId::from_client(3), &edit_form_with_errors()).into_string();
+
+        assert!(html.contains(r#"action="/reminders/3" hx-post="/reminders/3""#));
+        assert!(html.contains("Save Reminder"));
+        assert!(html.contains(r#"action="/reminders/3/delete" hx-post="/reminders/3/delete""#));
+        assert!(html.contains("hx-confirm="));
+    }
+
+    #[test]
+    fn each_pending_reminder_leads_to_its_edit_page() {
+        let html = page(&empty_form(), &pending()).into_string();
+
+        for id in 1..=3 {
+            assert!(html.contains(&format!(r#"href="/reminders/{id}/edit""#)));
+        }
     }
 
     #[test]
@@ -177,7 +303,7 @@ mod tests {
     #[test]
     fn reminder_form_with_errors() {
         let (values, problems) = refused();
-        assert_html_snapshot!(form(values, &problems, NOW));
+        assert_html_snapshot!(form(FormFor::New, values, &problems, NOW));
     }
 
     #[test]

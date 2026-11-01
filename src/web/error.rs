@@ -36,6 +36,9 @@ pub enum AppError {
     /// The Expense or Payment asked for doesn't exist, or was deleted.
     #[error("no such entry")]
     NoSuchEntry,
+    /// The Reminder asked for doesn't exist, was deleted, or was sent and can't be edited.
+    #[error("no such Reminder")]
+    NoSuchReminder,
     /// The browser sent a push subscription that can't be used.
     #[error(transparent)]
     Subscription(#[from] SubscriptionError),
@@ -84,6 +87,13 @@ impl AppError {
                 StatusCode::NOT_FOUND,
                 Some(
                     "That entry no longer exists. Reload the page to see the latest entries."
+                        .to_owned(),
+                ),
+            ),
+            Self::NoSuchReminder => (
+                StatusCode::NOT_FOUND,
+                Some(
+                    "That Reminder is no longer pending. Reload the page to see the latest Reminders."
                         .to_owned(),
                 ),
             ),

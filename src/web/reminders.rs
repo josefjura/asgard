@@ -1,26 +1,31 @@
-//! The Reminders tab: creating a Reminder for the whole Crew, and the Reminders still pending.
+//! The Reminders tab: creating a Reminder for the whole Crew, the Reminders still pending, and
+//! editing or deleting one of them.
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Form, Router};
 use maud::Markup;
 use serde::Deserialize;
 
 use super::access::Member;
-use super::htmx::{Htmx, go_to};
+use super::htmx::{Htmx, fragment_or_page, go_to};
 use super::pages::fresh;
 use super::{AppError, AppState};
 use crate::domain::reminders::{
-    DueAt, NewReminder, ReminderError, ReminderText, TEXT_MAX, TextError,
+    DueAt, NewReminder, ReminderError, ReminderId, ReminderText, TEXT_MAX, TextError,
 };
 use crate::views;
 use crate::views::nav::Tab;
-use crate::views::reminders::{ReminderProblems, ReminderValues};
+use crate::views::reminders::{FormFor, ReminderProblems, ReminderValues, field_time};
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route(Tab::Reminders.href(), get(show).post(create))
+    Router::new()
+        .route(Tab::Reminders.href(), get(show).post(create))
+        .route("/reminders/{id}/edit", get(edit))
+        .route("/reminders/{id}", post(save))
+        .route("/reminders/{id}/delete", post(delete))
 }
 
 /// The Reminders tab with an empty form.
@@ -29,6 +34,7 @@ async fn show(
     Member(_): Member,
 ) -> Result<impl IntoResponse, AppError> {
     let form = views::reminders::form(
+        FormFor::New,
         ReminderValues::default(),
         &ReminderProblems::default(),
         state.reminders.now(),
@@ -65,21 +71,120 @@ async fn create(
                 tracing::info!(member = member.id.get(), "a Member created a Reminder");
                 return Ok(go_to(htmx, Tab::Reminders.href()));
             }
-            Err(ReminderError::NotInFuture) => ReminderProblems {
-                due_at: Some(NOT_IN_FUTURE.to_owned()),
-                ..ReminderProblems::default()
-            },
-            Err(ReminderError::Database(err)) => return Err(err.into()),
+            Err(err) => reminder_problems(err)?,
         },
         Err(problems) => problems,
     };
-    let form = views::reminders::form(input.values(), &problems, state.reminders.now());
+    let form = views::reminders::form(
+        FormFor::New,
+        input.values(),
+        &problems,
+        state.reminders.now(),
+    );
     let body = if htmx {
         form
     } else {
         page(&state, &form).await?
     };
     Ok((StatusCode::UNPROCESSABLE_ENTITY, fresh(body)).into_response())
+}
+
+/// The pending Reminder `id` in its form, for any Member to edit or delete.
+async fn edit(
+    State(state): State<AppState>,
+    Member(_): Member,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, AppError> {
+    let id = ReminderId::from_client(id);
+    let reminder = state.reminders.to_edit(id).await.map_err(not_found)?;
+    let due_at = field_time(reminder.due_at.crew_time());
+    let values = ReminderValues {
+        text: reminder.text.as_str(),
+        due_at: &due_at,
+    };
+    let form = views::reminders::form(
+        FormFor::Edit(id),
+        values,
+        &ReminderProblems::default(),
+        state.reminders.now(),
+    );
+    Ok(fresh(views::reminders::edit_page(id, &form)))
+}
+
+/// Saves the edited Reminder `id` and goes back to the Reminders tab, or answers with the form
+/// showing what to fix: alone for htmx, inside its edit page otherwise.
+async fn save(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+    Form(input): Form<ReminderForm>,
+) -> Result<Response, AppError> {
+    let id = ReminderId::from_client(id);
+    let problems = match parse(&input) {
+        Ok(reminder) => match state.reminders.edit(id, &reminder).await {
+            Ok(()) => {
+                tracing::info!(member = member.id.get(), "a Member edited a Reminder");
+                return Ok(go_to(htmx, Tab::Reminders.href()));
+            }
+            Err(err) => reminder_problems(err)?,
+        },
+        Err(problems) => {
+            // A Reminder that is gone is reported as gone, not as a form to fix.
+            state.reminders.to_edit(id).await.map_err(not_found)?;
+            problems
+        }
+    };
+    let form = views::reminders::form(
+        FormFor::Edit(id),
+        input.values(),
+        &problems,
+        state.reminders.now(),
+    );
+    Ok(fragment_or_page(
+        htmx,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        form,
+        |form| views::reminders::edit_page(id, form),
+    ))
+}
+
+/// Deletes the Reminder `id` and goes back to the Reminders tab.
+async fn delete(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    state
+        .reminders
+        .delete(ReminderId::from_client(id))
+        .await
+        .map_err(not_found)?;
+    tracing::info!(member = member.id.get(), "a Member deleted a Reminder");
+    Ok(go_to(htmx, Tab::Reminders.href()))
+}
+
+/// What to tell the Member when the service refuses a Reminder: a problem with the form they can
+/// fix, or an error to answer with.
+fn reminder_problems(err: ReminderError) -> Result<ReminderProblems, AppError> {
+    match err {
+        ReminderError::NotInFuture => Ok(ReminderProblems {
+            due_at: Some(NOT_IN_FUTURE.to_owned()),
+            ..ReminderProblems::default()
+        }),
+        err => Err(not_found(err)),
+    }
+}
+
+/// The error to answer with when looking up, changing or deleting a Reminder fails. Only a
+/// create or an edit can be refused for its due time, and [`reminder_problems`] turns that into a
+/// problem with the form first.
+fn not_found(err: ReminderError) -> AppError {
+    match err {
+        ReminderError::NotFound | ReminderError::NotInFuture => AppError::NoSuchReminder,
+        ReminderError::Database(err) => err.into(),
+    }
 }
 
 /// What a Member is told when the due time they picked has already passed.
@@ -348,5 +453,222 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         assert!(tab(&app, &cookie).await.contains("Nothing pending."));
+    }
+
+    /// Posts the edit form of the Reminder `id` with `text` and `due_at`, as htmx does if
+    /// `htmx`.
+    async fn post_edit(
+        app: &TestApp,
+        cookie: &str,
+        id: i64,
+        text: &str,
+        due_at: &str,
+        htmx: bool,
+    ) -> Response<Body> {
+        post_form(
+            app,
+            &format!("/reminders/{id}"),
+            cookie,
+            &fields(text, due_at),
+            htmx,
+            PUBLIC_ORIGIN,
+        )
+        .await
+    }
+
+    async fn edit_page(app: &TestApp, cookie: &str, id: i64) -> String {
+        let response = app.get_with(&format!("/reminders/{id}/edit"), cookie).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        body_text(response).await
+    }
+
+    #[sqlx::test]
+    async fn signed_out_editing_and_deleting_redirect_to_sign_in(db: SqlitePool) {
+        let app = TestApp::new(db);
+
+        for response in [
+            app.get("/reminders/1/edit").await,
+            post_edit(&app, "", 1, "Bottle the stout", TOMORROW_MORNING, false).await,
+            app.post_with("/reminders/1/delete", "").await,
+        ] {
+            assert_eq!(response.status(), StatusCode::SEE_OTHER);
+            assert_eq!(response.headers()[LOCATION], "/sign-in");
+        }
+    }
+
+    #[sqlx::test]
+    async fn a_pending_reminder_leads_to_its_form_filled_in(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let ondra = app.sign_in_new_member("Ondra").await;
+        post_reminder(&app, &ondra, "Bottle the stout", TOMORROW_MORNING, true).await;
+
+        assert!(
+            tab(&app, &ondra)
+                .await
+                .contains(r#"href="/reminders/1/edit""#)
+        );
+        let html = edit_page(&app, &ondra, 1).await;
+        assert!(html.contains("<h1>Edit Reminder</h1>"));
+        assert!(html.contains(r#"action="/reminders/1""#));
+        assert!(html.contains(r#"value="Bottle the stout""#));
+        assert!(html.contains(r#"value="2026-01-02T09:00""#));
+        assert!(html.contains(r#"action="/reminders/1/delete""#));
+    }
+
+    #[sqlx::test]
+    async fn a_member_edits_another_members_reminder_and_pending_reorders(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let ondra = app.sign_in_new_member("Ondra").await;
+        post_reminder(&app, &josef, "Order hops", TOMORROW_MORNING, true).await;
+        post_reminder(&app, &josef, "Bottle the stout", "2026-01-03T18:00", true).await;
+
+        let response = post_edit(
+            &app,
+            &ondra,
+            1,
+            " Order more hops ",
+            "2026-01-05T08:30",
+            false,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[LOCATION], "/reminders");
+        let html = tab(&app, &josef).await;
+        let at = |text: &str| html.find(&format!(">{text}</span>")).unwrap();
+        assert!(at("Bottle the stout") < at("Order more hops"), "{html}");
+        // Its creator stays who they were.
+        assert!(html.contains(
+            r#"<time datetime="2026-01-05T08:30">Monday 5 January 2026, 08:30</time> · Josef"#
+        ));
+    }
+
+    #[sqlx::test]
+    async fn htmx_is_told_to_load_the_tab_once_saved(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        post_reminder(&app, &cookie, "Bottle the stout", TOMORROW_MORNING, true).await;
+
+        let response = post_edit(&app, &cookie, 1, "Bottle it", TOMORROW_MORNING, true).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[HX_REDIRECT], "/reminders");
+    }
+
+    #[sqlx::test]
+    async fn an_edit_to_a_blank_text_or_a_past_time_is_refused_and_changes_nothing(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        post_reminder(&app, &cookie, "Bottle the stout", TOMORROW_MORNING, true).await;
+
+        // The clock stands at 01:00 in Prague.
+        for (text, due_at, problem) in [
+            (" ", TOMORROW_MORNING, "Say what to remember."),
+            (
+                "Too late",
+                "2026-01-01T00:59",
+                "Pick a time that hasn't passed yet.",
+            ),
+        ] {
+            let response = post_edit(&app, &cookie, 1, text, due_at, true).await;
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+            let html = body_text(response).await;
+            assert!(html.starts_with("<form"), "a fragment: {html}");
+            assert!(html.contains(problem), "{html}");
+            assert!(html.contains("Save Reminder"));
+        }
+        let html = tab(&app, &cookie).await;
+        assert!(html.contains(">Bottle the stout</span>"));
+        assert!(html.contains(r#"<time datetime="2026-01-02T09:00">"#));
+    }
+
+    #[sqlx::test]
+    async fn a_refused_plain_edit_gets_its_edit_page_back(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        post_reminder(&app, &cookie, "Bottle the stout", TOMORROW_MORNING, true).await;
+
+        let response = post_edit(&app, &cookie, 1, "", TOMORROW_MORNING, false).await;
+
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let html = body_text(response).await;
+        assert!(html.contains("<h1>Edit Reminder</h1>"), "{html}");
+        assert!(html.contains("Say what to remember."));
+        assert!(html.contains(r#"action="/reminders/1/delete""#));
+    }
+
+    #[sqlx::test]
+    async fn a_member_deletes_a_reminder_and_it_leaves_pending(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let ondra = app.sign_in_new_member("Ondra").await;
+        post_reminder(&app, &josef, "Bottle the stout", TOMORROW_MORNING, true).await;
+
+        let response = app.post_with("/reminders/1/delete", &ondra).await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[LOCATION], "/reminders");
+        assert!(tab(&app, &josef).await.contains("Nothing pending."));
+    }
+
+    #[sqlx::test]
+    async fn htmx_is_told_to_load_the_tab_once_deleted(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        post_reminder(&app, &cookie, "Bottle the stout", TOMORROW_MORNING, true).await;
+
+        let response = post_form(
+            &app,
+            "/reminders/1/delete",
+            &cookie,
+            &[],
+            true,
+            PUBLIC_ORIGIN,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[HX_REDIRECT], "/reminders");
+    }
+
+    #[sqlx::test]
+    async fn a_reminder_that_doesnt_exist_is_not_found(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        post_reminder(&app, &cookie, "Bottle the stout", TOMORROW_MORNING, true).await;
+        app.post_with("/reminders/1/delete", &cookie).await;
+
+        for response in [
+            app.get_with("/reminders/1/edit", &cookie).await,
+            app.get_with("/reminders/999/edit", &cookie).await,
+            post_edit(&app, &cookie, 1, "Bottle it", TOMORROW_MORNING, true).await,
+            // Gone is reported before what's wrong with the form.
+            post_edit(&app, &cookie, 1, "", "", true).await,
+            app.post_with("/reminders/1/delete", &cookie).await,
+        ] {
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            assert!(body_text(response).await.contains("no longer pending"));
+        }
+    }
+
+    #[sqlx::test]
+    async fn editing_and_deleting_need_our_origin(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        post_reminder(&app, &cookie, "Bottle the stout", TOMORROW_MORNING, true).await;
+
+        for (uri, fields) in [
+            ("/reminders/1", fields("Bottle it", TOMORROW_MORNING)),
+            ("/reminders/1/delete", Vec::new()),
+        ] {
+            let response = post_form(&app, uri, &cookie, &fields, false, "https://evil.test").await;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{uri}");
+        }
+        assert!(
+            tab(&app, &cookie)
+                .await
+                .contains(">Bottle the stout</span>")
+        );
     }
 }
