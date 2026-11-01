@@ -321,20 +321,11 @@ fn finance_pages() -> Vec<Fixture> {
 
 /// The Reminders tab with nothing pending, with Reminders pending, and with a refused form.
 fn reminder_pages() -> [Fixture; 3] {
-    use reminders::fixtures::{NOW, pending};
+    use reminders::fixtures::{NOW, pending, refused};
 
     let empty = reminders::form(ReminderValues::default(), &ReminderProblems::default(), NOW);
-    let refused = reminders::form(
-        ReminderValues {
-            text: "",
-            due_at: "2026-10-23T18:00",
-        },
-        &ReminderProblems {
-            text: Some("Say what to remember.".to_owned()),
-            due_at: Some("Pick a time that hasn't passed yet.".to_owned()),
-        },
-        NOW,
-    );
+    let (values, problems) = refused();
+    let refused = reminders::form(values, &problems, NOW);
     [
         ("Nothing pending", &empty, Vec::new()),
         ("Pending", &empty, pending()),

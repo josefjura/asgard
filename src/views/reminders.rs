@@ -9,9 +9,6 @@ use crate::views::finance::problem;
 use crate::views::layout::shell;
 use crate::views::nav::{Place, Tab};
 
-/// Where the Reminders tab's form posts. The routes in `web::reminders` spell out the same path.
-pub const CREATE: &str = "/reminders";
-
 /// What the Reminder form shows in its fields: what was typed, or nothing yet.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ReminderValues<'a> {
@@ -33,7 +30,7 @@ fn field_time(time: DateTime) -> String {
 }
 
 /// A due time the way Pending shows it, in the Crew's time zone.
-fn due(time: DateTime) -> String {
+fn shown_due(time: DateTime) -> String {
     time.strftime("%A %-d %B %Y, %H:%M").to_string()
 }
 
@@ -75,7 +72,7 @@ fn pending_row(reminder: &PendingReminder) -> Markup {
         li.reminder {
             span.reminder-text #{ "reminder-" (reminder.id.get()) } { (reminder.text.as_str()) }
             span.reminder-meta {
-                time datetime=(field_time(time)) { (due(time)) }
+                time datetime=(field_time(time)) { (shown_due(time)) }
                 " · " (reminder.created_by)
             }
         }
@@ -90,7 +87,8 @@ fn pending_row(reminder: &PendingReminder) -> Markup {
 #[must_use]
 pub fn form(values: ReminderValues, problems: &ReminderProblems, now: DateTime) -> Markup {
     html! {
-        form.entry-form method="post" action=(CREATE) hx-post=(CREATE) hx-swap="outerHTML" {
+        form.entry-form method="post" action=(Tab::Reminders.href())
+            hx-post=(Tab::Reminders.href()) hx-swap="outerHTML" {
             div.field {
                 label for="reminder-text" { "What to remember" }
                 input #reminder-text type="text" name="text" value=(values.text) required
@@ -112,10 +110,11 @@ pub fn form(values: ReminderValues, problems: &ReminderProblems, now: DateTime) 
     }
 }
 
-/// Pending Reminders and the moment the fixture forms are filled in, for the gallery and the
-/// snapshots.
+/// Pending Reminders, a refused form and the moment the forms are filled in, for the gallery and
+/// the snapshots.
 #[cfg(any(test, debug_assertions))]
 pub mod fixtures {
+    use super::{ReminderProblems, ReminderValues};
     use jiff::civil::{DateTime, date};
 
     use crate::domain::reminders::PendingReminder;
@@ -123,6 +122,21 @@ pub mod fixtures {
 
     /// 10:00 in Prague on Saturday 24 October 2026, the day before the clocks go back.
     pub const NOW: DateTime = date(2026, 10, 24).at(10, 0, 0, 0);
+
+    /// A form refused for a blank text and a due time that has passed.
+    #[must_use]
+    pub fn refused() -> (ReminderValues<'static>, ReminderProblems) {
+        (
+            ReminderValues {
+                text: "",
+                due_at: "2026-10-23T18:00",
+            },
+            ReminderProblems {
+                text: Some("Say what to remember.".to_owned()),
+                due_at: Some("Pick a time that hasn't passed yet.".to_owned()),
+            },
+        )
+    }
 
     /// Three pending Reminders, soonest first, the last after the clocks have gone back.
     #[must_use]
@@ -142,7 +156,7 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
-    use super::fixtures::{NOW, pending};
+    use super::fixtures::{NOW, pending, refused};
     use super::*;
     use crate::views::assert_html_snapshot;
 
@@ -162,14 +176,7 @@ mod tests {
 
     #[test]
     fn reminder_form_with_errors() {
-        let values = ReminderValues {
-            text: "",
-            due_at: "2026-10-23T18:00",
-        };
-        let problems = ReminderProblems {
-            text: Some("Say what to remember.".to_owned()),
-            due_at: Some("Pick a time that hasn't passed yet.".to_owned()),
-        };
+        let (values, problems) = refused();
         assert_html_snapshot!(form(values, &problems, NOW));
     }
 

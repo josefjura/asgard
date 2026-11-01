@@ -17,10 +17,9 @@ use crate::domain::reminders::{
 };
 use crate::views;
 use crate::views::nav::Tab;
-use crate::views::reminders::{CREATE, ReminderProblems, ReminderValues};
+use crate::views::reminders::{ReminderProblems, ReminderValues};
 
 pub fn routes() -> Router<AppState> {
-    debug_assert_eq!(CREATE, Tab::Reminders.href());
     Router::new().route(Tab::Reminders.href(), get(show).post(create))
 }
 
@@ -117,8 +116,9 @@ async fn page(state: &AppState, form: &Markup) -> Result<Markup, AppError> {
 
 #[cfg(test)]
 mod tests {
+    use axum::body::Body;
     use axum::http::header::LOCATION;
-    use axum::http::{Method, StatusCode};
+    use axum::http::{Method, Response, StatusCode};
     use sqlx::SqlitePool;
 
     use crate::domain::reminders::TEXT_MAX;
@@ -132,8 +132,15 @@ mod tests {
         vec![("text", text.to_owned()), ("due_at", due_at.to_owned())]
     }
 
-    async fn create(app: &TestApp, cookie: &str, text: &str, due_at: &str, htmx: bool) -> String {
-        let response = post_form(
+    /// Posts the Reminder form with `text` and `due_at`, as htmx does if `htmx`.
+    async fn post_reminder(
+        app: &TestApp,
+        cookie: &str,
+        text: &str,
+        due_at: &str,
+        htmx: bool,
+    ) -> Response<Body> {
+        post_form(
             app,
             "/reminders",
             cookie,
@@ -141,7 +148,12 @@ mod tests {
             htmx,
             PUBLIC_ORIGIN,
         )
-        .await;
+        .await
+    }
+
+    /// Posts the Reminder form, expecting it refused, and answers with what came back.
+    async fn refused(app: &TestApp, cookie: &str, text: &str, due_at: &str, htmx: bool) -> String {
+        let response = post_reminder(app, cookie, text, due_at, htmx).await;
         let status = response.status();
         let body = body_text(response).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
@@ -160,15 +172,7 @@ mod tests {
 
         for response in [
             app.get("/reminders").await,
-            post_form(
-                &app,
-                "/reminders",
-                "",
-                &fields("Bottle the stout", TOMORROW_MORNING),
-                false,
-                PUBLIC_ORIGIN,
-            )
-            .await,
+            post_reminder(&app, "", "Bottle the stout", TOMORROW_MORNING, false).await,
         ] {
             assert_eq!(response.status(), StatusCode::SEE_OTHER);
             assert_eq!(response.headers()[LOCATION], "/sign-in");
@@ -206,15 +210,8 @@ mod tests {
         let josef = app.sign_in_new_admin("Josef").await;
         let ondra = app.sign_in_new_member("Ondra").await;
 
-        let response = post_form(
-            &app,
-            "/reminders",
-            &ondra,
-            &fields("  Bottle the stout ", TOMORROW_MORNING),
-            false,
-            PUBLIC_ORIGIN,
-        )
-        .await;
+        let response =
+            post_reminder(&app, &ondra, "  Bottle the stout ", TOMORROW_MORNING, false).await;
 
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
         assert_eq!(response.headers()[LOCATION], "/reminders");
@@ -231,15 +228,8 @@ mod tests {
         let app = TestApp::new(db);
         let cookie = app.sign_in_new_admin("Josef").await;
 
-        let response = post_form(
-            &app,
-            "/reminders",
-            &cookie,
-            &fields("Bottle the stout", TOMORROW_MORNING),
-            true,
-            PUBLIC_ORIGIN,
-        )
-        .await;
+        let response =
+            post_reminder(&app, &cookie, "Bottle the stout", TOMORROW_MORNING, true).await;
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()[HX_REDIRECT], "/reminders");
@@ -254,15 +244,7 @@ mod tests {
             ("First", "2026-01-01T12:00"),
             ("Second", "2026-01-15T08:00"),
         ] {
-            post_form(
-                &app,
-                "/reminders",
-                &cookie,
-                &fields(text, due_at),
-                true,
-                PUBLIC_ORIGIN,
-            )
-            .await;
+            post_reminder(&app, &cookie, text, due_at, true).await;
         }
 
         let html = tab(&app, &cookie).await;
@@ -281,15 +263,7 @@ mod tests {
             ("After", "2026-03-30T10:00"),
             ("Skipped", "2026-03-29T02:30"),
         ] {
-            post_form(
-                &app,
-                "/reminders",
-                &cookie,
-                &fields(text, due_at),
-                true,
-                PUBLIC_ORIGIN,
-            )
-            .await;
+            post_reminder(&app, &cookie, text, due_at, true).await;
         }
 
         let html = tab(&app, &cookie).await;
@@ -305,7 +279,7 @@ mod tests {
         let app = TestApp::new(db);
         let cookie = app.sign_in_new_admin("Josef").await;
 
-        let html = create(&app, &cookie, " \n ", TOMORROW_MORNING, true).await;
+        let html = refused(&app, &cookie, " \n ", TOMORROW_MORNING, true).await;
 
         assert!(html.starts_with("<form"), "a fragment: {html}");
         assert!(html.contains("Say what to remember."));
@@ -319,7 +293,7 @@ mod tests {
         let app = TestApp::new(db);
         let cookie = app.sign_in_new_admin("Josef").await;
 
-        let html = create(
+        let html = refused(
             &app,
             &cookie,
             &"a".repeat(TEXT_MAX + 1),
@@ -339,7 +313,7 @@ mod tests {
         let cookie = app.sign_in_new_admin("Josef").await;
 
         // The clock stands at 01:00 in Prague.
-        let html = create(&app, &cookie, "Too late", "2026-01-01T00:59", true).await;
+        let html = refused(&app, &cookie, "Too late", "2026-01-01T00:59", true).await;
 
         assert!(html.contains("Pick a time that hasn't passed yet."));
         assert!(html.contains(r#"aria-describedby="reminder-due-problem""#));
@@ -351,7 +325,7 @@ mod tests {
         let app = TestApp::new(db);
         let cookie = app.sign_in_new_admin("Josef").await;
 
-        let html = create(&app, &cookie, "Bottle the stout", "", true).await;
+        let html = refused(&app, &cookie, "Bottle the stout", "", true).await;
 
         assert!(html.contains("Enter the date and time it"), "{html}");
         assert!(tab(&app, &cookie).await.contains("Nothing pending."));

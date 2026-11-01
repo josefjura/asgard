@@ -16,12 +16,6 @@ pub const TEXT_MAX: usize = 500;
 pub struct ReminderId(i64);
 
 impl ReminderId {
-    /// An id a client sent back. Nothing about it is trusted until the Reminder is found.
-    #[must_use]
-    pub const fn from_client(id: i64) -> Self {
-        Self(id)
-    }
-
     #[must_use]
     pub const fn get(self) -> i64 {
         self.0
