@@ -27,6 +27,9 @@
   --space-4: 1.5rem;
   --space-5: 2.5rem;
   --measure: 40rem;
+  /* The centred column on a wide screen: wide enough for the logo, tabs and cog in one band.
+     Keep it no wider than the 48rem breakpoint, where the column takes over. */
+  --column: 48rem;
   --radius: 0.5rem;
 
   --text-tiny: 0.75rem;
@@ -214,26 +217,36 @@ a {
 }
 
 @media (min-width: 48rem) {
-  /* The header band spans the row and the navigation sits on top of it, so no seam shows. The
-     last column keeps the settings cog clear of the tabs. */
+  /* A centred --column between two gutters. The header band spans the row and the
+     navigation sits on top of it, so no seam shows; the column's last track, the cog's width
+     plus a gap, keeps the settings cog clear of the tabs. */
   .shell {
-    grid-template-columns: 1fr auto calc(3rem + var(--space-4));
+    --cog-track: calc(3rem + var(--space-4));
+
+    grid-template-columns:
+      minmax(0, 1fr) minmax(0, calc(var(--column) - var(--cog-track)))
+      var(--cog-track) minmax(0, 1fr);
     grid-template-rows: auto 1fr;
     grid-template-areas: none;
   }
 
+  /* The band's padding grows with the gutters, so the logo and cog sit on the column's edges.
+     max() holds the padding when a scrollbar leaves the shell narrower than --column. */
   .shell-header {
     grid-area: 1 / 1 / 2 / -1;
-    padding-inline: var(--space-4);
+    padding-inline: max(var(--space-4), calc((100% - var(--column)) / 2 + var(--space-4)));
   }
 
+  /* The main area fills the column; sections that want a shorter line keep their own measure. */
   .shell-main {
-    grid-area: 2 / 1 / 3 / -1;
+    grid-area: 2 / 2 / 3 / 4;
+    max-width: none;
     padding-inline: var(--space-4);
   }
 
   .tabs {
     grid-area: 1 / 2 / 2 / 3;
+    justify-self: end;
     position: static;
     grid-template-columns: repeat(4, auto);
     gap: var(--space-1);
