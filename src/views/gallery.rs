@@ -18,6 +18,7 @@ use crate::views::layout::document;
 use crate::views::nav::{ADMIN_HREF, Place, Tab, bottom_nav};
 use crate::views::passkey::CeremonyUrls;
 use crate::views::passkeys::{self, Outcome as PasskeyOutcome};
+use crate::views::push::{self, PushState, PushUrls};
 use crate::views::{invite, offline, settings, sign_in, tabs, welcome};
 
 /// One component in one state, rendered as a complete document.
@@ -56,6 +57,14 @@ const HISTORY_HEIGHT: u16 = 1250;
 const FILTERED_HISTORY_HEIGHT: u16 = 950;
 /// Where the fixture passkey lists' forms post.
 const PASSKEYS_BASE: &str = "/settings/passkeys";
+/// What the fixture notification controls hand the push script.
+const PUSH_URLS: PushUrls<'static> = PushUrls {
+    public_key: "BFixtureKey",
+    subscribe: "/push/subscribe",
+    unsubscribe: "/push/unsubscribe",
+};
+/// The notifications control, alone in a section.
+const PUSH_CONTROL_HEIGHT: u16 = 300;
 const DESKTOP_WIDTH: u16 = 1280;
 
 /// # Panics
@@ -427,39 +436,55 @@ fn payment_forms() -> [Fixture; 4] {
     })
 }
 
-/// The pages a signed-in Member changes their display name on, and the form itself.
+/// The pages a signed-in Member changes their display name on and turns notifications on
+/// from, the name form and the notifications control.
 fn signed_in_pages() -> Vec<Fixture> {
-    let welcome = Fixture {
+    let welcome = [
+        ("Just joined", PushState::Off),
+        ("Notifications on", PushState::On),
+    ]
+    .map(|(state, push)| Fixture {
         component: "Welcome page",
-        state: "Just joined".to_owned(),
+        state: state.to_owned(),
         document: welcome::page(
             CREW_NAME,
             &display_name::form("/welcome/name", "Ondra", None),
+            &push::control(push, &PUSH_URLS),
             "/welcome/done",
         ),
         height: WELCOME_HEIGHT,
-    };
+    });
     let settings = [
         (
             "One passkey",
             passkeys::fixtures::one(),
             false,
+            PushState::Off,
             SETTINGS_HEIGHT,
         ),
         (
             "Several passkeys",
             passkeys::fixtures::several(),
             false,
+            PushState::Off,
             SEVERAL_PASSKEYS_HEIGHT,
         ),
         (
             "The Admin's",
             passkeys::fixtures::one(),
             true,
+            PushState::Off,
             ADMIN_SETTINGS_HEIGHT,
         ),
+        (
+            "Notifications on",
+            passkeys::fixtures::one(),
+            false,
+            PushState::On,
+            SETTINGS_HEIGHT,
+        ),
     ]
-    .map(|(state, passkeys, admin, height)| Fixture {
+    .map(|(state, passkeys, admin, push, height)| Fixture {
         component: "Settings page",
         state: state.to_owned(),
         document: settings::page(
@@ -469,10 +494,27 @@ fn signed_in_pages() -> Vec<Fixture> {
                 start: format!("{PASSKEYS_BASE}/start"),
                 finish: format!("{PASSKEYS_BASE}/finish"),
             },
+            &push::control(push, &PUSH_URLS),
             admin.then_some(ADMIN_HREF),
             "/log-out",
         ),
         height,
+    });
+    let push_controls = PushState::ALL.map(|state| Fixture {
+        component: "Notifications control",
+        state: push_state_name(state).to_owned(),
+        document: document(
+            "Notifications control",
+            &html! {
+                main.standalone {
+                    section.section.narrow aria-labelledby="push" {
+                        h2 #push { "Notifications" }
+                        (push::control(state, &PUSH_URLS))
+                    }
+                }
+            },
+        ),
+        height: PUSH_CONTROL_HEIGHT,
     });
     let refused = "Someone in the Crew is already called Josef.";
     let name_forms = [
@@ -489,10 +531,21 @@ fn signed_in_pages() -> Vec<Fixture> {
         ),
         height: 260,
     });
-    std::iter::once(welcome)
+    welcome
+        .into_iter()
         .chain(settings)
+        .chain(push_controls)
         .chain(name_forms)
         .collect()
+}
+
+const fn push_state_name(state: PushState) -> &'static str {
+    match state {
+        PushState::Off => "Off",
+        PushState::On => "On",
+        PushState::InstallFirst => "iPhone outside the installed app",
+        PushState::Blocked => "Blocked",
+    }
 }
 
 /// The passkey list after each thing a Member can do to it.
@@ -574,6 +627,7 @@ pub fn page(fixtures: &[Fixture]) -> Markup {
                             figure {
                                 figcaption { "Phone, " (PHONE_WIDTH) "px" }
                                 iframe title={ (fixture.component) ", " (fixture.state) ", phone" }
+                                    sandbox="allow-same-origin"
                                     width=(PHONE_WIDTH) height=(fixture.height)
                                     srcdoc=(fixture.document.0) {}
                             }
@@ -581,6 +635,7 @@ pub fn page(fixtures: &[Fixture]) -> Markup {
                                 figcaption { "Desktop, " (DESKTOP_WIDTH) "px, shown at half size" }
                                 div.desktop style={ "height: " (fixture.height / 2) "px" } {
                                     iframe title={ (fixture.component) ", " (fixture.state) ", desktop" }
+                                        sandbox="allow-same-origin"
                                         width=(DESKTOP_WIDTH) height=(fixture.height)
                                         srcdoc=(fixture.document.0) {}
                                 }
@@ -625,6 +680,7 @@ mod tests {
             "Welcome page",
             "Settings page",
             "Display name form",
+            "Notifications control",
             "Passkey list",
             "Admin page",
             "Finance home",
@@ -685,6 +741,11 @@ mod tests {
             "Filtered",
             "Nothing matches",
             "Mistyped month",
+            "Notifications on",
+            "Off",
+            "On",
+            "iPhone outside the installed app",
+            "Blocked",
         ] {
             assert!(html.contains(&format!("<h3>{state}</h3>")), "{state}");
         }

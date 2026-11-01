@@ -21,6 +21,8 @@ use webauthn_rs_proto::ResidentKeyRequirement;
 pub use ceremonies::{CEREMONY_LIFETIME, CeremonyId};
 pub use devices::DeviceLink;
 pub use links::{LinkId, LinkKind, OpenLink};
+#[cfg(test)]
+pub(crate) use passkeys::fixtures as passkey_fixtures;
 pub use passkeys::{PASSKEY_NAME_MAX, PasskeyId, PasskeyName, PasskeyNameError, PasskeySummary};
 pub use tokens::{LinkToken, SessionToken};
 
@@ -53,9 +55,21 @@ pub struct Invite {
     pub grants_admin: bool,
 }
 
+/// A stored session: one signed-in browser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionId(i64);
+
+impl SessionId {
+    #[must_use]
+    pub const fn get(self) -> i64 {
+        self.0
+    }
+}
+
 /// The Member behind a live session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {
+    pub id: SessionId,
     pub member: Member,
     /// Whether this use moved the session's expiry forward, so the browser's cookie should too.
     pub renewed: bool,
@@ -401,7 +415,7 @@ impl Auth {
         let hash = token.hash();
         let now = unix_seconds(self.clock.now());
         let Some(session) = sqlx::query!(
-            "SELECT id, member_id, expires_at FROM sessions WHERE token_hash = ? AND expires_at > ?",
+            r#"SELECT id AS "id!", member_id, expires_at FROM sessions WHERE token_hash = ? AND expires_at > ?"#,
             hash,
             now,
         )
@@ -427,7 +441,11 @@ impl Auth {
             .members
             .find(MemberId::from_stored(session.member_id))
             .await?;
-        Ok(member.map(|member| Session { member, renewed }))
+        Ok(member.map(|member| Session {
+            id: SessionId(session.id),
+            member,
+            renewed,
+        }))
     }
 
     /// Ends the session, so its cookie no longer signs anyone in. An unknown token is ignored.
@@ -512,6 +530,40 @@ async fn insert_session(
     .execute(conn)
     .await?;
     Ok(token)
+}
+
+/// Test data for the tests that need a session without signing in.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    use sqlx::SqlitePool;
+
+    use super::{PasskeyId, SessionId, SessionToken};
+    use crate::domain::members::MemberId;
+
+    /// Stores a session for `member`, started by `passkey`, that lasts until `expires_at`.
+    pub async fn add_session(
+        db: &SqlitePool,
+        member: MemberId,
+        passkey: PasskeyId,
+        expires_at: i64,
+    ) -> SessionId {
+        let hash = SessionToken::generate().hash();
+        let member = member.get();
+        let passkey = passkey.get();
+        let id = sqlx::query!(
+            "INSERT INTO sessions (token_hash, member_id, passkey_id, created_at, expires_at)
+             VALUES (?, ?, ?, 0, ?)",
+            hash,
+            member,
+            passkey,
+            expires_at,
+        )
+        .execute(db)
+        .await
+        .unwrap()
+        .last_insert_rowid();
+        SessionId(id)
+    }
 }
 
 #[cfg(test)]

@@ -7,11 +7,12 @@ use axum::routing::{get, post};
 use axum::{Form, Router};
 use maud::Markup;
 
-use super::access::Member;
+use super::access::MemberSession;
 use super::htmx::Htmx;
 use super::name_form::{self, NameForm};
 use super::pages::fresh;
 use super::passkeys;
+use super::push;
 use super::sign_in::LOG_OUT_PATH;
 use super::{AppError, AppState};
 use crate::domain::members;
@@ -29,10 +30,11 @@ pub fn routes() -> Router<AppState> {
 
 async fn show(
     State(state): State<AppState>,
-    Member(member): Member,
+    MemberSession { member, session }: MemberSession,
 ) -> Result<impl IntoResponse, AppError> {
     let passkeys = passkeys::list(&state, &member, None).await?;
-    Ok(fresh(page(&member, &name_form(&member), &passkeys)))
+    let push = push::control(&state, session).await?;
+    Ok(fresh(page(&member, &name_form(&member), &passkeys, &push)))
 }
 
 /// The display-name form showing the Member's current name.
@@ -40,12 +42,19 @@ pub fn name_form(member: &members::Member) -> Markup {
     display_name::form(NAME_PATH, member.display_name.as_str(), None)
 }
 
-/// `member`'s settings page around the display-name form and the passkey list.
-pub fn page(member: &members::Member, name_form: &Markup, passkeys: &Markup) -> Markup {
+/// `member`'s settings page around the display-name form, the passkey list and the
+/// notifications control.
+pub fn page(
+    member: &members::Member,
+    name_form: &Markup,
+    passkeys: &Markup,
+    push: &Markup,
+) -> Markup {
     views::settings::page(
         name_form,
         passkeys,
         &passkeys::ceremony_urls(),
+        push,
         member.is_admin.then_some(ADMIN_HREF),
         LOG_OUT_PATH,
     )
@@ -53,18 +62,21 @@ pub fn page(member: &members::Member, name_form: &Markup, passkeys: &Markup) -> 
 
 async fn rename(
     State(state): State<AppState>,
-    Member(member): Member,
+    MemberSession { member, session }: MemberSession,
     Htmx(htmx): Htmx,
     Form(input): Form<NameForm>,
 ) -> Result<Response, AppError> {
-    // htmx gets the form alone, so only a plain form post needs the passkeys for the page.
-    let passkeys = if htmx {
-        Markup::default()
+    // htmx gets the form alone, so only a plain form post needs the rest of the page.
+    let (passkeys, push) = if htmx {
+        (Markup::default(), Markup::default())
     } else {
-        passkeys::list(&state, &member, None).await?
+        (
+            passkeys::list(&state, &member, None).await?,
+            push::control(&state, session).await?,
+        )
     };
     name_form::submit(&state, &member, &input, NAME_PATH, htmx, |form| {
-        page(&member, form, &passkeys)
+        page(&member, form, &passkeys, &push)
     })
     .await
 }

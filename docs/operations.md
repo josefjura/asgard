@@ -37,14 +37,14 @@ docker run --rm --name asgard -p 8080:8080 \
   --cap-drop ALL --security-opt no-new-privileges \
   -v asgard-data:/data \
   -e PUBLIC_URL=http://localhost:8080 \
-  -e VAPID_PRIVATE_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \
+  -e VAPID_PRIVATE_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE \
   asgard
 curl http://localhost:8080/health/live
 curl http://localhost:8080/health/ready
 docker stop asgard    # exits within a second or two: SIGTERM is handled
 ```
 
-The all-zero VAPID key is only good enough to pass startup validation. The named volume `asgard-data` takes the image's ownership of `/data` on first use and keeps the database between runs; `docker volume rm asgard-data` starts over. To test a release against real data, mount a directory owned by 10001 that holds a copy of the production database instead (`-v "$PWD/testdata:/data"`).
+The placeholder VAPID key (the private key 1, which anyone can sign with) is only good enough to pass startup validation. The named volume `asgard-data` takes the image's ownership of `/data` on first use and keeps the database between runs; `docker volume rm asgard-data` starts over. To test a release against real data, mount a directory owned by 10001 that holds a copy of the production database instead (`-v "$PWD/testdata:/data"`).
 
 ### VAPID key
 

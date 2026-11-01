@@ -389,13 +389,6 @@ a {
   color: var(--muted);
 }
 
-.placeholder {
-  padding: var(--space-3);
-  border: 2px dashed var(--line);
-  border-radius: var(--radius);
-  color: var(--muted);
-}
-
 /* Fields: a bold label over the control, red-edged when refused, with its problem or a note
    beneath. In a .field-row the control shares its line with the button that submits it. */
 

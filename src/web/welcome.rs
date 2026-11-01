@@ -4,11 +4,13 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Form, Router};
+use maud::Markup;
 
-use super::access::Member;
+use super::access::{Member, MemberSession};
 use super::htmx::Htmx;
 use super::name_form::{self, NameForm};
 use super::pages::fresh;
+use super::push;
 use super::{AppError, AppState};
 use crate::domain::members::CREW_NAME;
 use crate::views;
@@ -29,25 +31,38 @@ pub fn routes() -> Router<AppState> {
 }
 
 /// The welcome page, until the Member has pressed "Got it"; Finance after that.
-async fn show(Member(member): Member) -> Response {
+async fn show(
+    State(state): State<AppState>,
+    MemberSession { member, session }: MemberSession,
+) -> Result<Response, AppError> {
     if member.welcomed {
-        return Redirect::to(Tab::Finance.href()).into_response();
+        return Ok(Redirect::to(Tab::Finance.href()).into_response());
     }
     let form = display_name::form(NAME_PATH, member.display_name.as_str(), None);
-    fresh(page(&form)).into_response()
+    let push = push::control(&state, session).await?;
+    Ok(fresh(page(&form, &push)).into_response())
 }
 
-fn page(name_form: &maud::Markup) -> maud::Markup {
-    views::welcome::page(CREW_NAME, name_form, DONE_PATH)
+fn page(name_form: &Markup, push: &Markup) -> Markup {
+    views::welcome::page(CREW_NAME, name_form, push, DONE_PATH)
 }
 
 async fn rename(
     State(state): State<AppState>,
-    Member(member): Member,
+    MemberSession { member, session }: MemberSession,
     Htmx(htmx): Htmx,
     Form(input): Form<NameForm>,
 ) -> Result<Response, AppError> {
-    name_form::submit(&state, &member, &input, NAME_PATH, htmx, page).await
+    // htmx gets the form alone, so only a plain form post needs the control for the page.
+    let push = if htmx {
+        Markup::default()
+    } else {
+        push::control(&state, session).await?
+    };
+    name_form::submit(&state, &member, &input, NAME_PATH, htmx, |form| {
+        page(form, &push)
+    })
+    .await
 }
 
 /// "Got it": the welcome page never shows again, and the Member starts on Finance.

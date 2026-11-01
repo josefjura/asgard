@@ -4,18 +4,18 @@ use crate::views::icon::chevron;
 use crate::views::layout::shell;
 use crate::views::nav::Place;
 use crate::views::passkey::{self, Ceremony, CeremonyUrls, Emphasis};
-use crate::views::push;
 
 /// A Member's settings page.
 ///
 /// It holds their display name, their passkeys and a button that adds one through
-/// `add_passkey`, notifications on this device, the way to the `admin` page for the Admin
-/// only, and logging out of this device, which posts to `log_out`.
+/// `add_passkey`, the notifications control `push` for this device, the way to the `admin`
+/// page for the Admin only, and logging out of this device, which posts to `log_out`.
 #[must_use]
 pub fn page(
     name_form: &Markup,
     passkeys: &Markup,
     add_passkey: &CeremonyUrls,
+    push: &Markup,
     admin: Option<&str>,
     log_out: &str,
 ) -> Markup {
@@ -40,7 +40,7 @@ pub fn page(
 
             section.section.narrow aria-labelledby="settings-push" {
                 h2 #settings-push { "Notifications" }
-                (push::control())
+                (push)
             }
 
             @if let Some(admin) = admin {
@@ -68,6 +68,7 @@ mod tests {
     use crate::views::display_name;
     use crate::views::nav::ADMIN_HREF;
     use crate::views::passkeys::{self, fixtures};
+    use crate::views::push::{self, PushState};
 
     const BASE: &str = "/settings/passkeys";
 
@@ -83,6 +84,7 @@ mod tests {
             &display_name::form("/settings/name", "Ondra", None),
             &passkeys::list(BASE, passkeys, None),
             &add_passkey(),
+            &push::fixtures::off(),
             None,
             "/log-out",
         )
@@ -94,7 +96,20 @@ mod tests {
             &display_name::form("/settings/name", "Josef", None),
             &passkeys::list(BASE, &fixtures::one(), None),
             &add_passkey(),
+            &push::fixtures::off(),
             Some(ADMIN_HREF),
+            "/log-out",
+        ));
+    }
+
+    #[test]
+    fn settings_page_with_notifications_on() {
+        assert_html_snapshot!(page(
+            &display_name::form("/settings/name", "Ondra", None),
+            &passkeys::list(BASE, &fixtures::one(), None),
+            &add_passkey(),
+            &push::control(PushState::On, &push::fixtures::URLS),
+            None,
             "/log-out",
         ));
     }
@@ -127,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn marks_the_place_for_the_push_control() {
+    fn holds_the_push_control() {
         let html = with_passkeys(&fixtures::one()).into_string();
 
         assert!(html.contains(&format!("id=\"{}\"", push::CONTROL_ID)));
@@ -135,7 +150,15 @@ mod tests {
 
     #[test]
     fn marks_settings_as_the_current_page() {
-        let html = page(&html! {}, &html! {}, &add_passkey(), None, "/log-out").into_string();
+        let html = page(
+            &html! {},
+            &html! {},
+            &add_passkey(),
+            &html! {},
+            None,
+            "/log-out",
+        )
+        .into_string();
 
         assert!(html.contains("<title>Settings | Asgard</title>"));
         assert!(html.contains("href=\"/settings\" aria-label=\"Settings\" aria-current=\"page\""));

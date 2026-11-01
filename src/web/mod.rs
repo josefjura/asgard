@@ -13,11 +13,14 @@ mod name_form;
 mod origin;
 mod pages;
 mod passkeys;
+mod push;
 mod registration;
 mod settings;
 mod sign_in;
 mod static_files;
 pub mod welcome;
+
+use std::sync::Arc;
 
 use axum::Router;
 use axum::middleware;
@@ -33,9 +36,10 @@ use crate::domain::clock::Clock;
 use crate::domain::events::{Event, Events};
 use crate::domain::finance::Finance;
 use crate::domain::members::Members;
+use crate::domain::push::PushSubscriptions;
 use crate::views::nav::Tab;
 
-pub use access::Member;
+pub use access::{Member, MemberSession};
 pub use error::AppError;
 pub use origin::PublicOrigin;
 
@@ -48,22 +52,33 @@ pub struct AppState {
     pub auth: Auth,
     pub members: Members,
     pub finance: Finance,
+    pub push: PushSubscriptions,
+    /// The VAPID public key browsers subscribe with, base64url.
+    pub vapid_public_key: Arc<str>,
     pub events: Events,
 }
 
 impl AppState {
-    /// Builds every service for the app served at `public_url`.
+    /// Builds every service for the app served at `public_url`, whose pushes are signed with
+    /// the key pair of `vapid_public_key`.
     ///
     /// # Errors
     ///
     /// Fails if `public_url` can't be a WebAuthn relying party.
-    pub fn new(db: SqlitePool, clock: Clock, public_url: &Url) -> Result<Self, WebauthnError> {
+    pub fn new(
+        db: SqlitePool,
+        clock: Clock,
+        public_url: &Url,
+        vapid_public_key: &str,
+    ) -> Result<Self, WebauthnError> {
         let members = Members::new(db.clone());
         let events = Events::new();
         Ok(Self {
             auth: Auth::new(db.clone(), clock.clone(), members.clone(), public_url)?,
             members,
             finance: Finance::new(db.clone(), clock.clone(), events.emitter(Event::Finance)),
+            push: PushSubscriptions::new(db.clone(), clock.clone()),
+            vapid_public_key: vapid_public_key.into(),
             events,
             public_origin: PublicOrigin::of(public_url),
             db,
@@ -93,6 +108,7 @@ fn routes() -> Router<AppState> {
         .merge(welcome::routes())
         .merge(settings::routes())
         .merge(passkeys::routes())
+        .merge(push::routes())
         .merge(admin::routes());
     // Finance, the home page, has its own routes; the other tabs are placeholders for now.
     for tab in Tab::ALL.into_iter().filter(|&tab| tab != Tab::Finance) {
@@ -143,6 +159,9 @@ pub(crate) mod test_support {
 
     /// The origin every test app is served from.
     pub const PUBLIC_ORIGIN: &str = "https://asgard.test";
+
+    /// The VAPID public key every test app hands browsers.
+    pub const VAPID_PUBLIC_KEY: &str = "BTestKey";
 
     /// Where a test app's clock starts: 2026-01-01T00:00:00Z.
     pub fn clock_start() -> SystemTime {
@@ -244,7 +263,7 @@ pub(crate) mod test_support {
         pub fn with_routes(db: SqlitePool, extra: Router<AppState>) -> Self {
             let clock = ManualClock::starting_at(clock_start());
             let public_url = Url::parse(PUBLIC_ORIGIN).unwrap();
-            let state = AppState::new(db, clock.clock(), &public_url).unwrap();
+            let state = AppState::new(db, clock.clock(), &public_url, VAPID_PUBLIC_KEY).unwrap();
             Self {
                 router: with_layers(routes().merge(extra), state.clone()),
                 clock,

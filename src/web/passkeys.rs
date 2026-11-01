@@ -9,14 +9,15 @@ use axum::{Form, Json, Router};
 use maud::Markup;
 use serde::Deserialize;
 
-use super::access::{Member, SessionCookie, removed_session_cookie};
+use super::access::{Member, MemberSession, SessionCookie, removed_session_cookie};
 use super::error::passkey_name_message;
 use super::htmx::{Htmx, fragment_or_page};
+use super::push;
 use super::registration::{Challenge, DefaultPasskeyName, NewPasskey};
 use super::settings;
 use super::sign_in::Landing;
 use super::{AppError, AppState};
-use crate::domain::auth::{PasskeyId, PasskeyName};
+use crate::domain::auth::{PasskeyId, PasskeyName, SessionId};
 use crate::domain::members;
 use crate::views;
 use crate::views::nav::SETTINGS_HREF;
@@ -89,7 +90,7 @@ struct RenameForm {
 
 async fn rename(
     State(state): State<AppState>,
-    Member(member): Member,
+    MemberSession { member, session }: MemberSession,
     Htmx(htmx): Htmx,
     Path(id): Path<i64>,
     Form(input): Form<RenameForm>,
@@ -98,7 +99,8 @@ async fn rename(
     match PasskeyName::parse(&input.name) {
         Ok(name) => {
             state.auth.rename_passkey(member.id, id, &name).await?;
-            answer(&state, &member, StatusCode::OK, Outcome::Renamed(id), htmx).await
+            let renamed = Outcome::Renamed(id);
+            answer(&state, &member, session, StatusCode::OK, renamed, htmx).await
         }
         Err(err) => {
             let message = passkey_name_message(&err);
@@ -110,6 +112,7 @@ async fn rename(
             answer(
                 &state,
                 &member,
+                session,
                 StatusCode::UNPROCESSABLE_ENTITY,
                 refused,
                 htmx,
@@ -121,7 +124,7 @@ async fn rename(
 
 async fn delete(
     State(state): State<AppState>,
-    Member(member): Member,
+    MemberSession { member, session }: MemberSession,
     Htmx(htmx): Htmx,
     SessionCookie(token): SessionCookie,
     Path(id): Path<i64>,
@@ -141,6 +144,7 @@ async fn delete(
     answer(
         &state,
         &member,
+        session,
         StatusCode::OK,
         Outcome::Deleted(&name),
         htmx,
@@ -153,13 +157,20 @@ async fn delete(
 async fn answer(
     state: &AppState,
     member: &members::Member,
+    session: SessionId,
     status: StatusCode,
     outcome: Outcome<'_>,
     htmx: bool,
 ) -> Result<Response, AppError> {
     let list = list(state, member, Some(outcome)).await?;
+    // htmx gets the list alone, so only a plain form post needs the control for the page.
+    let push = if htmx {
+        Markup::default()
+    } else {
+        push::control(state, session).await?
+    };
     Ok(fragment_or_page(htmx, status, list, |list| {
-        settings::page(member, &settings::name_form(member), list)
+        settings::page(member, &settings::name_form(member), list, &push)
     }))
 }
 
