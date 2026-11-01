@@ -150,13 +150,17 @@ a {
   opacity: 1;
 }
 
-.settings-link[aria-current="page"]::before {
-  content: "";
+/* The bar under the cog: drawn while it is the current page, and faintly on hover. */
+.settings-link::before {
   position: absolute;
   inset: auto var(--space-2) calc(-1 * var(--space-2));
   height: 3px;
   border-radius: 3px 3px 0 0;
   background: var(--accent);
+}
+
+.settings-link[aria-current="page"]::before {
+  content: "";
 }
 
 .shell-main {
@@ -207,13 +211,17 @@ a {
   font-weight: 600;
 }
 
-.tab[aria-current="page"]::before {
-  content: "";
+/* The accent bar: drawn on the current tab, and faintly on a hovered one in the band. */
+.tab::before {
   position: absolute;
   inset: -1px 25% auto;
   height: 3px;
   border-radius: 0 0 3px 3px;
   background: var(--accent);
+}
+
+.tab[aria-current="page"]::before {
+  content: "";
 }
 
 @media (min-width: 48rem) {
@@ -276,7 +284,7 @@ a {
     opacity: 1;
   }
 
-  .tab[aria-current="page"]::before {
+  .tab::before {
     inset: auto var(--space-3) 0;
     border-radius: 3px 3px 0 0;
   }
@@ -877,10 +885,6 @@ select {
 
   .settings-link:not([aria-current="page"]):hover::before {
     content: "";
-    position: absolute;
-    inset: auto var(--space-2) calc(-1 * var(--space-2));
-    height: 3px;
-    border-radius: 3px 3px 0 0;
     background: currentcolor;
     opacity: 0.5;
   }
@@ -896,26 +900,27 @@ select {
     stroke: var(--ink);
   }
 
-  /* The filled button deepens; mixing towards black raises its lettering's contrast in both
-     schemes. */
+  /* The filled button deepens, which raises its lettering's contrast in both schemes; a
+     darker fill sits closer to the dark background, so an --active edge keeps it 3:1 clear. */
   .button:not(:disabled):hover {
+    border-color: var(--active);
     background: color-mix(in srgb, var(--primary) 85%, black);
   }
 
-  .button.secondary:not(:disabled):hover,
-  .button.danger:not(:disabled):hover {
+  /* The outlined buttons firm up their edge. */
+  .button.secondary:not(:disabled):hover {
     border-color: var(--ink);
     background: var(--surface);
   }
 
   .button.danger:not(:disabled):hover {
     border-color: var(--danger);
+    background: var(--surface);
   }
 }
 
 /* Once the tabs move up into the band, they hover like the cog. */
 @media (hover: hover) and (min-width: 48rem) {
-  .tab:hover,
   .tab:not([aria-current="page"]):hover {
     color: var(--band-ink);
     opacity: 1;
@@ -923,10 +928,6 @@ select {
 
   .tab:not([aria-current="page"]):hover::before {
     content: "";
-    position: absolute;
-    inset: auto var(--space-3) 0;
-    height: 3px;
-    border-radius: 3px 3px 0 0;
     background: currentcolor;
     opacity: 0.5;
   }
