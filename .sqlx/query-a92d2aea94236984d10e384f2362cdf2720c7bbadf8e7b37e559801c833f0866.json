@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO push_subscriptions\n                 (session_id, member_id, endpoint, p256dh, auth, device_label, created_at)\n             SELECT id, member_id, ?, ?, ?, ?, ? FROM sessions WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "a92d2aea94236984d10e384f2362cdf2720c7bbadf8e7b37e559801c833f0866"
+}

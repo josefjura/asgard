@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT EXISTS (SELECT 1 FROM push_subscriptions WHERE session_id = ?) AS \"exists: bool\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "exists: bool",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0fb5908ca9c79c7ae8bb505909dfd8961ecb537a35ddc06ea1db792616566ef2"
+}

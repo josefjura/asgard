@@ -79,7 +79,12 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|err| format!("cannot listen on {}: {err}", config.listen))?;
     tracing::info!(address = %config.listen, public_url = %config.public_url, "listening");
 
-    let state = AppState::new(pool.clone(), Clock::system(), &config.public_url)?;
+    let state = AppState::new(
+        pool.clone(),
+        Clock::system(),
+        &config.public_url,
+        config.vapid_private_key.public_key(),
+    )?;
     axum::serve(listener, web::router(state))
         .with_graceful_shutdown(shutdown_signal())
         .await?;

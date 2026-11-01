@@ -8,6 +8,9 @@ use std::str::FromStr;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use openssl::bn::{BigNum, BigNumContext};
+use openssl::ec::{EcGroup, EcPoint, PointConversionForm};
+use openssl::nid::Nid;
 use sqlx::sqlite::SqliteConnectOptions;
 use url::Url;
 
@@ -22,14 +25,25 @@ pub struct Config {
     pub listen: SocketAddr,
 }
 
-/// The Web Push signing key: a raw P-256 private key, base64url without padding.
+/// The Web Push signing key: a raw P-256 private key, base64url without padding, with the
+/// public key derived from it.
 #[derive(Clone)]
-pub struct VapidPrivateKey(String);
+pub struct VapidPrivateKey {
+    private: String,
+    public: String,
+}
 
 impl VapidPrivateKey {
     #[must_use]
     pub fn as_base64(&self) -> &str {
-        &self.0
+        &self.private
+    }
+
+    /// The public key a browser subscribes with (its `applicationServerKey`): the uncompressed
+    /// P-256 point, base64url without padding.
+    #[must_use]
+    pub fn public_key(&self) -> &str {
+        &self.public
     }
 }
 
@@ -123,13 +137,39 @@ fn parse_public_url(value: &str) -> Result<Url, ConfigError> {
 }
 
 fn parse_vapid_private_key(value: String) -> Result<VapidPrivateKey, ConfigError> {
-    match URL_SAFE_NO_PAD.decode(&value) {
-        Ok(bytes) if bytes.len() == 32 => Ok(VapidPrivateKey(value)),
-        _ => Err(invalid(
-            "VAPID_PRIVATE_KEY",
-            "expected a 32-byte key, base64url without padding",
-        )),
+    let bytes = match URL_SAFE_NO_PAD.decode(&value) {
+        Ok(bytes) if bytes.len() == 32 => bytes,
+        _ => {
+            return Err(invalid(
+                "VAPID_PRIVATE_KEY",
+                "expected a 32-byte key, base64url without padding",
+            ));
+        }
+    };
+    let public = vapid_public_key(&bytes)
+        .ok_or_else(|| invalid("VAPID_PRIVATE_KEY", "expected a valid P-256 private key"))?;
+    Ok(VapidPrivateKey {
+        private: value,
+        public: URL_SAFE_NO_PAD.encode(public),
+    })
+}
+
+/// The uncompressed public point of the P-256 private key `scalar`, if it is one: from 1 to
+/// the curve's order less 1.
+fn vapid_public_key(scalar: &[u8]) -> Option<Vec<u8>> {
+    let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).ok()?;
+    let mut ctx = BigNumContext::new().ok()?;
+    let mut order = BigNum::new().ok()?;
+    group.order(&mut order, &mut ctx).ok()?;
+    let scalar = BigNum::from_slice(scalar).ok()?;
+    if scalar.num_bits() == 0 || scalar >= order {
+        return None;
     }
+    let mut point = EcPoint::new(&group).ok()?;
+    point.mul_generator2(&group, &scalar, &mut ctx).ok()?;
+    point
+        .to_bytes(&group, PointConversionForm::UNCOMPRESSED, &mut ctx)
+        .ok()
 }
 
 #[cfg(test)]
@@ -138,7 +178,13 @@ mod tests {
 
     use super::*;
 
-    const VALID_KEY: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    /// The private key 1, whose public key is the curve's generator.
+    const VALID_KEY: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE";
+    /// P-256's generator point, uncompressed.
+    const GENERATOR: &str =
+        "BGsX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT-NC4v4af5uO5-tKfA-eFivOM1drMV7Oy7ZAaDe_UfU";
+    /// P-256's order, one more than the largest private key.
+    const ORDER: &str = "_____wAAAAD__________7zm-q2nF56E87nKwvxjJVE";
 
     fn valid_env() -> HashMap<&'static str, String> {
         HashMap::from([
@@ -232,6 +278,24 @@ mod tests {
             assert_eq!(
                 invalid_var(load_with("VAPID_PRIVATE_KEY", value)),
                 "VAPID_PRIVATE_KEY",
+                "{value}"
+            );
+        }
+    }
+
+    #[test]
+    fn derives_the_vapid_public_key() {
+        let config = load(&valid_env()).unwrap();
+
+        assert_eq!(config.vapid_private_key.public_key(), GENERATOR);
+    }
+
+    #[test]
+    fn rejects_a_vapid_key_outside_the_curve_order() {
+        for value in ["AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ORDER] {
+            assert_eq!(
+                load_with("VAPID_PRIVATE_KEY", value).unwrap_err(),
+                invalid("VAPID_PRIVATE_KEY", "expected a valid P-256 private key"),
                 "{value}"
             );
         }

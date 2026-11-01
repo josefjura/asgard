@@ -15,7 +15,7 @@ use cookie::{Cookie, CookieBuilder, SameSite};
 
 use super::htmx::Htmx;
 use super::{AppError, AppState};
-use crate::domain::auth::{SESSION_LIFETIME, SessionToken};
+use crate::domain::auth::{SESSION_LIFETIME, Session, SessionId, SessionToken};
 use crate::domain::members;
 
 const SESSION_COOKIE: &str = "asgard_session";
@@ -97,19 +97,50 @@ impl OptionalFromRequestParts<AppState> for Member {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Option<Self>, AppError> {
-        let Some(token) = session_token(&parts.headers) else {
-            return Ok(None);
-        };
-        let Some(session) = state.auth.session(&token).await? else {
-            return Ok(None);
-        };
-        if session.renewed
-            && let Some(renewed) = parts.extensions.get::<Renewed>()
-        {
-            // A second extractor in the same request finds the token already recorded.
-            let _ = renewed.0.set(token);
-        }
-        Ok(Some(Self(session.member)))
+        Ok(live_session(parts, state)
+            .await?
+            .map(|session| Self(session.member)))
+    }
+}
+
+/// The live session this browser's cookie names, recording a renewal for
+/// [`renew_session_cookie`].
+async fn live_session(parts: &Parts, state: &AppState) -> Result<Option<Session>, AppError> {
+    let Some(token) = session_token(&parts.headers) else {
+        return Ok(None);
+    };
+    let Some(session) = state.auth.session(&token).await? else {
+        return Ok(None);
+    };
+    if session.renewed
+        && let Some(renewed) = parts.extensions.get::<Renewed>()
+    {
+        // A second extractor in the same request finds the token already recorded.
+        let _ = renewed.0.set(token);
+    }
+    Ok(Some(session))
+}
+
+/// A signed-in Member and the session of the browser they are using, for what belongs to one
+/// device, such as its notifications. Without a valid session, the request is sent to sign in.
+#[derive(Debug, Clone)]
+pub struct MemberSession {
+    pub member: members::Member,
+    pub session: SessionId,
+}
+
+impl FromRequestParts<AppState> for MemberSession {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
+        let Ok(Htmx(htmx)) = Htmx::from_request_parts(parts, state).await;
+        let session = live_session(parts, state)
+            .await?
+            .ok_or(AppError::SignInRequired { htmx })?;
+        Ok(Self {
+            member: session.member,
+            session: session.id,
+        })
     }
 }
 

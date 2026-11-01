@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, member_id, expires_at FROM sessions WHERE token_hash = ? AND expires_at > ?",
+  "query": "SELECT id AS \"id!\", member_id, expires_at FROM sessions WHERE token_hash = ? AND expires_at > ?",
   "describe": {
     "columns": [
       {
-        "name": "id",
+        "name": "id!",
         "ordinal": 0,
         "type_info": "Integer"
       },
@@ -28,5 +28,5 @@
       false
     ]
   },
-  "hash": "517d1da5bbd44df099a4a91234cddc6b95a214446056c1a4fb55369ca2961096"
+  "hash": "386e8003c8ada1f380164336e6376e5115c907d6f46c6124d507179282c76e1d"
 }

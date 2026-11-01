@@ -15,11 +15,11 @@ You need the Rust toolchain pinned in `rust-toolchain.toml` (rustup picks it up)
 ```sh
 export DATABASE_URL=sqlite:target/asgard-dev.db
 export PUBLIC_URL=http://localhost:8080
-export VAPID_PRIVATE_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+export VAPID_PRIVATE_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE
 cargo run
 ```
 
-The all-zero VAPID key only passes startup validation; generate a real one (see `docs/operations.md`) to try push notifications. Browsers allow passkeys on `http://localhost`, so sign-in works without HTTPS. Migrations run on start.
+The placeholder VAPID key (the private key 1, which anyone can sign with) only passes startup validation; generate a real one (see `docs/operations.md`) to try push notifications. Browsers allow passkeys on `http://localhost`, so sign-in works without HTTPS. Migrations run on start.
 
 To create the first Admin on a fresh database, run the bootstrap subcommand with the same environment and open the link it prints:
 

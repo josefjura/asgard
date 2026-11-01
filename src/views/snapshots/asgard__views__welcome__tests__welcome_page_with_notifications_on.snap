@@ -1,0 +1,101 @@
+---
+source: src/views/welcome.rs
+expression: "page(\"Asgard\", &display_name::form(\"/welcome/name\", \"Ondra\", None),\n&push::control(PushState::On, &push::fixtures::URLS),\n\"/welcome/done\").into_string().replace(\"><\", \">\\n<\")"
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Welcome | Asgard</title>
+<meta name="theme-color" content="#3E5B2B" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#263820" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Asgard">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="/static/icon.[hash].svg">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.[hash].png">
+<link rel="preload" href="/static/grenze-latin-600.[hash].woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/grenze-latin-ext-600.[hash].woff2" as="font" type="font/woff2" crossorigin>
+<style>@font-face { font-family: "Grenze"; font-weight: 600; font-display: swap; src: url("/static/grenze-latin-600.[hash].woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Grenze"; font-weight: 600; font-display: swap; src: url("/static/grenze-latin-ext-600.[hash].woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }</style>
+<link rel="stylesheet" href="/static/app.[hash].css">
+<meta name="htmx-config" content="{&quot;responseHandling&quot;:[{&quot;code&quot;:&quot;204&quot;,&quot;swap&quot;:false},{&quot;code&quot;:&quot;[23]..&quot;,&quot;swap&quot;:true},{&quot;code&quot;:&quot;422&quot;,&quot;swap&quot;:true},{&quot;code&quot;:&quot;[45]..&quot;,&quot;swap&quot;:false,&quot;error&quot;:true},{&quot;code&quot;:&quot;...&quot;,&quot;swap&quot;:false}]}">
+<script src="/static/htmx-2.0.11.min.[hash].js" defer>
+</script>
+<script type="module" src="/static/register-sw.[hash].js">
+</script>
+</head>
+<body>
+<main class="standalone">
+<picture class="hero">
+<source srcset="/static/logo-hero-dark.[hash].svg" media="(prefers-color-scheme: dark)">
+<img src="/static/logo-hero-light.[hash].svg" alt="" width="180" height="180">
+</picture>
+<h1>Welcome to Asgard</h1>
+<p class="lead">You're in the Crew. Here's what to know before you start.</p>
+<section class="section narrow" aria-labelledby="welcome-name">
+<h2 id="welcome-name">Your name</h2>
+<p>The Admin typed it in for you. Fix it here if they got it wrong.</p>
+<form class="name-form" method="post" action="/welcome/name" hx-post="/welcome/name" hx-swap="outerHTML">
+<label for="display-name">Display name</label>
+<div class="field-row">
+<input id="display-name" type="text" name="display_name" value="Ondra" required autocomplete="nickname" aria-describedby="display-name-note">
+<button class="button secondary" type="submit">Save</button>
+</div>
+<p class="note" id="display-name-note" role="status">This is how the Crew sees you.</p>
+</form>
+</section>
+<section class="section narrow" aria-labelledby="welcome-install">
+<h2 id="welcome-install">Put Asgard on your home screen</h2>
+<p>It then opens like an app, without the browser around it.</p>
+<dl class="install">
+<dt>iPhone</dt>
+<dd>In Safari, tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>. An iPhone only delivers Asgard's notifications once it's on the Home Screen.</dd>
+<dt>Android</dt>
+<dd>In Chrome, tap the <strong>⋮</strong> menu, then <strong>Install app</strong> or <strong>Add to Home screen</strong>.</dd>
+</dl>
+</section>
+<section class="section narrow" aria-labelledby="welcome-push">
+<h2 id="welcome-push">Notifications</h2>
+<div class="push-control" id="push-control" data-push-key="BPublicKey" data-push-subscribe="/push/subscribe" data-push-unsubscribe="/push/unsubscribe">
+<div class="push-state" data-push-state="off" hidden>
+<p class="muted">Get the Crew's Reminders and updates on this device, even when Asgard is closed.</p>
+<button class="button" type="button" data-push-action="on" aria-describedby="push-status">Turn on notifications</button>
+</div>
+<div class="push-state" data-push-state="on">
+<p>Notifications are on for this device.</p>
+<button class="button secondary" type="button" data-push-action="off" aria-describedby="push-status">Turn off</button>
+</div>
+<div class="push-state" data-push-state="install" hidden>
+<p>An iPhone or iPad only shows notifications once Asgard is on the Home Screen. In Safari, tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>, open Asgard from there and turn notifications on.</p>
+</div>
+<div class="push-state" data-push-state="blocked" hidden>
+<p>This device blocks Asgard's notifications. Allow them in the browser's site settings for Asgard (the icon beside the address), or, for the installed app, in the phone's settings for Asgard. Then reload this page.</p>
+</div>
+<p class="status" id="push-status" role="status">
+</p>
+<script type="module" src="/static/push.[hash].js">
+</script>
+</div>
+</section>
+<section class="section narrow" aria-labelledby="welcome-tour">
+<h2 id="welcome-tour">Where things are</h2>
+<dl class="tour">
+<dt>Finance</dt>
+<dd>Log what you spent for the Crew and see who owes whom.</dd>
+<dt>Shopping</dt>
+<dd>The list of things the Crew needs to buy, by how soon.</dd>
+<dt>Reminders</dt>
+<dd>Notify the whole Crew at a set date and time.</dd>
+<dt>Quotes</dt>
+<dd>The Crew's collection of memorable things people said.</dd>
+</dl>
+</section>
+<form method="post" action="/welcome/done">
+<button class="button" type="submit">Got it</button>
+</form>
+</main>
+</body>
+</html>

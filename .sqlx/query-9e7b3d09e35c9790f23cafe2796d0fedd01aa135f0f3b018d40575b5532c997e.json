@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT push_subscriptions.member_id, device_label, endpoint, p256dh, auth\n             FROM push_subscriptions JOIN sessions ON sessions.id = push_subscriptions.session_id\n             WHERE sessions.expires_at > ?\n             ORDER BY push_subscriptions.created_at, push_subscriptions.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "member_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "device_label",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "endpoint",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "p256dh",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "auth",
+        "ordinal": 4,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9e7b3d09e35c9790f23cafe2796d0fedd01aa135f0f3b018d40575b5532c997e"
+}

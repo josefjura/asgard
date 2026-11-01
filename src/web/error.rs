@@ -8,6 +8,7 @@ use crate::domain::auth::{AuthError, PASSKEY_NAME_MAX, PasskeyNameError};
 use crate::domain::finance::money::{AMOUNT_MAX, AMOUNT_MIN, AmountError, Crowns};
 use crate::domain::finance::{DESCRIPTION_MAX, DescriptionError, EntryError};
 use crate::domain::members::{DISPLAY_NAME_MAX, NameError};
+use crate::domain::push::SubscriptionError;
 use crate::views::finance::crowns;
 
 /// The one error type handlers return.
@@ -35,6 +36,9 @@ pub enum AppError {
     /// The Expense or Payment asked for doesn't exist, or was deleted.
     #[error("no such entry")]
     NoSuchEntry,
+    /// The browser sent a push subscription that can't be used.
+    #[error(transparent)]
+    Subscription(#[from] SubscriptionError),
     #[error(transparent)]
     Auth(#[from] AuthError),
 }
@@ -80,6 +84,13 @@ impl AppError {
                 StatusCode::NOT_FOUND,
                 Some(
                     "That entry no longer exists. Reload the page to see the latest entries."
+                        .to_owned(),
+                ),
+            ),
+            Self::Subscription(_) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Some(
+                    "This browser's notification settings couldn't be used. Please try again."
                         .to_owned(),
                 ),
             ),

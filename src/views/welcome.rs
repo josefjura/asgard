@@ -2,12 +2,12 @@ use maud::{Markup, html};
 
 use crate::views::layout::standalone;
 use crate::views::nav::Tab;
-use crate::views::push;
 
 /// What a new Member sees once, right after joining: their display name to fix, how to install
-/// Asgard, a line on each tab, and "Got it", which posts to `got_it`.
+/// Asgard, the notifications control `push`, a line on each tab, and "Got it", which posts to
+/// `got_it`.
 #[must_use]
-pub fn page(crew: &str, name_form: &Markup, got_it: &str) -> Markup {
+pub fn page(crew: &str, name_form: &Markup, push: &Markup, got_it: &str) -> Markup {
     standalone(
         "Welcome | Asgard",
         &html! {
@@ -39,7 +39,7 @@ pub fn page(crew: &str, name_form: &Markup, got_it: &str) -> Markup {
 
             section.section.narrow aria-labelledby="welcome-push" {
                 h2 #welcome-push { "Notifications" }
-                (push::control())
+                (push)
             }
 
             section.section.narrow aria-labelledby="welcome-tour" {
@@ -73,19 +73,31 @@ mod tests {
     use super::*;
     use crate::views::assert_html_snapshot;
     use crate::views::display_name;
+    use crate::views::push::{self, PushState};
 
     #[test]
     fn welcome_page() {
         assert_html_snapshot!(page(
             "Asgard",
             &display_name::form("/welcome/name", "Ondra", None),
+            &push::fixtures::off(),
             "/welcome/done"
         ));
     }
 
     #[test]
-    fn marks_the_place_for_the_push_control() {
-        let html = page("Asgard", &html! {}, "/welcome/done").into_string();
+    fn welcome_page_with_notifications_on() {
+        assert_html_snapshot!(page(
+            "Asgard",
+            &display_name::form("/welcome/name", "Ondra", None),
+            &push::control(PushState::On, &push::fixtures::URLS),
+            "/welcome/done"
+        ));
+    }
+
+    #[test]
+    fn holds_the_push_control() {
+        let html = page("Asgard", &html! {}, &push::fixtures::off(), "/welcome/done").into_string();
 
         assert!(html.contains(&format!("id=\"{}\"", push::CONTROL_ID)));
     }

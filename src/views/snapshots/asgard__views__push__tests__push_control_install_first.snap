@@ -1,0 +1,24 @@
+---
+source: src/views/push.rs
+expression: "control(PushState::InstallFirst, &URLS).into_string().replace(\"><\", \">\\n<\")"
+---
+<div class="push-control" id="push-control" data-push-key="BPublicKey" data-push-subscribe="/push/subscribe" data-push-unsubscribe="/push/unsubscribe">
+<div class="push-state" data-push-state="off" hidden>
+<p class="muted">Get the Crew's Reminders and updates on this device, even when Asgard is closed.</p>
+<button class="button" type="button" data-push-action="on" aria-describedby="push-status">Turn on notifications</button>
+</div>
+<div class="push-state" data-push-state="on" hidden>
+<p>Notifications are on for this device.</p>
+<button class="button secondary" type="button" data-push-action="off" aria-describedby="push-status">Turn off</button>
+</div>
+<div class="push-state" data-push-state="install">
+<p>An iPhone or iPad only shows notifications once Asgard is on the Home Screen. In Safari, tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>, open Asgard from there and turn notifications on.</p>
+</div>
+<div class="push-state" data-push-state="blocked" hidden>
+<p>This device blocks Asgard's notifications. Allow them in the browser's site settings for Asgard (the icon beside the address), or, for the installed app, in the phone's settings for Asgard. Then reload this page.</p>
+</div>
+<p class="status" id="push-status" role="status">
+</p>
+<script type="module" src="/static/push.[hash].js">
+</script>
+</div>

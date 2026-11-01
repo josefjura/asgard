@@ -10,6 +10,7 @@ use webauthn_rs::prelude::{
 use super::{Auth, AuthError, CeremonyId, insert_passkey, require_discoverable};
 use crate::domain::clock::{crew_date_of_unix_seconds, unix_seconds};
 use crate::domain::members::MemberId;
+use crate::domain::user_agent;
 
 /// The longest passkey name, in characters.
 pub const PASSKEY_NAME_MAX: usize = 40;
@@ -63,12 +64,7 @@ impl PasskeyName {
     /// "iPhone Safari": the device, the browser, or both when they can be told.
     #[must_use]
     pub fn from_user_agent(user_agent: &str) -> Self {
-        let name = match (device(user_agent), browser(user_agent)) {
-            (Some(device), Some(browser)) => format!("{device} {browser}"),
-            (Some(part), None) | (None, Some(part)) => part.to_owned(),
-            (None, None) => FALLBACK_NAME.to_owned(),
-        };
-        Self(name)
+        Self(user_agent::describe(user_agent).unwrap_or_else(|| FALLBACK_NAME.to_owned()))
     }
 
     #[must_use]
@@ -89,39 +85,6 @@ pub enum PasskeyNameError {
     Blank,
     #[error("the passkey name is longer than {PASSKEY_NAME_MAX} characters")]
     TooLong,
-}
-
-/// The first device whose marker the user agent contains. iPhone and iPad come before Mac, and
-/// Android and Chrome OS before Linux, because their user agents name both.
-fn device(user_agent: &str) -> Option<&'static str> {
-    [
-        ("iPhone", "iPhone"),
-        ("iPad", "iPad"),
-        ("Android", "Android"),
-        ("CrOS", "Chromebook"),
-        ("Macintosh", "Mac"),
-        ("Windows", "Windows"),
-        ("Linux", "Linux"),
-    ]
-    .into_iter()
-    .find_map(|(marker, device)| user_agent.contains(marker).then_some(device))
-}
-
-/// The first browser whose marker the user agent contains. Most browsers also claim to be
-/// Chrome or Safari, so those come last, Chrome before Safari.
-fn browser(user_agent: &str) -> Option<&'static str> {
-    [
-        ("Edg", "Edge"),
-        ("OPR/", "Opera"),
-        ("SamsungBrowser", "Samsung Internet"),
-        ("Firefox/", "Firefox"),
-        ("FxiOS", "Firefox"),
-        ("CriOS", "Chrome"),
-        ("Chrome/", "Chrome"),
-        ("Safari/", "Safari"),
-    ]
-    .into_iter()
-    .find_map(|(marker, browser)| user_agent.contains(marker).then_some(browser))
 }
 
 /// One of a Member's passkeys, as their settings list it.
