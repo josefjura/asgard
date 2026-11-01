@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO reminders (text, due_at, created_by, created_at) VALUES (?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "fb352c6f91054aa2f675a3ddbecc91ac2a4f202887a92b9c05883b9378c2e37c"
+}

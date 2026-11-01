@@ -19,6 +19,7 @@ use crate::views::nav::{ADMIN_HREF, Place, Tab, bottom_nav};
 use crate::views::passkey::CeremonyUrls;
 use crate::views::passkeys::{self, Outcome as PasskeyOutcome};
 use crate::views::push::{self, PushState, PushUrls};
+use crate::views::reminders::{self, ReminderProblems, ReminderValues};
 use crate::views::{invite, offline, settings, sign_in, tabs, welcome};
 
 /// One component in one state, rendered as a complete document.
@@ -65,6 +66,8 @@ const PUSH_URLS: PushUrls<'static> = PushUrls {
 };
 /// The notifications control, alone in a section.
 const PUSH_CONTROL_HEIGHT: u16 = 300;
+/// The Reminders tab: the form, and three pending Reminders under it on a phone.
+const REMINDERS_HEIGHT: u16 = 1000;
 const DESKTOP_WIDTH: u16 = 1280;
 
 /// # Panics
@@ -167,6 +170,7 @@ pub fn fixtures() -> Vec<Fixture> {
         .chain(passkey_lists())
         .chain(admin_pages())
         .chain(finance_pages())
+        .chain(reminder_pages())
         .collect()
 }
 
@@ -313,6 +317,35 @@ fn finance_pages() -> Vec<Fixture> {
         .chain(rows)
         .chain(history_pages())
         .collect()
+}
+
+/// The Reminders tab with nothing pending, with Reminders pending, and with a refused form.
+fn reminder_pages() -> [Fixture; 3] {
+    use reminders::fixtures::{NOW, pending};
+
+    let empty = reminders::form(ReminderValues::default(), &ReminderProblems::default(), NOW);
+    let refused = reminders::form(
+        ReminderValues {
+            text: "",
+            due_at: "2026-10-23T18:00",
+        },
+        &ReminderProblems {
+            text: Some("Say what to remember.".to_owned()),
+            due_at: Some("Pick a time that hasn't passed yet.".to_owned()),
+        },
+        NOW,
+    );
+    [
+        ("Nothing pending", &empty, Vec::new()),
+        ("Pending", &empty, pending()),
+        ("Form with errors", &refused, pending()),
+    ]
+    .map(|(state, form, pending)| Fixture {
+        component: "Reminders tab",
+        state: state.to_owned(),
+        document: reminders::page(form, &pending),
+        height: REMINDERS_HEIGHT,
+    })
 }
 
 /// The page an entry form in `purpose` sits on, its delete button posting to `delete`.
@@ -688,6 +721,7 @@ mod tests {
             "Payment form",
             "Entry row",
             "History",
+            "Reminders tab",
         ] {
             assert!(
                 html.contains(&format!("<h2>{component}</h2>")),
@@ -737,6 +771,9 @@ mod tests {
             "Edited",
             "Edited Payment",
             "Editing",
+            "Nothing pending",
+            "Pending",
+            "Form with errors",
             "Unfiltered",
             "Filtered",
             "Nothing matches",

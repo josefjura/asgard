@@ -85,6 +85,19 @@ pub fn unix_seconds_at_crew_midnight(date: Date) -> i64 {
         .as_second()
 }
 
+/// The instant the clock in the Crew's time zone shows `time`, as Unix seconds, or `None` past the
+/// edge of jiff's range.
+///
+/// Twice a year the clock is ambiguous. A time skipped when the clocks go forward is read as
+/// though they hadn't yet, so 02:30 on that night is 03:30 summer time. A time repeated when they
+/// go back is its first occurrence, in summer time.
+#[must_use]
+pub fn unix_seconds_at_crew_time(time: DateTime) -> Option<i64> {
+    time.to_zoned(crew_zone())
+        .ok()
+        .map(|zoned| zoned.timestamp().as_second())
+}
+
 fn crew_date(at: Timestamp) -> Date {
     crew_zoned(at).date()
 }
@@ -223,6 +236,55 @@ mod tests {
             unix_seconds_at_crew_midnight(jiff::civil::date(2026, 5, 1)),
             1_777_586_400
         );
+    }
+
+    #[test]
+    fn a_prague_wall_clock_time_is_an_instant() {
+        // 14:00 in summer (UTC+2) and 23:59:59 in winter (UTC+1).
+        assert_eq!(
+            unix_seconds_at_crew_time(jiff::civil::date(2026, 7, 1).at(14, 0, 0, 0)),
+            Some(1_782_907_200)
+        );
+        assert_eq!(
+            unix_seconds_at_crew_time(jiff::civil::date(2026, 1, 1).at(23, 59, 59, 0)),
+            Some(1_767_308_399)
+        );
+    }
+
+    #[test]
+    fn a_time_skipped_when_the_clocks_go_forward_is_read_an_hour_later() {
+        // On 29 March 2026 Prague jumps from 02:00 winter time to 03:00 summer time, so there is
+        // no 02:30; it reads as 03:30 summer time, 01:30Z.
+        let skipped = unix_seconds_at_crew_time(jiff::civil::date(2026, 3, 29).at(2, 30, 0, 0));
+
+        assert_eq!(skipped, Some(1_774_747_800));
+        assert_eq!(
+            crew_time_of_unix_seconds(skipped.unwrap()),
+            jiff::civil::date(2026, 3, 29).at(3, 30, 0, 0)
+        );
+    }
+
+    #[test]
+    fn a_time_repeated_when_the_clocks_go_back_is_its_first_occurrence() {
+        // On 25 October 2026 Prague goes back from 03:00 summer time to 02:00 winter time, so
+        // 02:30 happens twice: at 00:30Z and at 01:30Z. It reads as the first.
+        let repeated = unix_seconds_at_crew_time(jiff::civil::date(2026, 10, 25).at(2, 30, 0, 0));
+
+        assert_eq!(repeated, Some(1_792_888_200));
+        assert_eq!(
+            crew_time_of_unix_seconds(repeated.unwrap()),
+            jiff::civil::date(2026, 10, 25).at(2, 30, 0, 0)
+        );
+        // The second 02:30 still shows as 02:30.
+        assert_eq!(
+            crew_time_of_unix_seconds(1_792_888_200 + 3600),
+            jiff::civil::date(2026, 10, 25).at(2, 30, 0, 0)
+        );
+    }
+
+    #[test]
+    fn a_time_past_the_edge_of_the_range_is_no_instant() {
+        assert_eq!(unix_seconds_at_crew_time(DateTime::MIN), None);
     }
 
     #[test]

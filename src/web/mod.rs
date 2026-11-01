@@ -15,6 +15,7 @@ mod pages;
 mod passkeys;
 mod push;
 mod registration;
+mod reminders;
 mod settings;
 mod sign_in;
 mod static_files;
@@ -37,6 +38,7 @@ use crate::domain::events::{Event, Events};
 use crate::domain::finance::Finance;
 use crate::domain::members::Members;
 use crate::domain::push::PushSubscriptions;
+use crate::domain::reminders::Reminders;
 use crate::views::nav::Tab;
 
 pub use access::{Member, MemberSession};
@@ -53,6 +55,7 @@ pub struct AppState {
     pub members: Members,
     pub finance: Finance,
     pub push: PushSubscriptions,
+    pub reminders: Reminders,
     /// The VAPID public key browsers subscribe with, base64url.
     pub vapid_public_key: Arc<str>,
     pub events: Events,
@@ -78,6 +81,7 @@ impl AppState {
             members,
             finance: Finance::new(db.clone(), clock.clone(), events.emitter(Event::Finance)),
             push: PushSubscriptions::new(db.clone(), clock.clone()),
+            reminders: Reminders::new(db.clone(), clock.clone()),
             vapid_public_key: vapid_public_key.into(),
             events,
             public_origin: PublicOrigin::of(public_url),
@@ -103,6 +107,7 @@ fn routes() -> Router<AppState> {
         )
         .route(assets::MANIFEST.url, get(static_files::manifest))
         .merge(finance::routes())
+        .merge(reminders::routes())
         .merge(sign_in::routes())
         .merge(links::routes())
         .merge(welcome::routes())
@@ -110,8 +115,8 @@ fn routes() -> Router<AppState> {
         .merge(passkeys::routes())
         .merge(push::routes())
         .merge(admin::routes());
-    // Finance, the home page, has its own routes; the other tabs are placeholders for now.
-    for tab in Tab::ALL.into_iter().filter(|&tab| tab != Tab::Finance) {
+    // Finance and Reminders have their own routes; the other tabs are placeholders for now.
+    for tab in [Tab::Shopping, Tab::Quotes] {
         router = router.route(tab.href(), pages::tab(tab));
     }
     #[cfg(debug_assertions)]
@@ -476,6 +481,33 @@ pub(crate) mod test_support {
 
     pub async fn get(db: SqlitePool, uri: &str) -> Response<Body> {
         TestApp::new(db).get(uri).await
+    }
+
+    /// Posts `fields` as a form to `uri` from `origin`, with the session `cookie`, as htmx does
+    /// if `htmx`.
+    pub async fn post_form(
+        app: &TestApp,
+        uri: &str,
+        cookie: &str,
+        fields: &[(&str, String)],
+        htmx: bool,
+        origin: &str,
+    ) -> Response<Body> {
+        let mut post = request(Method::POST, uri, Some(origin));
+        let headers = post.headers_mut();
+        headers.insert(COOKIE, cookie.parse().unwrap());
+        headers.insert(
+            "content-type",
+            "application/x-www-form-urlencoded".parse().unwrap(),
+        );
+        if htmx {
+            headers.insert(super::htmx::HX_REQUEST, "true".parse().unwrap());
+        }
+        *post.body_mut() = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(fields.iter().map(|(name, value)| (name, value.as_str())))
+            .finish()
+            .into();
+        app.send(post).await
     }
 
     pub async fn body_text(response: Response<Body>) -> String {

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE reminders SET sent_at = due_at WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "13bb32dea905ba01a6142e740d042e38aaaed29b146178a104ccc089536cab4f"
+}
