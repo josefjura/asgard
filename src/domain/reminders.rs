@@ -16,6 +16,12 @@ pub const TEXT_MAX: usize = 500;
 pub struct ReminderId(i64);
 
 impl ReminderId {
+    /// The Reminder a request names. Whether it exists is up to [`Reminders`] to find out.
+    #[must_use]
+    pub const fn from_client(id: i64) -> Self {
+        Self(id)
+    }
+
     #[must_use]
     pub const fn get(self) -> i64 {
         self.0
@@ -91,7 +97,7 @@ impl DueAt {
 #[error("not a date and time")]
 pub struct DueAtError;
 
-/// A Reminder as a Member enters it.
+/// A Reminder as a Member enters it, or changes it to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewReminder {
     pub text: ReminderText,
@@ -103,6 +109,10 @@ pub enum ReminderError {
     /// It would be due now or earlier, so it could never be sent.
     #[error("the due time isn't in the future")]
     NotInFuture,
+    /// There is no Reminder with that id to change: it never existed or was deleted, or, for an
+    /// edit, it was already sent.
+    #[error("no such Reminder")]
+    NotFound,
     #[error("database error")]
     Database(#[from] sqlx::Error),
 }
@@ -116,7 +126,7 @@ pub struct PendingReminder {
     pub created_by: DisplayName,
 }
 
-/// Creates Reminders and lists them.
+/// Creates, edits, deletes and lists Reminders. Any Member may change any Reminder.
 #[derive(Debug, Clone)]
 pub struct Reminders {
     db: SqlitePool,
@@ -163,6 +173,67 @@ impl Reminders {
         Ok(ReminderId(done.last_insert_rowid()))
     }
 
+    /// The pending Reminder `id`, as its edit form starts out.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReminderError::NotFound`] unless `id` is pending, or a database error.
+    pub async fn to_edit(&self, id: ReminderId) -> Result<PendingReminder, ReminderError> {
+        let row = sqlx::query_as!(
+            PendingRow,
+            r#"SELECT reminders.id AS "id!", reminders.text, reminders.due_at,
+                      members.display_name AS created_by
+               FROM reminders
+               JOIN members ON members.id = reminders.created_by
+               WHERE reminders.id = ? AND reminders.sent_at IS NULL"#,
+            id.0
+        )
+        .fetch_optional(&self.db)
+        .await?
+        .ok_or(ReminderError::NotFound)?;
+        Ok(row.into())
+    }
+
+    /// Changes the pending Reminder `id` to say and be due as `reminder` does. Its creator stays
+    /// who they were.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReminderError::NotInFuture`] unless it would be due after now,
+    /// [`ReminderError::NotFound`] unless `id` is pending, or a database error.
+    pub async fn edit(&self, id: ReminderId, reminder: &NewReminder) -> Result<(), ReminderError> {
+        if reminder.due_at.0 <= unix_seconds(self.clock.now()) {
+            return Err(ReminderError::NotInFuture);
+        }
+        let done = sqlx::query!(
+            "UPDATE reminders SET text = ?, due_at = ? WHERE id = ? AND sent_at IS NULL",
+            reminder.text.0,
+            reminder.due_at.0,
+            id.0,
+        )
+        .execute(&self.db)
+        .await?;
+        if done.rows_affected() == 0 {
+            return Err(ReminderError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Deletes the Reminder `id`, pending or sent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReminderError::NotFound`] if there is no Reminder `id`, or a database error.
+    pub async fn delete(&self, id: ReminderId) -> Result<(), ReminderError> {
+        let done = sqlx::query!("DELETE FROM reminders WHERE id = ?", id.0)
+            .execute(&self.db)
+            .await?;
+        if done.rows_affected() == 0 {
+            return Err(ReminderError::NotFound);
+        }
+        Ok(())
+    }
+
     /// Every pending Reminder, soonest first; those due at the same time in the order they were
     /// created.
     ///
@@ -170,7 +241,8 @@ impl Reminders {
     ///
     /// Returns a database error.
     pub async fn pending(&self) -> Result<Vec<PendingReminder>, sqlx::Error> {
-        let rows = sqlx::query!(
+        let rows = sqlx::query_as!(
+            PendingRow,
             r#"SELECT reminders.id AS "id!", reminders.text, reminders.due_at,
                       members.display_name AS created_by
                FROM reminders
@@ -180,15 +252,26 @@ impl Reminders {
         )
         .fetch_all(&self.db)
         .await?;
-        Ok(rows
-            .into_iter()
-            .map(|row| PendingReminder {
-                id: ReminderId(row.id),
-                text: ReminderText(row.text),
-                due_at: DueAt(row.due_at),
-                created_by: DisplayName::from_stored(row.created_by),
-            })
-            .collect())
+        Ok(rows.into_iter().map(PendingReminder::from).collect())
+    }
+}
+
+/// A pending Reminder as the database stores it, joined with its creator's name.
+struct PendingRow {
+    id: i64,
+    text: String,
+    due_at: i64,
+    created_by: String,
+}
+
+impl From<PendingRow> for PendingReminder {
+    fn from(row: PendingRow) -> Self {
+        Self {
+            id: ReminderId(row.id),
+            text: ReminderText(row.text),
+            due_at: DueAt(row.due_at),
+            created_by: DisplayName::from_stored(row.created_by),
+        }
     }
 }
 
@@ -448,11 +531,153 @@ mod tests {
             .await
             .unwrap();
 
+        mark_sent(&db, id).await;
+
+        assert_eq!(reminders.pending().await.unwrap(), []);
+    }
+
+    /// Marks `id` sent, as the ticker will.
+    async fn mark_sent(db: &SqlitePool, id: ReminderId) {
         sqlx::query!("UPDATE reminders SET sent_at = due_at WHERE id = ?", id.0)
-            .execute(&db)
+            .execute(db)
+            .await
+            .unwrap();
+    }
+
+    async fn create(reminders: &Reminders, creator: MemberId, text: &str, due: &str) -> ReminderId {
+        reminders
+            .create(creator, &reminder(text, due))
+            .await
+            .unwrap()
+    }
+
+    fn texts(pending: &[PendingReminder]) -> Vec<&str> {
+        pending
+            .iter()
+            .map(|reminder| reminder.text.as_str())
+            .collect()
+    }
+
+    #[sqlx::test]
+    async fn a_reminder_to_edit_is_as_pending_shows_it(db: SqlitePool) {
+        let ondra = add_member(&db, "Ondra", false).await;
+        let (reminders, _) = reminders(db);
+        let id = create(&reminders, ondra, "Order hops", "2026-11-07T10:00").await;
+
+        assert_eq!(
+            reminders.to_edit(id).await.unwrap(),
+            reminders.pending().await.unwrap()[0]
+        );
+    }
+
+    #[sqlx::test]
+    async fn editing_changes_the_text_and_time_and_reorders_pending(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let (reminders, _) = reminders(db);
+        let hops = create(&reminders, ondra, "Order hops", "2026-10-24T18:00").await;
+        create(&reminders, josef, "Bottle the stout", "2026-10-25T09:00").await;
+
+        reminders
+            .edit(hops, &reminder("  Order more hops ", "2026-11-07T10:00"))
             .await
             .unwrap();
 
-        assert_eq!(reminders.pending().await.unwrap(), []);
+        let pending = reminders.pending().await.unwrap();
+        assert_eq!(texts(&pending), ["Bottle the stout", "Order more hops"]);
+        // Whoever edits it, its creator stays.
+        assert_eq!(
+            pending[1],
+            PendingReminder {
+                id: hops,
+                text: ReminderText::parse("Order more hops").unwrap(),
+                due_at: DueAt::parse("2026-11-07T10:00").unwrap(),
+                created_by: DisplayName::parse("Ondra").unwrap(),
+            }
+        );
+    }
+
+    #[sqlx::test]
+    async fn editing_to_a_time_now_or_earlier_changes_nothing(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (reminders, _) = reminders(db);
+        let id = create(&reminders, josef, "Bottle the stout", "2026-10-24T18:00").await;
+        let before = reminders.pending().await.unwrap();
+
+        // The clock stands at 10:00:00 in Prague.
+        for due in ["2026-10-24T10:00", "2026-10-23T18:00"] {
+            let refused = reminders.edit(id, &reminder("Too late", due)).await;
+            assert!(
+                matches!(refused, Err(ReminderError::NotInFuture)),
+                "{due}: {refused:?}"
+            );
+        }
+        assert_eq!(reminders.pending().await.unwrap(), before);
+    }
+
+    #[sqlx::test]
+    async fn only_a_pending_reminder_can_be_edited(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (reminders, _) = reminders(db.clone());
+        let sent = create(&reminders, josef, "Bottle the stout", "2026-10-24T18:00").await;
+        mark_sent(&db, sent).await;
+        let later = reminder("Bottle it later", "2026-10-25T18:00");
+
+        for id in [sent, ReminderId::from_client(999)] {
+            assert!(matches!(
+                reminders.to_edit(id).await,
+                Err(ReminderError::NotFound)
+            ));
+            assert!(matches!(
+                reminders.edit(id, &later).await,
+                Err(ReminderError::NotFound)
+            ));
+        }
+    }
+
+    #[sqlx::test]
+    async fn a_deleted_reminder_leaves_pending(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let (reminders, _) = reminders(db);
+        let hops = create(&reminders, ondra, "Order hops", "2026-10-24T18:00").await;
+        create(&reminders, josef, "Bottle the stout", "2026-10-25T09:00").await;
+
+        reminders.delete(hops).await.unwrap();
+
+        assert_eq!(
+            texts(&reminders.pending().await.unwrap()),
+            ["Bottle the stout"]
+        );
+        assert!(matches!(
+            reminders.to_edit(hops).await,
+            Err(ReminderError::NotFound)
+        ));
+    }
+
+    #[sqlx::test]
+    async fn a_sent_reminder_can_still_be_deleted(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (reminders, _) = reminders(db.clone());
+        let id = create(&reminders, josef, "Bottle the stout", "2026-10-24T18:00").await;
+        mark_sent(&db, id).await;
+
+        reminders.delete(id).await.unwrap();
+
+        let left = sqlx::query_scalar!("SELECT count(*) FROM reminders")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(left, 0);
+    }
+
+    #[sqlx::test]
+    async fn deleting_a_reminder_that_doesnt_exist_is_not_found(db: SqlitePool) {
+        let (reminders, _) = reminders(db);
+
+        assert!(matches!(
+            reminders.delete(ReminderId::from_client(999)).await,
+            Err(ReminderError::NotFound)
+        ));
     }
 }

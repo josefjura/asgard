@@ -2,6 +2,7 @@
 
 pub mod admin;
 pub mod brand;
+pub mod delete;
 pub mod display_name;
 pub mod finance;
 #[cfg(debug_assertions)]

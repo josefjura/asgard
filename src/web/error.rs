@@ -9,6 +9,7 @@ use crate::domain::finance::money::{AMOUNT_MAX, AMOUNT_MIN, AmountError, Crowns}
 use crate::domain::finance::{DESCRIPTION_MAX, DescriptionError, EntryError};
 use crate::domain::members::{DISPLAY_NAME_MAX, NameError};
 use crate::domain::push::SubscriptionError;
+use crate::domain::reminders::ReminderError;
 use crate::views::finance::crowns;
 
 /// The one error type handlers return.
@@ -36,6 +37,13 @@ pub enum AppError {
     /// The Expense or Payment asked for doesn't exist, or was deleted.
     #[error("no such entry")]
     NoSuchEntry,
+    /// The Reminder asked for doesn't exist, was deleted, or was sent and can't be edited.
+    #[error("no such Reminder")]
+    NoSuchReminder,
+    /// A Reminder would be due now or earlier. Its forms show this beside the due time, so only
+    /// a request that skipped the form gets it as an error.
+    #[error("Reminder due time has passed")]
+    DueTimePassed,
     /// The browser sent a push subscription that can't be used.
     #[error(transparent)]
     Subscription(#[from] SubscriptionError),
@@ -49,6 +57,16 @@ impl From<EntryError> for AppError {
             EntryError::NotFound => Self::NoSuchEntry,
             EntryError::NotAllowed => Self::NotYourEntry,
             EntryError::Database(err) => Self::Database(err),
+        }
+    }
+}
+
+impl From<ReminderError> for AppError {
+    fn from(err: ReminderError) -> Self {
+        match err {
+            ReminderError::NotFound => Self::NoSuchReminder,
+            ReminderError::NotInFuture => Self::DueTimePassed,
+            ReminderError::Database(err) => Self::Database(err),
         }
     }
 }
@@ -86,6 +104,17 @@ impl AppError {
                     "That entry no longer exists. Reload the page to see the latest entries."
                         .to_owned(),
                 ),
+            ),
+            Self::NoSuchReminder => (
+                StatusCode::NOT_FOUND,
+                Some(
+                    "That Reminder can't be changed any more: it was deleted or has gone out. Reload the page to see the latest Reminders."
+                        .to_owned(),
+                ),
+            ),
+            Self::DueTimePassed => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Some(NOT_IN_FUTURE.to_owned()),
             ),
             Self::Subscription(_) => (
                 StatusCode::UNPROCESSABLE_ENTITY,
@@ -170,6 +199,9 @@ pub fn amount_message(err: AmountError) -> String {
         ),
     }
 }
+
+/// What a Member is told when the due time they picked for a Reminder has already passed.
+pub const NOT_IN_FUTURE: &str = "Pick a time that hasn't passed yet.";
 
 /// What a Member is told when the description they typed for an Expense or Payment can't be
 /// used.

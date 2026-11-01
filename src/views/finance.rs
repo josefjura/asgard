@@ -9,6 +9,7 @@ use crate::domain::finance::money::{Crowns, Standing};
 use crate::domain::finance::settlement::Settlement;
 use crate::domain::finance::{DESCRIPTION_MAX, Edit, Entry, ExpenseEntry, Overview, PaymentEntry};
 use crate::domain::members::{Member, MemberId, MemberName};
+use crate::views::delete::{Deletion, delete_section};
 use crate::views::icon::chevron;
 use crate::views::layout::shell;
 use crate::views::nav::{Place, Tab};
@@ -325,17 +326,14 @@ pub enum EntryPage<'a> {
 }
 
 /// The foot of an edit page: what deleting the `kind` of entry takes it out of, and the button
-/// that deletes it after asking. Without htmx, it posts as a plain form.
+/// that deletes it after asking, posting to `delete`.
 fn delete_entry(kind: &str, balances: &str, delete: &str) -> Markup {
-    html! {
-        section.delete-entry aria-label={ "Delete this " (kind) } {
-            p { "Deleting this " (kind) " takes it out of " (balances) "." }
-            form method="post" action=(delete) hx-post=(delete)
-                hx-confirm={ "Delete this " (kind) "? It comes out of " (balances) "." } {
-                button.button.danger type="submit" { "Delete " (kind) }
-            }
-        }
-    }
+    delete_section(&Deletion {
+        kind,
+        explains: &format!("Deleting this {kind} takes it out of {balances}."),
+        warns: &format!("It comes out of {balances}."),
+        action: delete,
+    })
 }
 
 /// What the Expense form shows in its fields: what was typed, or the defaults.

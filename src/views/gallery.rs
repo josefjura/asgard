@@ -68,6 +68,8 @@ const PUSH_URLS: PushUrls<'static> = PushUrls {
 const PUSH_CONTROL_HEIGHT: u16 = 300;
 /// The Reminders tab: the form, and three pending Reminders under it on a phone.
 const REMINDERS_HEIGHT: u16 = 1000;
+/// A Reminder's edit page: the form, and delete beneath it.
+const REMINDER_EDIT_HEIGHT: u16 = 700;
 const DESKTOP_WIDTH: u16 = 1280;
 
 /// # Panics
@@ -319,24 +321,44 @@ fn finance_pages() -> Vec<Fixture> {
         .collect()
 }
 
-/// The Reminders tab with nothing pending, with Reminders pending, and with a refused form.
-fn reminder_pages() -> [Fixture; 3] {
+/// The Reminders tab with nothing pending, with Reminders pending, and with a refused form; and
+/// a Reminder's edit page as it opens and refused.
+fn reminder_pages() -> Vec<Fixture> {
     use reminders::fixtures::{NOW, pending, refused};
 
-    let empty = reminders::form(ReminderValues::default(), &ReminderProblems::default(), NOW);
+    let new = |values, problems: &ReminderProblems| {
+        reminders::form(reminders::Purpose::Create, values, problems, NOW)
+    };
+    let empty = new(ReminderValues::default(), &ReminderProblems::default());
     let (values, problems) = refused();
-    let refused = reminders::form(values, &problems, NOW);
-    [
+    let refused_new = new(values, &problems);
+    let tabs = [
         ("Nothing pending", &empty, Vec::new()),
         ("Pending", &empty, pending()),
-        ("Form with errors", &refused, pending()),
+        ("Form with errors", &refused_new, pending()),
     ]
     .map(|(state, form, pending)| Fixture {
         component: "Reminders tab",
         state: state.to_owned(),
         document: reminders::page(form, &pending),
         height: REMINDERS_HEIGHT,
-    })
+    });
+
+    let editing = &pending()[2];
+    let edits = [
+        ("Opened", reminders::edit_form(editing, NOW)),
+        (
+            "Edit refused",
+            reminders::form(reminders::Purpose::Edit(editing.id), values, &problems, NOW),
+        ),
+    ]
+    .map(|(state, form)| Fixture {
+        component: "Reminder edit page",
+        state: state.to_owned(),
+        document: reminders::edit_page(editing.id, &form),
+        height: REMINDER_EDIT_HEIGHT,
+    });
+    tabs.into_iter().chain(edits).collect()
 }
 
 /// The page an entry form in `purpose` sits on, its delete button posting to `delete`.
@@ -713,6 +735,7 @@ mod tests {
             "Entry row",
             "History",
             "Reminders tab",
+            "Reminder edit page",
         ] {
             assert!(
                 html.contains(&format!("<h2>{component}</h2>")),
@@ -765,6 +788,8 @@ mod tests {
             "Nothing pending",
             "Pending",
             "Form with errors",
+            "Opened",
+            "Edit refused",
             "Unfiltered",
             "Filtered",
             "Nothing matches",

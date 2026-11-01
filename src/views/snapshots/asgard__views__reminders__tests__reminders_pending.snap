@@ -1,5 +1,6 @@
 ---
 source: src/views/reminders.rs
+assertion_line: 300
 expression: "page(&empty_form(), &pending()).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
@@ -64,19 +65,43 @@ expression: "page(&empty_form(), &pending()).into_string().replace(\"><\", \">\\
 <h2 id="pending">Pending</h2>
 <ul class="reminder-list">
 <li class="reminder">
+<a class="reminder-link" href="/reminders/1/edit">
+<span class="reminder-main">
 <span class="reminder-text" id="reminder-1">Bottle the stout</span>
 <span class="reminder-meta">
 <time datetime="2026-10-24T18:00">Saturday 24 October 2026, 18:00</time> · Josef</span>
+</span>
+<svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+<path d="M6 3l5 5-5 5">
+</path>
+</svg>
+</a>
 </li>
 <li class="reminder">
+<a class="reminder-link" href="/reminders/2/edit">
+<span class="reminder-main">
 <span class="reminder-text" id="reminder-2">Order 25 kg of Pilsner malt and two packs of Saaz before the shop closes for the holidays</span>
 <span class="reminder-meta">
 <time datetime="2026-10-25T09:30">Sunday 25 October 2026, 09:30</time> · Šimon</span>
+</span>
+<svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+<path d="M6 3l5 5-5 5">
+</path>
+</svg>
+</a>
 </li>
 <li class="reminder">
+<a class="reminder-link" href="/reminders/3/edit">
+<span class="reminder-main">
 <span class="reminder-text" id="reminder-3">Clean the fermenter</span>
 <span class="reminder-meta">
 <time datetime="2026-11-07T10:00">Saturday 7 November 2026, 10:00</time> · Ondra</span>
+</span>
+<svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+<path d="M6 3l5 5-5 5">
+</path>
+</svg>
+</a>
 </li>
 </ul>
 </section>
