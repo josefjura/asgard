@@ -1,9 +1,14 @@
 //! Reminders: a text the whole Crew is notified about at a given date and time. Each is pending
 //! until it is sent.
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use jiff::civil::DateTime;
 use sqlx::SqlitePool;
+use tokio::sync::Notify;
 
+use crate::domain::channel::Emitter;
 use crate::domain::clock::{
     Clock, crew_time_of_unix_seconds, unix_seconds, unix_seconds_at_crew_time,
 };
@@ -126,17 +131,175 @@ pub struct PendingReminder {
     pub created_by: DisplayName,
 }
 
-/// Creates, edits, deletes and lists Reminders. Any Member may change any Reminder.
+/// A Reminder that has been sent, as the Sent list shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SentReminder {
+    pub id: ReminderId,
+    pub text: ReminderText,
+    pub sent_at: SentAt,
+    pub created_by: DisplayName,
+}
+
+/// When a Reminder went out: an instant, shown as a date and time in the Crew's time zone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SentAt(i64);
+
+impl SentAt {
+    /// The date and time it shows on the clock in the Crew's time zone.
+    #[must_use]
+    pub fn crew_time(self) -> DateTime {
+        crew_time_of_unix_seconds(self.0)
+    }
+}
+
+/// A Reminder fell due, for every Member to hear about.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReminderDue {
+    pub reminder: ReminderId,
+    pub text: ReminderText,
+    /// It went out more than [`LATE_AFTER`] after it was due, as when the server was down.
+    pub late: bool,
+    /// Every Member, its creator included, in id order.
+    pub notify: Vec<MemberId>,
+}
+
+/// How long after its due time a Reminder may go out before it counts as late.
+pub const LATE_AFTER: Duration = Duration::from_hours(1);
+
+/// How far back the Sent list reaches. Older sent Reminders are kept but not shown.
+pub const SENT_SHOWN_FOR: Duration = Duration::from_hours(30 * 24);
+
+/// Creates, edits, deletes and lists Reminders, and sends them when they're due. Any Member may
+/// change any Reminder.
 #[derive(Debug, Clone)]
 pub struct Reminders {
     db: SqlitePool,
     clock: Clock,
+    events: Emitter<ReminderDue>,
+    /// Told whenever a Reminder is created, edited or deleted, so the ticker can work out again
+    /// when the next one is due. Every clone shares it.
+    changed: Arc<Notify>,
 }
 
 impl Reminders {
     #[must_use]
-    pub const fn new(db: SqlitePool, clock: Clock) -> Self {
-        Self { db, clock }
+    pub fn new(db: SqlitePool, clock: Clock, events: Emitter<ReminderDue>) -> Self {
+        Self {
+            db,
+            clock,
+            events,
+            changed: Arc::new(Notify::new()),
+        }
+    }
+
+    /// Waits until a Reminder is next created, edited or deleted. A change made while nobody
+    /// waited ends the next wait at once, so the one ticker that waits misses none.
+    pub async fn changed(&self) {
+        self.changed.notified().await;
+    }
+
+    /// Sends every Reminder due by now, soonest first: marks it sent and emits a
+    /// [`ReminderDue`] for every Member. A Reminder counts as sent once its event is emitted,
+    /// whatever becomes of the push. Answers how many were sent.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error. Reminders sent before it stay sent.
+    pub async fn send_due(&self) -> Result<usize, sqlx::Error> {
+        let now = unix_seconds(self.clock.now());
+        let due = sqlx::query_scalar!(
+            r#"SELECT id AS "id!" FROM reminders
+               WHERE sent_at IS NULL AND due_at <= ?
+               ORDER BY due_at, id"#,
+            now
+        )
+        .fetch_all(&self.db)
+        .await?;
+        if due.is_empty() {
+            return Ok(0);
+        }
+        let notify: Vec<MemberId> =
+            sqlx::query_scalar!(r#"SELECT id AS "id!" FROM members ORDER BY id"#)
+                .fetch_all(&self.db)
+                .await?
+                .into_iter()
+                .map(MemberId::from_stored)
+                .collect();
+        let late_after = i64::try_from(LATE_AFTER.as_secs()).unwrap_or(i64::MAX);
+        let mut sent = 0;
+        for id in due {
+            // Marked sent only if it is still pending and due: since it was found it may have been
+            // deleted, or edited to say something else or to be due later. It goes out as it is
+            // now.
+            let Some(reminder) = sqlx::query!(
+                "UPDATE reminders SET sent_at = ?
+                 WHERE id = ? AND sent_at IS NULL AND due_at <= ?
+                 RETURNING text, due_at",
+                now,
+                id,
+                now,
+            )
+            .fetch_optional(&self.db)
+            .await?
+            else {
+                continue;
+            };
+            self.events.emit(ReminderDue {
+                reminder: ReminderId(id),
+                text: ReminderText(reminder.text),
+                late: now - reminder.due_at > late_after,
+                notify: notify.clone(),
+            });
+            sent += 1;
+        }
+        Ok(sent)
+    }
+
+    /// How long until the soonest pending Reminder is due: nothing if none is pending, and no
+    /// time at all if one is overdue.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error.
+    pub async fn until_next_due(&self) -> Result<Option<Duration>, sqlx::Error> {
+        let soonest =
+            sqlx::query_scalar!("SELECT min(due_at) FROM reminders WHERE sent_at IS NULL")
+                .fetch_one(&self.db)
+                .await?;
+        let now = unix_seconds(self.clock.now());
+        Ok(soonest.map(|due_at| {
+            Duration::from_secs(u64::try_from(due_at.saturating_sub(now)).unwrap_or(0))
+        }))
+    }
+
+    /// Reminders sent within the last [`SENT_SHOWN_FOR`], newest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error.
+    pub async fn sent(&self) -> Result<Vec<SentReminder>, sqlx::Error> {
+        let shown_for = i64::try_from(SENT_SHOWN_FOR.as_secs()).unwrap_or(i64::MAX);
+        let since = unix_seconds(self.clock.now()).saturating_sub(shown_for);
+        let rows = sqlx::query!(
+            r#"SELECT reminders.id AS "id!", reminders.text,
+                      reminders.sent_at AS "sent_at!", members.display_name AS created_by
+               FROM reminders
+               JOIN members ON members.id = reminders.created_by
+               WHERE reminders.sent_at >= ?
+               ORDER BY reminders.sent_at DESC, reminders.due_at DESC, reminders.id DESC"#,
+            since
+        )
+        .fetch_all(&self.db)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| SentReminder {
+                id: ReminderId(row.id),
+                text: ReminderText(row.text),
+                sent_at: SentAt(row.sent_at),
+                created_by: DisplayName::from_stored(row.created_by),
+            })
+            .collect())
     }
 
     /// The date and time it is now in the Crew's time zone: the earliest a Reminder could be
@@ -170,6 +333,7 @@ impl Reminders {
         )
         .execute(&self.db)
         .await?;
+        self.changed.notify_one();
         Ok(ReminderId(done.last_insert_rowid()))
     }
 
@@ -216,6 +380,7 @@ impl Reminders {
         if done.rows_affected() == 0 {
             return Err(ReminderError::NotFound);
         }
+        self.changed.notify_one();
         Ok(())
     }
 
@@ -231,6 +396,7 @@ impl Reminders {
         if done.rows_affected() == 0 {
             return Err(ReminderError::NotFound);
         }
+        self.changed.notify_one();
         Ok(())
     }
 
@@ -275,10 +441,10 @@ impl From<PendingRow> for PendingReminder {
     }
 }
 
-/// Pending Reminders for the gallery and the snapshots.
+/// Pending and sent Reminders for the gallery and the snapshots.
 #[cfg(any(test, debug_assertions))]
 pub mod fixtures {
-    use super::{DueAt, PendingReminder, ReminderId, ReminderText};
+    use super::{DueAt, PendingReminder, ReminderId, ReminderText, SentAt, SentReminder};
     use crate::domain::members::DisplayName;
 
     /// A pending Reminder with `id`, due at `due` in Prague (`2026-11-07T10:00`).
@@ -295,15 +461,33 @@ pub mod fixtures {
             created_by: DisplayName::parse(created_by).expect("fixture names are valid"),
         }
     }
+
+    /// A sent Reminder with `id`, sent at `sent` in Prague (`2026-10-20T08:00`).
+    ///
+    /// # Panics
+    ///
+    /// If the fixture's text, time or name is invalid, which is a bug in the fixtures.
+    #[must_use]
+    pub fn sent(id: i64, text: &str, sent: &str, created_by: &str) -> SentReminder {
+        SentReminder {
+            id: ReminderId(id),
+            text: ReminderText::parse(text).expect("fixture texts are valid"),
+            sent_at: SentAt(DueAt::parse(sent).expect("fixture times are valid").0),
+            created_by: DisplayName::parse(created_by).expect("fixture names are valid"),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::convert::identity;
     use std::time::{Duration, SystemTime};
 
     use jiff::civil::date;
+    use tokio::sync::broadcast;
 
     use super::*;
+    use crate::domain::channel::Channel;
     use crate::domain::clock::ManualClock;
     use crate::domain::members::fixtures::add_member;
 
@@ -314,7 +498,8 @@ mod tests {
 
     fn reminders(db: SqlitePool) -> (Reminders, ManualClock) {
         let clock = ManualClock::starting_at(saturday_morning());
-        (Reminders::new(db, clock.clock()), clock)
+        let events = Channel::new().emitter(identity);
+        (Reminders::new(db, clock.clock(), events), clock)
     }
 
     fn reminder(text: &str, due: &str) -> NewReminder {
@@ -669,6 +854,202 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(left, 0);
+    }
+
+    fn reminders_and_events(
+        db: SqlitePool,
+    ) -> (Reminders, ManualClock, broadcast::Receiver<ReminderDue>) {
+        let clock = ManualClock::starting_at(saturday_morning());
+        let channel = Channel::new();
+        let subscription = channel.subscribe();
+        let reminders = Reminders::new(db, clock.clock(), channel.emitter(identity));
+        (reminders, clock, subscription)
+    }
+
+    fn emitted(subscription: &mut broadcast::Receiver<ReminderDue>) -> Vec<ReminderDue> {
+        std::iter::from_fn(|| subscription.try_recv().ok()).collect()
+    }
+
+    fn due(reminder: ReminderId, text: &str, late: bool, notify: &[MemberId]) -> ReminderDue {
+        ReminderDue {
+            reminder,
+            text: ReminderText::parse(text).unwrap(),
+            late,
+            notify: notify.to_vec(),
+        }
+    }
+
+    fn sent_texts(sent: &[SentReminder]) -> Vec<&str> {
+        sent.iter().map(|reminder| reminder.text.as_str()).collect()
+    }
+
+    #[sqlx::test]
+    async fn a_due_reminder_is_sent_to_every_member_creator_included(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let simon = add_member(&db, "Šimon", false).await;
+        let (reminders, clock, mut events) = reminders_and_events(db);
+        let id = create(&reminders, ondra, "Bottle the stout", "2026-10-24T18:00").await;
+
+        // 18:00:00, just due.
+        clock.advance(Duration::from_hours(8));
+        assert_eq!(reminders.send_due().await.unwrap(), 1);
+
+        assert_eq!(
+            emitted(&mut events),
+            [due(id, "Bottle the stout", false, &[josef, ondra, simon])]
+        );
+        assert_eq!(reminders.pending().await.unwrap(), []);
+        assert_eq!(
+            reminders.sent().await.unwrap(),
+            [SentReminder {
+                id,
+                text: ReminderText::parse("Bottle the stout").unwrap(),
+                sent_at: SentAt(unix_seconds(clock.clock().now())),
+                created_by: DisplayName::parse("Ondra").unwrap(),
+            }]
+        );
+    }
+
+    #[sqlx::test]
+    async fn sending_twice_sends_nothing_twice(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (reminders, clock, mut events) = reminders_and_events(db);
+        create(&reminders, josef, "Bottle the stout", "2026-10-24T18:00").await;
+        clock.advance(Duration::from_hours(9));
+
+        reminders.send_due().await.unwrap();
+        assert_eq!(reminders.send_due().await.unwrap(), 0);
+
+        assert_eq!(emitted(&mut events).len(), 1);
+        assert_eq!(reminders.sent().await.unwrap().len(), 1);
+    }
+
+    #[sqlx::test]
+    async fn a_reminder_not_yet_due_stays_pending(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (reminders, clock, mut events) = reminders_and_events(db);
+        create(&reminders, josef, "Bottle the stout", "2026-10-24T18:00").await;
+        create(
+            &reminders,
+            josef,
+            "Clean the fermenter",
+            "2026-10-24T18:00:01",
+        )
+        .await;
+
+        clock.advance(Duration::from_hours(8));
+        reminders.send_due().await.unwrap();
+
+        assert_eq!(
+            texts(&reminders.pending().await.unwrap()),
+            ["Clean the fermenter"]
+        );
+        assert_eq!(
+            sent_texts(&reminders.sent().await.unwrap()),
+            ["Bottle the stout"]
+        );
+        assert_eq!(emitted(&mut events).len(), 1);
+    }
+
+    #[sqlx::test]
+    async fn a_reminder_more_than_an_hour_overdue_is_sent_late(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (reminders, clock, mut events) = reminders_and_events(db);
+        let on_time = create(&reminders, josef, "An hour ago", "2026-10-24T11:00").await;
+        let late = create(&reminders, josef, "Longer ago", "2026-10-24T10:59:59").await;
+
+        // 12:00:00: one is exactly an hour overdue, the other a second more.
+        clock.advance(Duration::from_hours(2));
+        reminders.send_due().await.unwrap();
+
+        assert_eq!(
+            emitted(&mut events),
+            [
+                due(late, "Longer ago", true, &[josef]),
+                due(on_time, "An hour ago", false, &[josef]),
+            ]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_sent_reminder_is_sent_when_the_step_ran(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (reminders, clock, _) = reminders_and_events(db);
+        create(&reminders, josef, "Bottle the stout", "2026-10-24T18:00").await;
+
+        // The server was down overnight; the Reminder goes out at 08:15 on Sunday, winter time.
+        clock.advance(Duration::from_mins(23 * 60 + 15));
+        reminders.send_due().await.unwrap();
+
+        assert_eq!(
+            reminders.sent().await.unwrap()[0].sent_at.crew_time(),
+            date(2026, 10, 25).at(8, 15, 0, 0)
+        );
+    }
+
+    #[sqlx::test]
+    async fn sent_shows_the_last_30_days_newest_first(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (reminders, clock, _) = reminders_and_events(db);
+        for (text, due) in [
+            ("Oldest", "2026-10-24T11:00"),
+            ("Middle", "2026-10-25T11:00"),
+            ("Newest", "2026-10-26T11:00"),
+        ] {
+            create(&reminders, josef, text, due).await;
+        }
+        for _ in 0..3 {
+            clock.advance(Duration::from_hours(24));
+            reminders.send_due().await.unwrap();
+        }
+        assert_eq!(
+            sent_texts(&reminders.sent().await.unwrap()),
+            ["Newest", "Middle", "Oldest"]
+        );
+
+        // "Oldest" went out a day after the clock started; 30 days after that it's still shown, a
+        // second more and it's not.
+        clock.set(saturday_morning() + Duration::from_hours(24 + 30 * 24));
+        assert_eq!(reminders.sent().await.unwrap().len(), 3);
+        clock.advance(Duration::from_secs(1));
+        assert_eq!(
+            sent_texts(&reminders.sent().await.unwrap()),
+            ["Newest", "Middle"]
+        );
+    }
+
+    #[sqlx::test]
+    async fn waits_until_the_soonest_pending_reminder_is_due(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (reminders, clock, _) = reminders_and_events(db);
+        assert_eq!(reminders.until_next_due().await.unwrap(), None);
+
+        create(&reminders, josef, "Later", "2026-10-24T18:00").await;
+        create(&reminders, josef, "Sooner", "2026-10-24T10:30").await;
+        assert_eq!(
+            reminders.until_next_due().await.unwrap(),
+            Some(Duration::from_mins(30))
+        );
+
+        // Overdue is due now.
+        clock.advance(Duration::from_hours(1));
+        assert_eq!(
+            reminders.until_next_due().await.unwrap(),
+            Some(Duration::ZERO)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_change_is_kept_until_it_is_waited_for() {
+        let db = SqlitePool::connect_lazy("sqlite::memory:").unwrap();
+        let (reminders, _) = reminders(db);
+
+        reminders.changed.notify_one();
+
+        tokio::time::timeout(Duration::from_secs(1), reminders.changed())
+            .await
+            .expect("a change made while nobody waited still wakes the next wait");
     }
 
     #[sqlx::test]

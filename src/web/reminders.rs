@@ -1,5 +1,5 @@
-//! The Reminders tab: creating a Reminder for the whole Crew, the Reminders still pending, and
-//! editing or deleting one of them.
+//! The Reminders tab: creating a Reminder for the whole Crew, the Reminders still pending and
+//! those recently sent, editing a pending one and deleting any.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -187,14 +187,17 @@ fn text_message(err: TextError) -> String {
     }
 }
 
-/// The Reminders tab around `form`, with every pending Reminder.
+/// The Reminders tab around `form`, with every pending Reminder and those recently sent.
 async fn page(state: &AppState, form: &Markup) -> Result<Markup, AppError> {
     let pending = state.reminders.pending().await?;
-    Ok(views::reminders::page(form, &pending))
+    let sent = state.reminders.sent().await?;
+    Ok(views::reminders::page(form, &pending, &sent))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use axum::body::Body;
     use axum::http::header::LOCATION;
     use axum::http::{Method, Response, StatusCode};
@@ -628,6 +631,100 @@ mod tests {
                     .contains("can't be changed any more")
             );
         }
+    }
+
+    /// Moves the test app's clock on by `hours` and sends whatever is due by then, as the ticker
+    /// would.
+    async fn send_after(app: &TestApp, hours: u64) {
+        app.clock.advance(Duration::from_hours(hours));
+        app.state.reminders.send_due().await.unwrap();
+    }
+
+    #[sqlx::test]
+    async fn a_sent_reminder_moves_from_pending_to_sent_with_its_prague_sent_time(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        post_reminder(&app, &cookie, "Bottle the stout", TOMORROW_MORNING, true).await;
+
+        // From 01:00 on 1 January to 10:00 on 2 January, Prague time.
+        send_after(&app, 33).await;
+
+        let html = tab(&app, &cookie).await;
+        assert!(html.contains("Nothing pending."), "{html}");
+        assert!(html.contains(
+            r#"Sent <time datetime="2026-01-02T10:00">Friday 2 January 2026, 10:00</time> · Josef"#
+        ));
+        assert!(!html.contains(r#"href="/reminders/1/edit""#));
+    }
+
+    #[sqlx::test]
+    async fn sent_shows_the_last_30_days_newest_first(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        post_reminder(&app, &cookie, "Older", "2026-01-01T02:00", true).await;
+        post_reminder(&app, &cookie, "Newer", "2026-01-01T03:00", true).await;
+        send_after(&app, 1).await;
+        send_after(&app, 1).await;
+
+        let html = tab(&app, &cookie).await;
+        let at = |text: &str| html.find(&format!(">{text}</span>")).unwrap();
+        assert!(at("Newer") < at("Older"), "{html}");
+
+        // "Older" went out at 02:00 on 1 January: shown 30 days on, gone an hour after that.
+        send_after(&app, 30 * 24 - 1).await;
+        let html = tab(&app, &cookie).await;
+        assert!(html.contains(">Older</span>"));
+        send_after(&app, 1).await;
+        let html = tab(&app, &cookie).await;
+        assert!(!html.contains(">Older</span>"), "{html}");
+        assert!(html.contains(">Newer</span>"));
+    }
+
+    #[sqlx::test]
+    async fn a_sent_reminder_cant_be_edited(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        post_reminder(&app, &cookie, "Bottle the stout", TOMORROW_MORNING, true).await;
+        send_after(&app, 33).await;
+
+        for response in [
+            app.get_with("/reminders/1/edit", &cookie).await,
+            post_edit(
+                &app,
+                &cookie,
+                1,
+                "Rewrite history",
+                "2026-01-05T09:00",
+                true,
+            )
+            .await,
+        ] {
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        }
+        let html = tab(&app, &cookie).await;
+        assert!(html.contains(">Bottle the stout</span>"));
+        assert!(!html.contains("Rewrite history"));
+    }
+
+    #[sqlx::test]
+    async fn a_member_deletes_a_sent_reminder(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let ondra = app.sign_in_new_member("Ondra").await;
+        post_reminder(&app, &josef, "Bottle the stout", TOMORROW_MORNING, true).await;
+        send_after(&app, 33).await;
+        assert!(
+            tab(&app, &ondra)
+                .await
+                .contains(r#"action="/reminders/1/delete""#)
+        );
+
+        let response = app.post_with("/reminders/1/delete", &ondra).await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[LOCATION], "/reminders");
+        let html = tab(&app, &josef).await;
+        assert!(html.contains("Nothing sent in the last 30 days."), "{html}");
     }
 
     #[sqlx::test]

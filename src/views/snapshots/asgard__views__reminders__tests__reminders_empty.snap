@@ -1,6 +1,7 @@
 ---
 source: src/views/reminders.rs
-expression: "page(&empty_form(), &[]).into_string().replace(\"><\", \">\\n<\")"
+assertion_line: 368
+expression: "page(&empty_form(), &[], &[]).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -60,10 +61,16 @@ expression: "page(&empty_form(), &[]).into_string().replace(\"><\", \">\\n<\")"
 <button class="button large" type="submit">Create Reminder</button>
 </form>
 </section>
+<div>
 <section class="section" aria-labelledby="pending">
 <h2 id="pending">Pending</h2>
 <p class="muted">Nothing pending. Create a Reminder and it waits here until it's due.</p>
 </section>
+<section class="section" aria-labelledby="sent">
+<h2 id="sent">Sent</h2>
+<p class="muted">Nothing sent in the last 30 days.</p>
+</section>
+</div>
 </div>
 </main>
 <nav class="tabs" aria-label="Sections">
