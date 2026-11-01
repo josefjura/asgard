@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.0](https://github.com/josefjura/asgard/compare/v0.5.0...v0.6.0) (2026-11-01)
+
+
+### Features
+
+* centre the app on wide screens ([#88](https://github.com/josefjura/asgard/issues/88)) ([678849d](https://github.com/josefjura/asgard/commit/678849d203408163ab3fd9170852535bd18e4293))
+* Finance in two columns on wide screens ([#89](https://github.com/josefjura/asgard/issues/89)) ([d8101c0](https://github.com/josefjura/asgard/commit/d8101c0739310368dfd1fa3e8d8678306c714799))
+* Finance leads with Expenses and only the Sender logs a sent Settlement ([#82](https://github.com/josefjura/asgard/issues/82)) ([97fbf10](https://github.com/josefjura/asgard/commit/97fbf10a566142fdee925df6790b58f6c8b17a80))
+* hover feedback for a mouse ([#90](https://github.com/josefjura/asgard/issues/90)) ([1de019a](https://github.com/josefjura/asgard/commit/1de019a3e872b2502889327e123a426550966dbe))
+
 ## [0.5.0](https://github.com/josefjura/asgard/compare/v0.4.1...v0.5.0) (2026-10-31)
 
 
