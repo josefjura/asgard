@@ -93,7 +93,7 @@ impl Subscription {
 
 /// A device a push can go to: a subscription whose session is still live.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Device {
+pub struct PushDevice {
     pub member: MemberId,
     pub label: String,
     pub subscription: Subscription,
@@ -194,7 +194,7 @@ impl PushSubscriptions {
     /// # Errors
     ///
     /// Fails if the database does.
-    pub async fn devices(&self) -> Result<Vec<Device>, sqlx::Error> {
+    pub async fn devices(&self) -> Result<Vec<PushDevice>, sqlx::Error> {
         let now = unix_seconds(self.clock.now());
         let rows = sqlx::query!(
             "SELECT push_subscriptions.member_id, device_label, endpoint, p256dh, auth
@@ -207,7 +207,7 @@ impl PushSubscriptions {
         .await?;
         Ok(rows
             .into_iter()
-            .map(|row| Device {
+            .map(|row| PushDevice {
                 member: MemberId::from_stored(row.member_id),
                 label: row.device_label,
                 subscription: Subscription {
@@ -268,7 +268,7 @@ mod tests {
         (member, add_session(db, member, passkey, EXPIRES_AT).await)
     }
 
-    fn endpoints(devices: &[Device]) -> Vec<&str> {
+    fn endpoints(devices: &[PushDevice]) -> Vec<&str> {
         devices.iter().map(|d| d.subscription.endpoint()).collect()
     }
 
@@ -351,7 +351,7 @@ mod tests {
         assert!(push.is_subscribed(session).await.unwrap());
         assert_eq!(
             push.devices().await.unwrap(),
-            [Device {
+            [PushDevice {
                 member: ondra,
                 label: "Android Chrome".to_owned(),
                 subscription: subscription("ondra"),

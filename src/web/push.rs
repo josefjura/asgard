@@ -115,7 +115,7 @@ mod tests {
 
     use crate::domain::auth::LinkKind;
     use crate::domain::members::DisplayName;
-    use crate::domain::push::Device;
+    use crate::domain::push::PushDevice;
     use crate::web::links;
     use crate::web::test_support::{
         PUBLIC_ORIGIN, TestApp, VAPID_PUBLIC_KEY, authenticator, body_text, cookie_pair,
@@ -171,11 +171,11 @@ mod tests {
         .await
     }
 
-    async fn devices(app: &TestApp) -> Vec<Device> {
+    async fn devices(app: &TestApp) -> Vec<PushDevice> {
         app.state.push.devices().await.unwrap()
     }
 
-    fn endpoints(devices: &[Device]) -> Vec<&str> {
+    fn endpoints(devices: &[PushDevice]) -> Vec<&str> {
         devices.iter().map(|d| d.subscription.endpoint()).collect()
     }
 

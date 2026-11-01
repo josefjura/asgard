@@ -91,12 +91,17 @@ async function turnOn() {
   show("on");
 }
 
-// The server forgets the device first, so the Crew's pushes stop even if the browser fails.
+// The server forgets the device first, so the Crew's pushes stop even if the browser fails;
+// a browser that fails then only keeps a subscription nobody sends to.
 async function turnOff() {
   await post(pushUnsubscribe, {});
   show("off");
   if (supported) {
-    await (await (await pushManager()).getSubscription())?.unsubscribe();
+    try {
+      await (await (await pushManager()).getSubscription())?.unsubscribe();
+    } catch (error) {
+      console.warn("The browser kept its push subscription", error);
+    }
   }
 }
 
@@ -110,15 +115,23 @@ function message(error) {
   return "Something went wrong with notifications. Please try again.";
 }
 
-// What's true in this browser, starting from what the server knows.
+// What's true in this browser, starting from what the server knows. When the server has this
+// device, it is brought up to date: forgotten if the browser can no longer show its pushes,
+// sent the browser's subscription again otherwise, in case the push service changed it.
 async function settle() {
+  const serverHasIt = shown() === "on";
   if (ios && !installed) return show("install");
   if (!supported) return show("off");
-  if (Notification.permission === "denied") return show("blocked");
-  if (shown() !== "on") return show("off");
+  if (Notification.permission === "denied") {
+    show("blocked");
+    if (serverHasIt) await post(pushUnsubscribe, {});
+    return;
+  }
+  if (!serverHasIt) return show("off");
   const subscription = await browserSubscription(await pushManager(), fromBase64Url(pushKey));
-  if (!subscription) {
-    // The browser dropped it, so the server's copy is no use either.
+  if (subscription) {
+    await post(pushSubscribe, subscription.toJSON());
+  } else {
     show("off");
     await post(pushUnsubscribe, {});
   }
