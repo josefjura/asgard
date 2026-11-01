@@ -207,8 +207,8 @@ impl Reminders {
     /// Returns a database error. Reminders sent before it stay sent.
     pub async fn send_due(&self) -> Result<usize, sqlx::Error> {
         let now = unix_seconds(self.clock.now());
-        let due = sqlx::query!(
-            r#"SELECT id AS "id!", text, due_at FROM reminders
+        let due = sqlx::query_scalar!(
+            r#"SELECT id AS "id!" FROM reminders
                WHERE sent_at IS NULL AND due_at <= ?
                ORDER BY due_at, id"#,
             now
@@ -227,20 +227,25 @@ impl Reminders {
                 .collect();
         let late_after = i64::try_from(LATE_AFTER.as_secs()).unwrap_or(i64::MAX);
         let mut sent = 0;
-        for reminder in due {
-            let done = sqlx::query!(
-                "UPDATE reminders SET sent_at = ? WHERE id = ? AND sent_at IS NULL",
+        for id in due {
+            // Marked sent only if it is still pending and due: since it was found it may have been
+            // deleted, or edited to say something else or to be due later. It goes out as it is
+            // now.
+            let Some(reminder) = sqlx::query!(
+                "UPDATE reminders SET sent_at = ?
+                 WHERE id = ? AND sent_at IS NULL AND due_at <= ?
+                 RETURNING text, due_at",
                 now,
-                reminder.id,
+                id,
+                now,
             )
-            .execute(&self.db)
-            .await?;
-            // Deleted since it was found: nothing to send.
-            if done.rows_affected() == 0 {
+            .fetch_optional(&self.db)
+            .await?
+            else {
                 continue;
-            }
+            };
             self.events.emit(ReminderDue {
-                reminder: ReminderId(reminder.id),
+                reminder: ReminderId(id),
                 text: ReminderText(reminder.text),
                 late: now - reminder.due_at > late_after,
                 notify: notify.clone(),

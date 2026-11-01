@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE reminders SET sent_at = ?\n                 WHERE id = ? AND sent_at IS NULL AND due_at <= ?\n                 RETURNING text, due_at",
+  "describe": {
+    "columns": [
+      {
+        "name": "text",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "due_at",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "548765467e772e63fd24a4742ec6be9b2afacf8d24588b6370c5f2df1db74145"
+}

@@ -5,7 +5,9 @@
 use jiff::civil::DateTime;
 use maud::{Markup, html};
 
-use crate::domain::reminders::{PendingReminder, ReminderId, SentReminder, TEXT_MAX};
+use crate::domain::reminders::{
+    PendingReminder, ReminderId, SENT_SHOWN_FOR, SentReminder, TEXT_MAX,
+};
 use crate::views::delete::{Deletion, delete_section};
 use crate::views::finance::problem;
 use crate::views::icon::chevron;
@@ -115,9 +117,9 @@ pub fn page(form: &Markup, pending: &[PendingReminder], sent: &[SentReminder]) -
                     section.section aria-labelledby="sent" {
                         h2 #sent { "Sent" }
                         @if sent.is_empty() {
-                            p.muted { "Nothing sent in the last 30 days." }
+                            p.muted { "Nothing sent in the last " (sent_days()) " days." }
                         } @else {
-                            p.muted { "The last 30 days, newest first." }
+                            p.muted { "The last " (sent_days()) " days, newest first." }
                             ul.reminder-list {
                                 @for reminder in sent {
                                     (sent_row(reminder))
@@ -151,6 +153,11 @@ fn pending_row(reminder: &PendingReminder) -> Markup {
             }
         }
     }
+}
+
+/// How many days back the Sent list reaches.
+const fn sent_days() -> u64 {
+    SENT_SHOWN_FOR.as_secs() / (24 * 3600)
 }
 
 /// A sent Reminder: what it said, when it went out in Prague time, and who created it. It can't
@@ -296,7 +303,7 @@ pub mod fixtures {
         ]
     }
 
-    /// Two sent Reminders, newest first, the older one sent late.
+    /// Two sent Reminders, newest first.
     #[must_use]
     pub fn sent() -> Vec<SentReminder> {
         vec![
