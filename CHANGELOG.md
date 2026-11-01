@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.0](https://github.com/josefjura/asgard/compare/v0.6.0...v0.7.0) (2026-11-01)
+
+
+### Features
+
+* create Reminders and see them in Pending ([#95](https://github.com/josefjura/asgard/issues/95)) ([b445189](https://github.com/josefjura/asgard/commit/b4451897a6f0e8a026f0e6da7ab4dc94317167dc))
+* edit and delete pending Reminders ([#96](https://github.com/josefjura/asgard/issues/96)) ([464749b](https://github.com/josefjura/asgard/commit/464749b2bb69ea31dd5eb52ee1b271d82bb18568))
+* turn notifications on and off for this device ([#93](https://github.com/josefjura/asgard/issues/93)) ([26a90d5](https://github.com/josefjura/asgard/commit/26a90d5d076e104089e6193af0ba6e819824999c))
+
 ## [0.6.0](https://github.com/josefjura/asgard/compare/v0.5.0...v0.6.0) (2026-11-01)
 
 
