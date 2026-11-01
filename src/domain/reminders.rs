@@ -109,7 +109,8 @@ pub enum ReminderError {
     /// It would be due now or earlier, so it could never be sent.
     #[error("the due time isn't in the future")]
     NotInFuture,
-    /// There is no pending Reminder with that id: it never existed, was deleted or was sent.
+    /// There is no Reminder with that id to change: it never existed or was deleted, or, for an
+    /// edit, it was already sent.
     #[error("no such Reminder")]
     NotFound,
     #[error("database error")]
@@ -178,7 +179,8 @@ impl Reminders {
     ///
     /// Returns [`ReminderError::NotFound`] unless `id` is pending, or a database error.
     pub async fn to_edit(&self, id: ReminderId) -> Result<PendingReminder, ReminderError> {
-        let row = sqlx::query!(
+        let row = sqlx::query_as!(
+            PendingRow,
             r#"SELECT reminders.id AS "id!", reminders.text, reminders.due_at,
                       members.display_name AS created_by
                FROM reminders
@@ -189,12 +191,7 @@ impl Reminders {
         .fetch_optional(&self.db)
         .await?
         .ok_or(ReminderError::NotFound)?;
-        Ok(PendingReminder {
-            id: ReminderId(row.id),
-            text: ReminderText(row.text),
-            due_at: DueAt(row.due_at),
-            created_by: DisplayName::from_stored(row.created_by),
-        })
+        Ok(row.into())
     }
 
     /// Changes the pending Reminder `id` to say and be due as `reminder` does. Its creator stays
@@ -244,7 +241,8 @@ impl Reminders {
     ///
     /// Returns a database error.
     pub async fn pending(&self) -> Result<Vec<PendingReminder>, sqlx::Error> {
-        let rows = sqlx::query!(
+        let rows = sqlx::query_as!(
+            PendingRow,
             r#"SELECT reminders.id AS "id!", reminders.text, reminders.due_at,
                       members.display_name AS created_by
                FROM reminders
@@ -254,15 +252,26 @@ impl Reminders {
         )
         .fetch_all(&self.db)
         .await?;
-        Ok(rows
-            .into_iter()
-            .map(|row| PendingReminder {
-                id: ReminderId(row.id),
-                text: ReminderText(row.text),
-                due_at: DueAt(row.due_at),
-                created_by: DisplayName::from_stored(row.created_by),
-            })
-            .collect())
+        Ok(rows.into_iter().map(PendingReminder::from).collect())
+    }
+}
+
+/// A pending Reminder as the database stores it, joined with its creator's name.
+struct PendingRow {
+    id: i64,
+    text: String,
+    due_at: i64,
+    created_by: String,
+}
+
+impl From<PendingRow> for PendingReminder {
+    fn from(row: PendingRow) -> Self {
+        Self {
+            id: ReminderId(row.id),
+            text: ReminderText(row.text),
+            due_at: DueAt(row.due_at),
+            created_by: DisplayName::from_stored(row.created_by),
+        }
     }
 }
 

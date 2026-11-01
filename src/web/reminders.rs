@@ -10,6 +10,7 @@ use maud::Markup;
 use serde::Deserialize;
 
 use super::access::Member;
+use super::error::NOT_IN_FUTURE;
 use super::htmx::{Htmx, fragment_or_page, go_to};
 use super::pages::fresh;
 use super::{AppError, AppState};
@@ -18,7 +19,7 @@ use crate::domain::reminders::{
 };
 use crate::views;
 use crate::views::nav::Tab;
-use crate::views::reminders::{FormFor, ReminderProblems, ReminderValues, field_time};
+use crate::views::reminders::{FormFor, ReminderProblems, ReminderValues};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -96,18 +97,8 @@ async fn edit(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
     let id = ReminderId::from_client(id);
-    let reminder = state.reminders.to_edit(id).await.map_err(not_found)?;
-    let due_at = field_time(reminder.due_at.crew_time());
-    let values = ReminderValues {
-        text: reminder.text.as_str(),
-        due_at: &due_at,
-    };
-    let form = views::reminders::form(
-        FormFor::Edit(id),
-        values,
-        &ReminderProblems::default(),
-        state.reminders.now(),
-    );
+    let reminder = state.reminders.to_edit(id).await?;
+    let form = views::reminders::edit_form(&reminder, state.reminders.now());
     Ok(fresh(views::reminders::edit_page(id, &form)))
 }
 
@@ -131,7 +122,7 @@ async fn save(
         },
         Err(problems) => {
             // A Reminder that is gone is reported as gone, not as a form to fix.
-            state.reminders.to_edit(id).await.map_err(not_found)?;
+            state.reminders.to_edit(id).await?;
             problems
         }
     };
@@ -156,11 +147,7 @@ async fn delete(
     Htmx(htmx): Htmx,
     Path(id): Path<i64>,
 ) -> Result<Response, AppError> {
-    state
-        .reminders
-        .delete(ReminderId::from_client(id))
-        .await
-        .map_err(not_found)?;
+    state.reminders.delete(ReminderId::from_client(id)).await?;
     tracing::info!(member = member.id.get(), "a Member deleted a Reminder");
     Ok(go_to(htmx, Tab::Reminders.href()))
 }
@@ -173,22 +160,9 @@ fn reminder_problems(err: ReminderError) -> Result<ReminderProblems, AppError> {
             due_at: Some(NOT_IN_FUTURE.to_owned()),
             ..ReminderProblems::default()
         }),
-        err => Err(not_found(err)),
+        err => Err(err.into()),
     }
 }
-
-/// The error to answer with when looking up, changing or deleting a Reminder fails. Only a
-/// create or an edit can be refused for its due time, and [`reminder_problems`] turns that into a
-/// problem with the form first.
-fn not_found(err: ReminderError) -> AppError {
-    match err {
-        ReminderError::NotFound | ReminderError::NotInFuture => AppError::NoSuchReminder,
-        ReminderError::Database(err) => err.into(),
-    }
-}
-
-/// What a Member is told when the due time they picked has already passed.
-const NOT_IN_FUTURE: &str = "Pick a time that hasn't passed yet.";
 
 /// The Reminder as typed, or what is wrong with each field.
 fn parse(input: &ReminderForm) -> Result<NewReminder, ReminderProblems> {
@@ -648,7 +622,11 @@ mod tests {
             app.post_with("/reminders/1/delete", &cookie).await,
         ] {
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
-            assert!(body_text(response).await.contains("no longer pending"));
+            assert!(
+                body_text(response)
+                    .await
+                    .contains("can't be changed any more")
+            );
         }
     }
 

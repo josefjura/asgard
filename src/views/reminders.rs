@@ -74,8 +74,7 @@ pub struct ReminderProblems {
 }
 
 /// A date and time the way a `datetime-local` field holds it, to the minute.
-#[must_use]
-pub fn field_time(time: DateTime) -> String {
+fn field_time(time: DateTime) -> String {
     time.strftime("%Y-%m-%dT%H:%M").to_string()
 }
 
@@ -155,6 +154,23 @@ pub fn edit_page(id: ReminderId, form: &Markup) -> Markup {
                 }
             }
         },
+    )
+}
+
+/// The form that edits `reminder`, filled in with what it says and when it's due, as its edit
+/// page opens. The due time can't be before `now`.
+#[must_use]
+pub fn edit_form(reminder: &PendingReminder, now: DateTime) -> Markup {
+    let due_at = field_time(reminder.due_at.crew_time());
+    let values = ReminderValues {
+        text: reminder.text.as_str(),
+        due_at: &due_at,
+    };
+    form(
+        FormFor::Edit(reminder.id),
+        values,
+        &ReminderProblems::default(),
+        now,
     )
 }
 

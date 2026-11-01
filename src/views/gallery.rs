@@ -344,25 +344,17 @@ fn reminder_pages() -> Vec<Fixture> {
     });
 
     let editing = &pending()[2];
-    let due_at = reminders::field_time(editing.due_at.crew_time());
-    let opened = ReminderValues {
-        text: editing.text.as_str(),
-        due_at: &due_at,
-    };
-    let edit = |values, problems: &ReminderProblems| {
-        reminders::edit_page(
-            editing.id,
-            &reminders::form(FormFor::Edit(editing.id), values, problems, NOW),
-        )
-    };
     let edits = [
-        ("Opened", edit(opened, &ReminderProblems::default())),
-        ("Edit refused", edit(values, &problems)),
+        ("Opened", reminders::edit_form(editing, NOW)),
+        (
+            "Edit refused",
+            reminders::form(FormFor::Edit(editing.id), values, &problems, NOW),
+        ),
     ]
-    .map(|(state, document)| Fixture {
+    .map(|(state, form)| Fixture {
         component: "Reminder edit page",
         state: state.to_owned(),
-        document,
+        document: reminders::edit_page(editing.id, &form),
         height: REMINDER_EDIT_HEIGHT,
     });
     tabs.into_iter().chain(edits).collect()
