@@ -5,6 +5,7 @@ use jiff::civil::DateTime;
 use maud::{Markup, html};
 
 use crate::domain::reminders::{PendingReminder, ReminderId, TEXT_MAX};
+use crate::views::delete::{Deletion, delete_section};
 use crate::views::finance::problem;
 use crate::views::icon::chevron;
 use crate::views::layout::shell;
@@ -35,24 +36,24 @@ pub mod paths {
     }
 }
 
-/// Which Reminder the form is for: a new one, or the pending Reminder it edits.
+/// Whether a form creates a new Reminder or saves changes to the pending Reminder it edits.
 #[derive(Debug, Clone, Copy)]
-pub enum FormFor {
-    New,
+pub enum Purpose {
+    Create,
     Edit(ReminderId),
 }
 
-impl FormFor {
+impl Purpose {
     fn action(self) -> String {
         match self {
-            Self::New => Tab::Reminders.href().to_owned(),
+            Self::Create => Tab::Reminders.href().to_owned(),
             Self::Edit(id) => paths::reminder(id),
         }
     }
 
     const fn submit(self) -> &'static str {
         match self {
-            Self::New => "Create Reminder",
+            Self::Create => "Create Reminder",
             Self::Edit(_) => "Save Reminder",
         }
     }
@@ -137,7 +138,7 @@ fn pending_row(reminder: &PendingReminder) -> Markup {
 }
 
 /// The page a pending Reminder is edited on: `form`, and at its foot the button that deletes
-/// the Reminder `id` after asking. Without htmx, delete posts as a plain form.
+/// the Reminder `id` after asking.
 #[must_use]
 pub fn edit_page(id: ReminderId, form: &Markup) -> Markup {
     let delete = paths::delete_reminder(id);
@@ -146,13 +147,12 @@ pub fn edit_page(id: ReminderId, form: &Markup) -> Markup {
         &html! {
             h1 { "Edit Reminder" }
             (form)
-            section.delete-entry aria-label="Delete this Reminder" {
-                p { "Deleting this Reminder means nobody is notified about it." }
-                form method="post" action=(delete) hx-post=(delete)
-                    hx-confirm="Delete this Reminder? Nobody will be notified about it." {
-                    button.button.danger type="submit" { "Delete Reminder" }
-                }
-            }
+            (delete_section(&Deletion {
+                kind: "Reminder",
+                explains: "Deleting this Reminder means nobody is notified about it.",
+                warns: "Nobody will be notified about it.",
+                action: &delete,
+            }))
         },
     )
 }
@@ -167,7 +167,7 @@ pub fn edit_form(reminder: &PendingReminder, now: DateTime) -> Markup {
         due_at: &due_at,
     };
     form(
-        FormFor::Edit(reminder.id),
+        Purpose::Edit(reminder.id),
         values,
         &ReminderProblems::default(),
         now,
@@ -181,7 +181,7 @@ pub fn edit_form(reminder: &PendingReminder, now: DateTime) -> Markup {
 /// server answers with; without htmx, it posts as a plain form.
 #[must_use]
 pub fn form(
-    purpose: FormFor,
+    purpose: Purpose,
     values: ReminderValues,
     problems: &ReminderProblems,
     now: DateTime,
@@ -262,7 +262,7 @@ mod tests {
 
     fn empty_form() -> Markup {
         form(
-            FormFor::New,
+            Purpose::Create,
             ReminderValues::default(),
             &ReminderProblems::default(),
             NOW,
@@ -272,7 +272,7 @@ mod tests {
     fn edit_form_with_errors() -> Markup {
         let (values, problems) = refused();
         form(
-            FormFor::Edit(ReminderId::from_client(3)),
+            Purpose::Edit(ReminderId::from_client(3)),
             values,
             &problems,
             NOW,
@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn reminder_form_with_errors() {
         let (values, problems) = refused();
-        assert_html_snapshot!(form(FormFor::New, values, &problems, NOW));
+        assert_html_snapshot!(form(Purpose::Create, values, &problems, NOW));
     }
 
     #[test]

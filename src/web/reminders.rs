@@ -19,7 +19,7 @@ use crate::domain::reminders::{
 };
 use crate::views;
 use crate::views::nav::Tab;
-use crate::views::reminders::{FormFor, ReminderProblems, ReminderValues};
+use crate::views::reminders::{Purpose, ReminderProblems, ReminderValues};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -35,7 +35,7 @@ async fn show(
     Member(_): Member,
 ) -> Result<impl IntoResponse, AppError> {
     let form = views::reminders::form(
-        FormFor::New,
+        Purpose::Create,
         ReminderValues::default(),
         &ReminderProblems::default(),
         state.reminders.now(),
@@ -77,7 +77,7 @@ async fn create(
         Err(problems) => problems,
     };
     let form = views::reminders::form(
-        FormFor::New,
+        Purpose::Create,
         input.values(),
         &problems,
         state.reminders.now(),
@@ -127,7 +127,7 @@ async fn save(
         }
     };
     let form = views::reminders::form(
-        FormFor::Edit(id),
+        Purpose::Edit(id),
         input.values(),
         &problems,
         state.reminders.now(),

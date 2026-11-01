@@ -19,7 +19,7 @@ use crate::views::nav::{ADMIN_HREF, Place, Tab, bottom_nav};
 use crate::views::passkey::CeremonyUrls;
 use crate::views::passkeys::{self, Outcome as PasskeyOutcome};
 use crate::views::push::{self, PushState, PushUrls};
-use crate::views::reminders::{self, FormFor, ReminderProblems, ReminderValues};
+use crate::views::reminders::{self, ReminderProblems, ReminderValues};
 use crate::views::{invite, offline, settings, sign_in, tabs, welcome};
 
 /// One component in one state, rendered as a complete document.
@@ -326,8 +326,9 @@ fn finance_pages() -> Vec<Fixture> {
 fn reminder_pages() -> Vec<Fixture> {
     use reminders::fixtures::{NOW, pending, refused};
 
-    let new =
-        |values, problems: &ReminderProblems| reminders::form(FormFor::New, values, problems, NOW);
+    let new = |values, problems: &ReminderProblems| {
+        reminders::form(reminders::Purpose::Create, values, problems, NOW)
+    };
     let empty = new(ReminderValues::default(), &ReminderProblems::default());
     let (values, problems) = refused();
     let refused_new = new(values, &problems);
@@ -348,7 +349,7 @@ fn reminder_pages() -> Vec<Fixture> {
         ("Opened", reminders::edit_form(editing, NOW)),
         (
             "Edit refused",
-            reminders::form(FormFor::Edit(editing.id), values, &problems, NOW),
+            reminders::form(reminders::Purpose::Edit(editing.id), values, &problems, NOW),
         ),
     ]
     .map(|(state, form)| Fixture {

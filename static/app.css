@@ -818,15 +818,15 @@ select {
   margin-bottom: var(--space-1);
 }
 
-/* Delete sits at the foot of an entry's edit page, ruled off from Save. */
-.delete-entry {
+/* Delete sits at the foot of an edit page, ruled off from Save. */
+.delete-section {
   max-width: 28rem;
   margin-top: var(--space-5);
   padding-top: var(--space-4);
   border-top: 1px solid var(--line);
 }
 
-.delete-entry p {
+.delete-section p {
   margin: 0 0 var(--space-3);
   color: var(--muted);
 }

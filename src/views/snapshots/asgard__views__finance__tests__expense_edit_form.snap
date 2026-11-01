@@ -1,5 +1,6 @@
 ---
 source: src/views/finance.rs
+assertion_line: 1020
 expression: "expense_page(EntryPage::Edit { delete: \"/expenses/7/delete\" },\n&expense_form(EDIT_ACTION, Purpose::Edit, &crew(), &values,\n&ExpenseProblems::default(), TODAY)).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
@@ -68,7 +69,7 @@ expression: "expense_page(EntryPage::Edit { delete: \"/expenses/7/delete\" },\n&
 </details>
 <button class="button large" type="submit">Save Expense</button>
 </form>
-<section class="delete-entry" aria-label="Delete this Expense">
+<section class="delete-section" aria-label="Delete this Expense">
 <p>Deleting this Expense takes it out of everyone's Balance.</p>
 <form method="post" action="/expenses/7/delete" hx-post="/expenses/7/delete" hx-confirm="Delete this Expense? It comes out of everyone's Balance.">
 <button class="button danger" type="submit">Delete Expense</button>

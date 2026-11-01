@@ -1,6 +1,6 @@
 ---
 source: src/views/reminders.rs
-assertion_line: 268
+assertion_line: 284
 expression: "edit_page(ReminderId::from_client(3),\n&edit_form_with_errors()).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
@@ -58,7 +58,7 @@ expression: "edit_page(ReminderId::from_client(3),\n&edit_form_with_errors()).in
 </div>
 <button class="button large" type="submit">Save Reminder</button>
 </form>
-<section class="delete-entry" aria-label="Delete this Reminder">
+<section class="delete-section" aria-label="Delete this Reminder">
 <p>Deleting this Reminder means nobody is notified about it.</p>
 <form method="post" action="/reminders/3/delete" hx-post="/reminders/3/delete" hx-confirm="Delete this Reminder? Nobody will be notified about it.">
 <button class="button danger" type="submit">Delete Reminder</button>
