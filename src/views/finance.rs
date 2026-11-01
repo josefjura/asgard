@@ -916,7 +916,7 @@ mod tests {
         let latest = html.find("id=\"latest-entries\"").unwrap();
         let crew = html.find("id=\"crew-balances\"").unwrap();
         assert!(actions < columns && columns < latest && latest < crew);
-        assert!(html[columns..].contains("</ul></section></div></main>"));
+        assert_eq!(html[columns..].matches("<section").count(), 2);
     }
 
     #[test]

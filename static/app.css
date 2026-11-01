@@ -307,17 +307,6 @@ a {
   max-width: 28rem;
 }
 
-/* Sections that stack on a phone and sit side by side, in two equal columns, on a wide screen.
-   minmax(0, …): a long line wraps inside its column instead of widening it. */
-@media (min-width: 48rem) {
-  .columns {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0 var(--space-4);
-    align-items: start;
-  }
-}
-
 .section h2 {
   margin: 0 0 var(--space-2);
   font-size: var(--text-lead);
@@ -327,6 +316,18 @@ a {
 .muted {
   margin: 0 0 var(--space-2);
   color: var(--muted);
+}
+
+/* Sections that stack on a phone. The 48rem breakpoint is the shell's, where the tabs move up. */
+@media (min-width: 48rem) {
+  /* Side by side in two equal columns; minmax(0, …) wraps a long line inside its column
+     instead of widening it. */
+  .columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 var(--space-4);
+    align-items: start;
+  }
 }
 
 .empty {
@@ -686,6 +687,11 @@ select {
   gap: var(--space-2) var(--space-3);
   align-items: center;
   justify-content: space-between;
+}
+
+.balance-name,
+.balance-sends {
+  overflow-wrap: anywhere;
 }
 
 .balance-sends {
