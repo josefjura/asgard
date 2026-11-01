@@ -611,7 +611,6 @@ mod tests {
     use axum::http::header::{CACHE_CONTROL, COOKIE, LOCATION};
     use axum::http::{Method, Response, StatusCode};
     use sqlx::SqlitePool;
-    use url::form_urlencoded;
 
     use crate::domain::events::Event;
     use crate::domain::finance::money::Crowns;
@@ -619,7 +618,7 @@ mod tests {
     use crate::domain::members::MemberId;
     use crate::views::finance::crowns;
     use crate::web::htmx::{HX_REDIRECT, HX_REQUEST};
-    use crate::web::test_support::{PUBLIC_ORIGIN, TestApp, body_text, request};
+    use crate::web::test_support::{PUBLIC_ORIGIN, TestApp, body_text, post_form, request};
 
     /// The fields of a 1 000 Kč Malt Expense paid by the Member `payer` on 1 January 2026, the
     /// test app's first day, with `changes` made to them.
@@ -678,31 +677,6 @@ mod tests {
         origin: &str,
     ) -> Response<Body> {
         post_form(app, "/payments", cookie, fields, htmx, origin).await
-    }
-
-    async fn post_form(
-        app: &TestApp,
-        uri: &str,
-        cookie: &str,
-        fields: &[(&str, String)],
-        htmx: bool,
-        origin: &str,
-    ) -> Response<Body> {
-        let mut post = request(Method::POST, uri, Some(origin));
-        let headers = post.headers_mut();
-        headers.insert(COOKIE, cookie.parse().unwrap());
-        headers.insert(
-            "content-type",
-            "application/x-www-form-urlencoded".parse().unwrap(),
-        );
-        if htmx {
-            headers.insert(HX_REQUEST, "true".parse().unwrap());
-        }
-        *post.body_mut() = form_urlencoded::Serializer::new(String::new())
-            .extend_pairs(fields.iter().map(|(name, value)| (name, value.as_str())))
-            .finish()
-            .into();
-        app.send(post).await
     }
 
     /// Josef, the Admin, and Ondra, who both joined on 1 January 2026, and their browsers'

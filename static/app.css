@@ -758,6 +758,28 @@ select {
   font-style: italic;
 }
 
+/* Pending Reminders: what each says, with when it's due and who created it beneath. */
+.reminder-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reminder {
+  display: grid;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.reminder-text {
+  overflow-wrap: anywhere;
+}
+
+.reminder-meta {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
 /* The Expense and Payment forms: one field under another, each with its problem beneath it.
    The Expense date folds away while it is today. */
 

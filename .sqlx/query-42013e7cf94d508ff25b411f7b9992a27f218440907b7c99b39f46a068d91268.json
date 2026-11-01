@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT due_at, created_by, created_at, sent_at FROM reminders WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "due_at",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "sent_at",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "42013e7cf94d508ff25b411f7b9992a27f218440907b7c99b39f46a068d91268"
+}
