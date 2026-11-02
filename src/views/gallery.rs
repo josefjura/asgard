@@ -383,14 +383,24 @@ fn reminder_pages() -> Vec<Fixture> {
 }
 
 /// The Shopping tab with nothing to buy, with Items in every group and some bought lately, with
-/// long names and notes, and with a refused form; an open Item row with a link in its note and a
-/// bought one; Recently bought empty, folded and unfolded; and the Item form empty and refused.
+/// long names and notes, and with a refused form; an open Item row with a link in its note, one
+/// being edited, one with its edit refused, and a bought one; Recently bought empty, folded and
+/// unfolded; the Item form empty, refused, editing and with its edit refused; and the page an
+/// Item is edited on without htmx.
 fn shopping_pages() -> Vec<Fixture> {
     use shopping::fixtures::{bought, long, open, refused};
+    use shopping::{Purpose, editing_row};
 
-    let empty = shopping::form(ItemValues::default(), &ItemProblems::default());
+    let empty = shopping::form(
+        Purpose::Add,
+        ItemValues::default(),
+        &ItemProblems::default(),
+    );
     let (values, problems) = refused();
-    let refused = shopping::form(values, &problems);
+    let refused = shopping::form(Purpose::Add, values, &problems);
+    let edited = &open()[2];
+    let editing = shopping::edit_form(edited);
+    let edit_refused = shopping::form(Purpose::Edit(edited.id), values, &problems);
     let tabs = [
         ("Nothing to buy", &empty, Vec::new(), Vec::new()),
         ("Every Urgency", &empty, open(), bought()),
@@ -408,6 +418,8 @@ fn shopping_pages() -> Vec<Fixture> {
             "Open, with a link in its note",
             shopping::item_row(&open()[2]),
         ),
+        ("Editing", editing_row(edited.id, &editing)),
+        ("Edit refused", editing_row(edited.id, &edit_refused)),
         ("Bought", shopping::bought_row(&bought()[0])),
     ]
     .map(|(state, row)| Fixture {
@@ -433,7 +445,19 @@ fn shopping_pages() -> Vec<Fixture> {
         document: document("Recently bought", &html! { main.shell-main { (section) } }),
         height: RECENTLY_BOUGHT_HEIGHT,
     });
-    let forms = [("Empty", empty), ("With errors", refused)].map(|(state, form)| Fixture {
+    let edit_page = Fixture {
+        component: "Item edit page",
+        state: "With errors".to_owned(),
+        document: shopping::edit_page(&edit_refused),
+        height: ITEM_FORM_HEIGHT,
+    };
+    let forms = [
+        ("Empty", empty),
+        ("With errors", refused),
+        ("Editing", editing),
+        ("Edit with errors", edit_refused),
+    ]
+    .map(|(state, form)| Fixture {
         component: "Item form",
         state: state.to_owned(),
         document: document("Item form", &html! { main.shell-main { (form) } }),
@@ -443,6 +467,7 @@ fn shopping_pages() -> Vec<Fixture> {
         .chain(rows)
         .chain(recently_bought)
         .chain(forms)
+        .chain([edit_page])
         .collect()
 }
 

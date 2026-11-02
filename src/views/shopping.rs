@@ -4,14 +4,14 @@
 use maud::{Markup, html};
 
 use crate::domain::shopping::{
-    BoughtItem, ItemId, NAME_MAX, NOTE_MAX, OpenItem, RECENTLY_BOUGHT_FOR, Urgency,
+    BoughtItem, ItemId, ItemNote, NAME_MAX, NOTE_MAX, OpenItem, RECENTLY_BOUGHT_FOR, Urgency,
 };
 use crate::views::finance::problem;
 use crate::views::layout::shell;
 use crate::views::nav::{Place, Tab};
 use crate::views::time::{field_time, shown_time};
 
-/// The id of the open list, which adding, buying and undoing swap in afresh.
+/// The id of the open list, which adding, editing, deleting, buying and undoing swap in afresh.
 const OPEN_ITEMS_ID: &str = "open-items";
 
 /// The id of Recently bought, which buying and undoing swap in afresh.
@@ -39,6 +39,56 @@ pub mod paths {
     #[must_use]
     pub fn undo(id: ItemId) -> String {
         format!("{}/{}/undo", Tab::Shopping.href(), id.get())
+    }
+
+    /// The open Item `id`: its row, and where its edit form posts.
+    #[must_use]
+    pub fn item(id: ItemId) -> String {
+        format!("{}/{}", Tab::Shopping.href(), id.get())
+    }
+
+    /// The open Item `id` in its edit form.
+    #[must_use]
+    pub fn edit(id: ItemId) -> String {
+        format!("{}/edit", item(id))
+    }
+
+    /// Deletes the open Item `id`.
+    #[must_use]
+    pub fn delete(id: ItemId) -> String {
+        format!("{}/delete", item(id))
+    }
+}
+
+/// Whether the Item form adds a new Item or saves changes to the open Item it edits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Purpose {
+    Add,
+    Edit(ItemId),
+}
+
+impl Purpose {
+    fn action(self) -> String {
+        match self {
+            Self::Add => Tab::Shopping.href().to_owned(),
+            Self::Edit(id) => paths::item(id),
+        }
+    }
+
+    const fn submit(self) -> &'static str {
+        match self {
+            Self::Add => "Add Item",
+            Self::Edit(_) => "Save Item",
+        }
+    }
+
+    /// The id of the form's `field`, unique on the tab even while an Item is edited beneath the
+    /// form that adds one.
+    fn field_id(self, field: &str) -> String {
+        match self {
+            Self::Add => format!("item-{field}"),
+            Self::Edit(id) => format!("item-{}-edit-{field}", id.get()),
+        }
     }
 }
 
@@ -95,6 +145,12 @@ pub fn changed_lists(open: &[OpenItem], bought: &[BoughtItem], fold: Fold) -> Ma
     }
 }
 
+/// What htmx swaps in once an Item is edited or deleted: the `open` list in place of the old one.
+#[must_use]
+pub fn open_items(open: &[OpenItem]) -> Markup {
+    open_list(open, false)
+}
+
 /// What htmx swaps in once an Item is added: `form` emptied for the next one, and the open list
 /// with the new Item in its group.
 #[must_use]
@@ -131,14 +187,15 @@ fn open_list(open: &[OpenItem], out_of_band: bool) -> Markup {
     }
 }
 
-/// An open Item: its name, its note, who added it when, in Prague time, and the button that
-/// marks it bought.
+/// An open Item: its name, its note, who added it when, in Prague time, the control that opens
+/// it in its edit form, and the button that marks it bought.
 #[must_use]
 pub fn item_row(item: &OpenItem) -> Markup {
     let time = item.added_at.crew_time();
     let name_id = name_id(item.id);
+    let edit = paths::edit(item.id);
     html! {
-        li.item #{ "item-" (item.id.get()) } {
+        li.item #(row_id(item.id)) {
             div.item-main {
                 span.item-name #(name_id) { (item.name.as_str()) }
                 @if let Some(note) = &item.note {
@@ -149,9 +206,34 @@ pub fn item_row(item: &OpenItem) -> Markup {
                     " · " (item.added_by)
                 }
             }
-            (list_button(&paths::bought(item.id), "Bought", &name_id))
+            div.item-actions {
+                a.button.small.secondary href=(edit) hx-get=(edit)
+                    hx-target={ "#" (row_id(item.id)) } hx-swap="outerHTML"
+                    aria-describedby=(name_id) { "Edit" }
+                (list_button(&paths::bought(item.id), "Bought", &name_id))
+            }
         }
     }
+}
+
+/// The open Item `id`'s row while it's edited: `form` in place of what it says.
+#[must_use]
+pub fn editing_row(id: ItemId, form: &Markup) -> Markup {
+    html! {
+        li.item.editing #(row_id(id)) { (form) }
+    }
+}
+
+/// The page an open Item is edited on without htmx: `form`, which deletes it too.
+#[must_use]
+pub fn edit_page(form: &Markup) -> Markup {
+    shell(
+        Place::Tab(Tab::Shopping),
+        &html! {
+            h1 { "Edit Item" }
+            (form)
+        },
+    )
 }
 
 /// An Item bought lately: its name, who bought it when, in Prague time, and the button that takes
@@ -161,7 +243,7 @@ pub fn bought_row(item: &BoughtItem) -> Markup {
     let time = item.bought_at.crew_time();
     let name_id = name_id(item.id);
     html! {
-        li.item #{ "item-" (item.id.get()) } {
+        li.item #(row_id(item.id)) {
             div.item-main {
                 span.item-name #(name_id) { (item.name.as_str()) }
                 span.item-meta {
@@ -174,7 +256,13 @@ pub fn bought_row(item: &BoughtItem) -> Markup {
     }
 }
 
-/// The id of the name of the Item `id`, which its button is described by.
+/// The id of the Item `id`'s row, which its edit form is swapped into and out of.
+#[must_use]
+pub fn row_id(id: ItemId) -> String {
+    format!("item-{}", id.get())
+}
+
+/// The id of the name of the Item `id`, which its buttons are described by.
 fn name_id(id: ItemId) -> String {
     format!("item-{}-name", id.get())
 }
@@ -299,27 +387,50 @@ fn trim_address(mut address: &str) -> &str {
     }
 }
 
-/// The form an Item is added with.
+/// The form that edits `item`, filled in with what it says, as it opens.
+#[must_use]
+pub fn edit_form(item: &OpenItem) -> Markup {
+    let values = ItemValues {
+        name: item.name.as_str(),
+        note: item.note.as_ref().map_or("", ItemNote::as_str),
+        urgency: item.urgency,
+    };
+    form(Purpose::Edit(item.id), values, &ItemProblems::default())
+}
+
+/// The form an Item is added or edited with, as `purpose` says.
 ///
 /// It shows `values` and, beside each field, what was wrong with it. The note folds away until
-/// it's opened, or has something in it. htmx swaps the form for the one the server answers with;
-/// without htmx, it posts as a plain form.
+/// it's opened, or has something in it. Without htmx, it posts as a plain form.
+///
+/// Adding, htmx swaps the form for the one the server answers with. Editing, it swaps in the open
+/// list the server answers with, or the Item's row with the form refused; the form also cancels
+/// back to the row and deletes the Item after asking.
 #[must_use]
-pub fn form(values: ItemValues, problems: &ItemProblems) -> Markup {
-    let action = Tab::Shopping.href();
+pub fn form(purpose: Purpose, values: ItemValues, problems: &ItemProblems) -> Markup {
+    let action = purpose.action();
+    let id = |field: &str| purpose.field_id(field);
+    let (name_id, name_problem) = (id("name"), id("name-problem"));
+    let (note_id, note_problem) = (id("note"), id("note-problem"));
+    let urgency_problem = id("urgency-problem");
     let note_open = !values.note.trim().is_empty() || problems.note.is_some();
+    let target = match purpose {
+        Purpose::Add => None,
+        Purpose::Edit(_) => Some(format!("#{OPEN_ITEMS_ID}")),
+    };
     html! {
-        form.entry-form method="post" action=(action) hx-post=(action) hx-swap="outerHTML" {
+        form.entry-form method="post" action=(action) hx-post=(action) hx-target=[target]
+            hx-swap="outerHTML" {
             div.field {
-                label for="item-name" { "What's needed" }
-                input #item-name type="text" name="name" value=(values.name) required
+                label for=(name_id) { "What's needed" }
+                input #(name_id) type="text" name="name" value=(values.name) required
                     maxlength=(NAME_MAX) autocomplete="off"
                     aria-invalid=[problems.name.is_some().then_some("true")]
-                    aria-describedby=[problems.name.is_some().then_some("item-name-problem")];
-                (problem("item-name-problem", problems.name.as_deref()))
+                    aria-describedby=[problems.name.is_some().then_some(&name_problem)];
+                (problem(&name_problem, problems.name.as_deref()))
             }
             fieldset.field.urgency-choice
-                aria-describedby=[problems.urgency.is_some().then_some("item-urgency-problem")] {
+                aria-describedby=[problems.urgency.is_some().then_some(&urgency_problem)] {
                 legend { "How soon" }
                 div.urgency-options {
                     @for urgency in Urgency::ALL {
@@ -330,19 +441,40 @@ pub fn form(values: ItemValues, problems: &ItemProblems) -> Markup {
                         }
                     }
                 }
-                (problem("item-urgency-problem", problems.urgency.as_deref()))
+                (problem(&urgency_problem, problems.urgency.as_deref()))
             }
             details.field.item-note-field open[note_open] {
                 summary { "Add a note" }
-                label for="item-note" { "Note " span.optional { "(optional)" } }
-                textarea #item-note name="note" rows="3" maxlength=(NOTE_MAX)
+                label for=(note_id) { "Note " span.optional { "(optional)" } }
+                textarea #(note_id) name="note" rows="3" maxlength=(NOTE_MAX)
                     aria-invalid=[problems.note.is_some().then_some("true")]
-                    aria-describedby=[problems.note.is_some().then_some("item-note-problem")] {
+                    aria-describedby=[problems.note.is_some().then_some(&note_problem)] {
                     (values.note)
                 }
-                (problem("item-note-problem", problems.note.as_deref()))
+                (problem(&note_problem, problems.note.as_deref()))
             }
-            button.button.large type="submit" { "Add Item" }
+            @match purpose {
+                Purpose::Add => button.button.large type="submit" { (purpose.submit()) },
+                Purpose::Edit(id) => (edit_actions(id)),
+            }
+        }
+    }
+}
+
+/// The foot of the form editing the open Item `id`: Save; Cancel, which puts its row back
+/// unchanged; and Delete, which asks first with htmx.
+fn edit_actions(id: ItemId) -> Markup {
+    let row = paths::item(id);
+    let delete = paths::delete(id);
+    html! {
+        div.edit-actions {
+            button.button type="submit" { (Purpose::Edit(id).submit()) }
+            a.button.secondary href=(Tab::Shopping.href()) hx-get=(row)
+                hx-target={ "#" (row_id(id)) } { "Cancel" }
+            button.button.danger type="submit" formaction=(delete) formnovalidate
+                hx-post=(delete) hx-confirm="Delete this Item? It's gone for good." {
+                "Delete Item"
+            }
         }
     }
 }
@@ -465,7 +597,11 @@ mod tests {
     use crate::views::assert_html_snapshot;
 
     fn empty_form() -> Markup {
-        form(ItemValues::default(), &ItemProblems::default())
+        form(
+            Purpose::Add,
+            ItemValues::default(),
+            &ItemProblems::default(),
+        )
     }
 
     #[test]
@@ -562,6 +698,83 @@ mod tests {
     }
 
     #[test]
+    fn item_form_editing() {
+        assert_html_snapshot!(edit_form(&open()[2]));
+    }
+
+    #[test]
+    fn item_form_edit_with_errors() {
+        let (values, problems) = refused();
+        assert_html_snapshot!(editing_row(
+            ItemId::from_client(2),
+            &form(Purpose::Edit(ItemId::from_client(2)), values, &problems)
+        ));
+    }
+
+    #[test]
+    fn item_edit_page() {
+        assert_html_snapshot!(edit_page(&edit_form(&open()[0])));
+    }
+
+    #[test]
+    fn each_open_item_opens_its_edit_form_in_place() {
+        let html = item_row(&open()[0]).into_string();
+
+        assert!(html.contains(
+            r##"<a class="button small secondary" href="/shopping/1/edit" hx-get="/shopping/1/edit" hx-target="#item-1" hx-swap="outerHTML" aria-describedby="item-1-name">Edit</a>"##
+        ), "{html}");
+        assert!(!bought_row(&bought()[0]).into_string().contains("/edit"));
+    }
+
+    #[test]
+    fn the_edit_form_is_filled_in_and_swaps_in_the_open_list() {
+        let html = edit_form(&open()[2]).into_string();
+
+        assert!(html.starts_with(
+            r##"<form class="entry-form" method="post" action="/shopping/2" hx-post="/shopping/2" hx-target="#open-items" hx-swap="outerHTML">"##
+        ), "{html}");
+        assert!(
+            html.contains(r#"id="item-2-edit-name" type="text" name="name" value="Pilsner malt""#)
+        );
+        assert!(html.contains(r#"value="next-brewday" checked>"#));
+        assert!(html.contains(">25 kg\nhttps://www.example.cz/slady/pilsner?bag=25</textarea>"));
+        assert!(html.contains(r#"<details class="field item-note-field" open>"#));
+        assert!(html.contains(">Save Item</button>"));
+        assert!(
+            !html.contains(r#"id="item-name""#),
+            "not the add form's ids"
+        );
+    }
+
+    #[test]
+    fn the_edit_form_cancels_back_to_the_row_and_deletes_after_asking() {
+        let html = edit_form(&open()[0]).into_string();
+
+        assert!(html.contains(
+            r##"<a class="button secondary" href="/shopping" hx-get="/shopping/1" hx-target="#item-1">Cancel</a>"##
+        ), "{html}");
+        assert!(html.contains(
+            r#"<button class="button danger" type="submit" formaction="/shopping/1/delete" formnovalidate hx-post="/shopping/1/delete" hx-confirm="Delete this Item? It's gone for good.">Delete Item</button>"#
+        ), "{html}");
+    }
+
+    #[test]
+    fn a_refused_edit_keeps_what_was_typed_inside_the_items_row() {
+        let (values, problems) = refused();
+        let id = ItemId::from_client(4);
+        let html = editing_row(id, &form(Purpose::Edit(id), values, &problems)).into_string();
+
+        assert!(
+            html.starts_with(r#"<li class="item editing" id="item-4"><form "#),
+            "{html}"
+        );
+        assert!(html.contains(r#"aria-describedby="item-4-edit-name-problem""#));
+        assert!(html.contains(r#"id="item-4-edit-name-problem""#));
+        assert!(html.contains("Say what's needed."));
+        assert!(html.contains(r#"value="asap" checked>"#));
+    }
+
+    #[test]
     fn item_form_empty() {
         assert_html_snapshot!(empty_form());
     }
@@ -569,7 +782,7 @@ mod tests {
     #[test]
     fn item_form_with_errors() {
         let (values, problems) = refused();
-        assert_html_snapshot!(form(values, &problems));
+        assert_html_snapshot!(form(Purpose::Add, values, &problems));
     }
 
     #[test]
@@ -623,12 +836,20 @@ mod tests {
     #[test]
     fn a_refused_form_keeps_what_was_typed_and_opens_the_note() {
         let (values, problems) = refused();
-        let html = form(values, &problems).into_string();
+        let html = form(Purpose::Add, values, &problems).into_string();
 
         assert!(html.contains(r#"value="asap" checked>"#));
         assert!(html.contains(">Two packs of Saaz,\nfrom the usual shop</textarea>"));
         assert!(html.contains(r#"<details class="field item-note-field" open>"#));
         assert!(html.contains("Say what's needed."));
+    }
+
+    #[test]
+    fn editing_and_deleting_swap_in_the_open_list() {
+        let html = open_items(&open()).into_string();
+
+        assert!(html.starts_with(r#"<div id="open-items">"#), "{html}");
+        assert!(!html.contains("recently-bought"));
     }
 
     #[test]

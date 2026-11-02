@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT items.id AS \"id!\", items.name, items.note, items.urgency, items.added_at,\n                      members.display_name AS added_by\n               FROM items\n               JOIN members ON members.id = items.added_by\n               WHERE items.id = ? AND items.bought_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "note",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "urgency",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "added_at",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "added_by",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4d8959976482ad2e7fb842dbcf7d4a7f481d252add014b11a480f97bbfe55fe9"
+}

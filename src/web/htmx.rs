@@ -17,6 +17,10 @@ pub const HX_REQUEST: HeaderName = HeaderName::from_static("hx-request");
 /// Tells htmx to load another page instead of swapping the response in.
 pub const HX_REDIRECT: HeaderName = HeaderName::from_static("hx-redirect");
 
+/// Tells htmx to swap the response into the element this CSS selector names instead of the
+/// request's own target.
+pub const HX_RETARGET: HeaderName = HeaderName::from_static("hx-retarget");
+
 /// Whether htmx sent the request, so a handler can answer with a fragment instead of a page.
 pub struct Htmx(pub bool);
 

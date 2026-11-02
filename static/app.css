@@ -808,7 +808,7 @@ textarea {
 }
 
 /* The Items on the Shopping list: each one's name, its note with line breaks kept, and who added
-   or bought it when beneath, with its Bought or Undo button beside them. */
+   or bought it when beneath, with its Edit and Bought buttons, or its Undo button, beside them. */
 .item-list {
   margin: 0;
   padding: 0;
@@ -842,6 +842,28 @@ textarea {
 .item-meta {
   color: var(--muted);
   font-size: var(--text-small);
+}
+
+.item-actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+/* An Item being edited: its form fills the row, with Save, Cancel and Delete in a row that wraps
+   on a narrow phone, Delete pushed away from the others. */
+.item.editing {
+  grid-template-columns: minmax(0, 1fr);
+  padding: var(--space-3) 0;
+}
+
+.edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.edit-actions .button.danger {
+  margin-left: auto;
 }
 
 /* Recently bought folds away under its heading, which is the control that unfolds it. */
