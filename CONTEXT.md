@@ -102,6 +102,10 @@ _Avoid_: priority
 A text the whole Crew is notified about at a given date and time. It is either **pending** or **sent**.
 _Avoid_: notification, alert
 
+**Quick time**:
+A common due time the Reminder form fills in with one tap, worked out from now in Prague: *+1 hour*, *Tomorrow 9:00* or *+1 week*.
+_Avoid_: preset, shortcut
+
 ## Quotes
 
 **Quote**:
