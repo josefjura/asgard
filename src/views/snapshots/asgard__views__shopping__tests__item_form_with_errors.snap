@@ -1,0 +1,31 @@
+---
+source: src/views/shopping.rs
+expression: "form(values, &problems).into_string().replace(\"><\", \">\\n<\")"
+---
+<form class="entry-form" method="post" action="/shopping" hx-post="/shopping" hx-swap="outerHTML">
+<div class="field">
+<label for="item-name">What's needed</label>
+<input id="item-name" type="text" name="name" value="  " required maxlength="200" autocomplete="off" aria-invalid="true" aria-describedby="item-name-problem">
+<p class="field-problem" id="item-name-problem">Say what's needed.</p>
+</div>
+<fieldset class="field urgency-choice">
+<legend>How soon</legend>
+<div class="urgency-options">
+<label class="urgency-option">
+<input type="radio" name="urgency" value="asap" checked>ASAP</label>
+<label class="urgency-option">
+<input type="radio" name="urgency" value="next-brewday">Next brewday</label>
+<label class="urgency-option">
+<input type="radio" name="urgency" value="nice-to-have">Nice to have</label>
+</div>
+</fieldset>
+<details class="field item-note-field" open>
+<summary>Add a note</summary>
+<label for="item-note">Note <span class="optional">(optional)</span>
+</label>
+<textarea id="item-note" name="note" rows="3" maxlength="500" aria-invalid="true" aria-describedby="item-note-problem">Two packs of Saaz,
+from the usual shop</textarea>
+<p class="field-problem" id="item-note-problem">Keep the note to 500 characters or fewer.</p>
+</details>
+<button class="button large" type="submit">Add Item</button>
+</form>

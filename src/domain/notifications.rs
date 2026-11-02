@@ -168,6 +168,8 @@ impl Delivery {
                     to: vec![reader],
                 })
                 .collect(),
+            // Not pushed yet: delivering it is a ticket of its own (#69).
+            Event::AsapItemAdded(_) => Vec::new(),
         }
     }
 }

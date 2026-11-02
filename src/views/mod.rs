@@ -18,8 +18,10 @@ pub mod passkeys;
 pub mod push;
 pub mod reminders;
 pub mod settings;
+pub mod shopping;
 pub mod sign_in;
 pub mod tabs;
+pub mod time;
 pub mod welcome;
 
 /// Snapshots markup one tag per line, with asset hashes masked so a CSS edit doesn't churn

@@ -7,12 +7,14 @@
 use crate::domain::channel::Channel;
 use crate::domain::finance::FinanceEvent;
 use crate::domain::reminders::ReminderDue;
+use crate::domain::shopping::AsapItemAdded;
 
 /// Something that happened that Members may want to hear about.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
     Finance(FinanceEvent),
     ReminderDue(ReminderDue),
+    AsapItemAdded(AsapItemAdded),
 }
 
 /// The app-wide channel of [`Event`]s, built once at startup.

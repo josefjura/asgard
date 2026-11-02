@@ -17,6 +17,7 @@ mod push;
 mod registration;
 mod reminders;
 mod settings;
+mod shopping;
 mod sign_in;
 mod static_files;
 pub mod welcome;
@@ -39,6 +40,7 @@ use crate::domain::finance::Finance;
 use crate::domain::members::Members;
 use crate::domain::push::PushSubscriptions;
 use crate::domain::reminders::Reminders;
+use crate::domain::shopping::Shopping;
 use crate::views::nav::Tab;
 
 pub use access::{Member, MemberSession};
@@ -56,6 +58,7 @@ pub struct AppState {
     pub finance: Finance,
     pub push: PushSubscriptions,
     pub reminders: Reminders,
+    pub shopping: Shopping,
     /// The VAPID public key browsers subscribe with, base64url.
     pub vapid_public_key: Arc<str>,
     pub events: Events,
@@ -86,6 +89,11 @@ impl AppState {
                 clock.clone(),
                 events.emitter(Event::ReminderDue),
             ),
+            shopping: Shopping::new(
+                db.clone(),
+                clock.clone(),
+                events.emitter(Event::AsapItemAdded),
+            ),
             vapid_public_key: vapid_public_key.into(),
             events,
             public_origin: PublicOrigin::of(public_url),
@@ -112,6 +120,7 @@ fn routes() -> Router<AppState> {
         .route(assets::MANIFEST.url, get(static_files::manifest))
         .merge(finance::routes())
         .merge(reminders::routes())
+        .merge(shopping::routes())
         .merge(sign_in::routes())
         .merge(links::routes())
         .merge(welcome::routes())
@@ -119,10 +128,8 @@ fn routes() -> Router<AppState> {
         .merge(passkeys::routes())
         .merge(push::routes())
         .merge(admin::routes());
-    // Finance and Reminders have their own routes; the other tabs are placeholders for now.
-    for tab in [Tab::Shopping, Tab::Quotes] {
-        router = router.route(tab.href(), pages::tab(tab));
-    }
+    // Quotes is a placeholder for now; the other tabs have their own routes.
+    router = router.route(Tab::Quotes.href(), pages::tab(Tab::Quotes));
     #[cfg(debug_assertions)]
     {
         router = router.route("/dev/gallery", get(gallery::show));
