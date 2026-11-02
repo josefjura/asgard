@@ -46,7 +46,17 @@ impl Clock {
     /// years 9999 BC to 9999 AD.
     #[must_use]
     pub fn today(&self) -> Date {
-        crew_date(Timestamp::try_from(self.now()).expect("the clock is within jiff's range"))
+        self.crew_now().date()
+    }
+
+    /// The current moment in the Crew's time zone.
+    ///
+    /// # Panics
+    ///
+    /// Never in practice, as for [`Clock::today`].
+    #[must_use]
+    pub fn crew_now(&self) -> Zoned {
+        crew_zoned(Timestamp::try_from(self.now()).expect("the clock is within jiff's range"))
     }
 }
 
@@ -197,6 +207,20 @@ mod tests {
 
         manual.advance(Duration::from_secs(1));
         assert_eq!(manual.clock().today(), jiff::civil::date(2026, 1, 2));
+    }
+
+    #[test]
+    fn now_is_told_in_prague() {
+        // 2026-07-01T12:00:00Z is 14:00 in Prague summer time.
+        let manual = ManualClock::starting_at(START + Duration::from_hours(495_252));
+
+        let now = manual.clock().crew_now();
+
+        assert_eq!(
+            now.datetime(),
+            jiff::civil::date(2026, 7, 1).at(14, 0, 0, 0)
+        );
+        assert_eq!(now.time_zone().iana_name(), Some(CREW_TIME_ZONE));
     }
 
     #[test]

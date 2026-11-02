@@ -321,8 +321,9 @@ fn finance_pages() -> Vec<Fixture> {
         .collect()
 }
 
-/// The Reminders tab with nothing pending, with Reminders pending, and with a refused form; and
-/// a Reminder's edit page as it opens and refused.
+/// The Reminders tab with nothing pending, with Reminders pending, with Reminders pending and
+/// sent, with the due time filled in by a quick button, and with a refused form; and a
+/// Reminder's edit page as it opens and refused.
 fn reminder_pages() -> Vec<Fixture> {
     use reminders::fixtures::{NOW, pending, refused, sent};
 
@@ -330,12 +331,20 @@ fn reminder_pages() -> Vec<Fixture> {
         reminders::form(reminders::Purpose::Create, values, problems, NOW)
     };
     let empty = new(ReminderValues::default(), &ReminderProblems::default());
+    let quick = new(
+        ReminderValues {
+            text: "Bottle the stout",
+            due_at: "2026-10-25T09:00",
+        },
+        &ReminderProblems::default(),
+    );
     let (values, problems) = refused();
     let refused_new = new(values, &problems);
     let tabs = [
         ("Nothing pending", &empty, Vec::new(), Vec::new()),
         ("Pending", &empty, pending(), Vec::new()),
         ("Pending and sent", &empty, pending(), sent()),
+        ("Filled in by a quick button", &quick, pending(), Vec::new()),
         ("Form with errors", &refused_new, pending(), Vec::new()),
     ]
     .map(|(state, form, pending, sent)| Fixture {

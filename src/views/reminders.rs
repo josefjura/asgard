@@ -6,7 +6,7 @@ use jiff::civil::DateTime;
 use maud::{Markup, html};
 
 use crate::domain::reminders::{
-    PendingReminder, ReminderId, SENT_SHOWN_FOR, SentReminder, TEXT_MAX,
+    PendingReminder, QuickTime, ReminderId, SENT_SHOWN_FOR, SentReminder, TEXT_MAX,
 };
 use crate::views::delete::{Deletion, delete_section};
 use crate::views::finance::problem;
@@ -17,8 +17,14 @@ use crate::views::nav::{Place, Tab};
 /// Where a Reminder's links and forms lead. The routes in `web::reminders` spell out the same
 /// paths.
 pub mod paths {
-    use crate::domain::reminders::ReminderId;
+    use crate::domain::reminders::{QuickTime, ReminderId};
     use crate::views::nav::Tab;
+
+    /// The due-time field filled in with `quick`, which its quick button swaps in.
+    #[must_use]
+    pub fn quick_time(quick: QuickTime) -> String {
+        format!("{}/quick-times/{}", Tab::Reminders.href(), quick.key())
+    }
 
     /// The Reminder `id`, which its edit form posts to.
     #[must_use]
@@ -247,16 +253,47 @@ pub fn form(
                     aria-describedby=[problems.text.is_some().then_some("reminder-text-problem")];
                 (problem("reminder-text-problem", problems.text.as_deref()))
             }
-            div.field {
-                label for="reminder-due" { "Due, Prague time" }
-                input #reminder-due type="datetime-local" name="due_at" value=(values.due_at)
-                    min=(field_time(now)) required
-                    aria-invalid=[problems.due_at.is_some().then_some("true")]
-                    aria-describedby=[problems.due_at.is_some().then_some("reminder-due-problem")];
-                (problem("reminder-due-problem", problems.due_at.as_deref()))
-            }
+            (due_field(values.due_at, problems.due_at.as_deref(), now))
             button.button.large type="submit" { (purpose.submit()) }
         }
+    }
+}
+
+/// The Reminder form's due-time field filled in with `due`, as a quick button swaps it in.
+#[must_use]
+pub fn quick_due_field(due: DateTime, now: DateTime) -> Markup {
+    due_field(&field_time(due), None, now)
+}
+
+/// The due time, entered in Prague time and not before `now`: the field showing `value`, what
+/// was wrong with it, and the quick buttons. Each button asks the server for this field filled
+/// in with its time and swaps it in, so no date is worked out in the browser.
+fn due_field(value: &str, problem_text: Option<&str>, now: DateTime) -> Markup {
+    html! {
+        div.field #reminder-due-field {
+            label for="reminder-due" { "Due, Prague time" }
+            input #reminder-due type="datetime-local" name="due_at" value=(value)
+                min=(field_time(now)) required
+                aria-invalid=[problem_text.is_some().then_some("true")]
+                aria-describedby=[problem_text.is_some().then_some("reminder-due-problem")];
+            (problem("reminder-due-problem", problem_text))
+            div.quick-times role="group" aria-label="Quick times" {
+                @for quick in QuickTime::ALL {
+                    button.button.secondary.small type="button" hx-get=(paths::quick_time(quick))
+                        hx-target="#reminder-due-field" hx-swap="outerHTML" {
+                        (quick_label(quick))
+                    }
+                }
+            }
+        }
+    }
+}
+
+const fn quick_label(quick: QuickTime) -> &'static str {
+    match quick {
+        QuickTime::InAnHour => "+1 hour",
+        QuickTime::TomorrowMorning => "Tomorrow 9:00",
+        QuickTime::NextWeek => "+1 week",
     }
 }
 
@@ -426,6 +463,29 @@ mod tests {
         ));
         assert!(html.contains(
             r#"<time datetime="2026-11-07T10:00">Saturday 7 November 2026, 10:00</time> · Ondra"#
+        ));
+    }
+
+    #[test]
+    fn each_quick_button_swaps_in_the_due_field_filled_in() {
+        let html = empty_form().into_string();
+
+        for (key, label) in [
+            ("in-an-hour", "+1 hour"),
+            ("tomorrow-morning", "Tomorrow 9:00"),
+            ("next-week", "+1 week"),
+        ] {
+            assert!(html.contains(&format!(
+                r##"<button class="button secondary small" type="button" hx-get="/reminders/quick-times/{key}" hx-target="#reminder-due-field" hx-swap="outerHTML">{label}</button>"##
+            )), "{key}: {html}");
+        }
+    }
+
+    #[test]
+    fn quick_due_field() {
+        assert_html_snapshot!(super::quick_due_field(
+            jiff::civil::date(2026, 10, 25).at(9, 0, 0, 0),
+            NOW
         ));
     }
 

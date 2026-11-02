@@ -15,7 +15,7 @@ use super::htmx::{Htmx, fragment_or_page, go_to};
 use super::pages::fresh;
 use super::{AppError, AppState};
 use crate::domain::reminders::{
-    DueAt, NewReminder, ReminderError, ReminderId, ReminderText, TEXT_MAX, TextError,
+    DueAt, NewReminder, QuickTime, ReminderError, ReminderId, ReminderText, TEXT_MAX, TextError,
 };
 use crate::views;
 use crate::views::nav::Tab;
@@ -27,6 +27,23 @@ pub fn routes() -> Router<AppState> {
         .route("/reminders/{id}/edit", get(edit))
         .route("/reminders/{id}", post(save))
         .route("/reminders/{id}/delete", post(delete))
+        .route("/reminders/quick-times/{key}", get(quick_time))
+}
+
+/// The Reminder form's due-time field filled in with the quick time `key`, worked out from now in
+/// Prague, for its quick button to swap in.
+async fn quick_time(
+    State(state): State<AppState>,
+    Member(_): Member,
+    Path(key): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
+    let quick = QuickTime::from_key(&key).ok_or(AppError::NoSuchQuickTime)?;
+    // One reading of the clock, so the time filled in and the earliest allowed agree.
+    let now = state.clock.crew_now();
+    Ok(fresh(views::reminders::quick_due_field(
+        quick.after(&now),
+        now.datetime(),
+    )))
 }
 
 /// The Reminders tab with an empty form.
@@ -196,10 +213,10 @@ async fn page(state: &AppState, form: &Markup) -> Result<Markup, AppError> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime};
 
     use axum::body::Body;
-    use axum::http::header::LOCATION;
+    use axum::http::header::{CACHE_CONTROL, LOCATION};
     use axum::http::{Method, Response, StatusCode};
     use sqlx::SqlitePool;
 
@@ -745,5 +762,95 @@ mod tests {
                 .await
                 .contains(">Bottle the stout</span>")
         );
+    }
+
+    /// The due-time field as the quick button `key` fills it in.
+    async fn quick_time(app: &TestApp, cookie: &str, key: &str) -> Response<Body> {
+        app.get_with(&format!("/reminders/quick-times/{key}"), cookie)
+            .await
+    }
+
+    #[sqlx::test]
+    async fn each_quick_button_fills_the_due_field_in_prague_time(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+
+        // The clock stands at 01:00 on 1 January 2026 in Prague.
+        for (key, due) in [
+            ("in-an-hour", "2026-01-01T02:00"),
+            ("tomorrow-morning", "2026-01-02T09:00"),
+            ("next-week", "2026-01-08T01:00"),
+        ] {
+            let response = quick_time(&app, &cookie, key).await;
+            assert_eq!(response.status(), StatusCode::OK, "{key}");
+            assert_eq!(response.headers()[CACHE_CONTROL], "no-cache");
+            let html = body_text(response).await;
+            assert!(
+                html.starts_with(r#"<div class="field" id="reminder-due-field">"#),
+                "a fragment: {html}"
+            );
+            assert!(html.contains(&format!(r#"value="{due}""#)), "{key}: {html}");
+            assert!(html.contains(r#"min="2026-01-01T01:00""#));
+            // The buttons come back with it, so they can be pressed again.
+            assert!(html.contains(r#"hx-get="/reminders/quick-times/next-week""#));
+        }
+    }
+
+    #[sqlx::test]
+    async fn quick_buttons_keep_the_time_on_the_clock_when_the_clocks_go_back(db: SqlitePool) {
+        let app = TestApp::new(db);
+        // 2026-10-24T20:30:00Z: 22:30 summer time in Prague, the night before the clocks go back.
+        app.clock
+            .set(SystemTime::UNIX_EPOCH + Duration::from_mins(29_881_230));
+        let cookie = app.sign_in_new_admin("Josef").await;
+
+        for (key, due) in [
+            ("tomorrow-morning", "2026-10-25T09:00"),
+            ("next-week", "2026-10-31T22:30"),
+        ] {
+            let html = body_text(quick_time(&app, &cookie, key).await).await;
+            assert!(html.contains(&format!(r#"value="{due}""#)), "{key}: {html}");
+        }
+    }
+
+    #[sqlx::test]
+    async fn a_quick_time_that_doesnt_exist_is_not_found(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+
+        let response = quick_time(&app, &cookie, "yesterday").await;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(
+            body_text(response)
+                .await
+                .contains("That quick time doesn't exist.")
+        );
+    }
+
+    #[sqlx::test]
+    async fn signed_out_a_quick_time_redirects_to_sign_in(db: SqlitePool) {
+        let app = TestApp::new(db);
+
+        let response = app.get("/reminders/quick-times/in-an-hour").await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[LOCATION], "/sign-in");
+    }
+
+    #[sqlx::test]
+    async fn the_create_and_edit_forms_have_the_quick_buttons(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        post_reminder(&app, &cookie, "Bottle the stout", TOMORROW_MORNING, true).await;
+
+        for html in [tab(&app, &cookie).await, edit_page(&app, &cookie, 1).await] {
+            for key in ["in-an-hour", "tomorrow-morning", "next-week"] {
+                assert!(
+                    html.contains(&format!(r#"hx-get="/reminders/quick-times/{key}""#)),
+                    "{key}: {html}"
+                );
+            }
+        }
     }
 }

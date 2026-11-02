@@ -827,6 +827,15 @@ select {
   margin-bottom: var(--space-1);
 }
 
+/* The Reminder's quick times: a row of small buttons under its due-time field, wrapping when
+   the screen is narrow. */
+.quick-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
 /* Delete sits at the foot of an edit page, ruled off from Save. */
 .delete-section {
   max-width: 28rem;

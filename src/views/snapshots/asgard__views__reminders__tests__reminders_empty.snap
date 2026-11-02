@@ -54,9 +54,14 @@ expression: "page(&empty_form(), &[], &[]).into_string().replace(\"><\", \">\\n<
 <label for="reminder-text">What to remember</label>
 <input id="reminder-text" type="text" name="text" value="" required maxlength="500" autocomplete="off">
 </div>
-<div class="field">
+<div class="field" id="reminder-due-field">
 <label for="reminder-due">Due, Prague time</label>
 <input id="reminder-due" type="datetime-local" name="due_at" value="" min="2026-10-24T10:00" required>
+<div class="quick-times" role="group" aria-label="Quick times">
+<button class="button secondary small" type="button" hx-get="/reminders/quick-times/in-an-hour" hx-target="#reminder-due-field" hx-swap="outerHTML">+1 hour</button>
+<button class="button secondary small" type="button" hx-get="/reminders/quick-times/tomorrow-morning" hx-target="#reminder-due-field" hx-swap="outerHTML">Tomorrow 9:00</button>
+<button class="button secondary small" type="button" hx-get="/reminders/quick-times/next-week" hx-target="#reminder-due-field" hx-swap="outerHTML">+1 week</button>
+</div>
 </div>
 <button class="button large" type="submit">Create Reminder</button>
 </form>
