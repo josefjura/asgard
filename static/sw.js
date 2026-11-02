@@ -1,4 +1,4 @@
-// Caches the static assets and the offline page. Data pages always need the network.
+// Caches the static assets and the offline page, and shows pushes. Data pages always need the network.
 // build.rs fills in the placeholders below, so any asset change installs a new worker.
 const CACHE = "asgard-{{VERSION}}";
 const PRECACHE = {{PRECACHE}};
@@ -43,4 +43,44 @@ async function offlineResponse() {
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     })
   );
+}
+
+// A push carries the notification as JSON: { title, body, url }, url being the tab to open.
+self.addEventListener("push", (event) => {
+  const { title, body, url } = readPush(event.data);
+  event.waitUntil(
+    self.registration.showNotification(title ?? "Asgard", {
+      body,
+      icon: "{{ICON_192}}",
+      badge: "{{BADGE_96}}",
+      data: { url: url ?? "/" },
+    }),
+  );
+});
+
+function readPush(data) {
+  try {
+    return data?.json() ?? {};
+  } catch {
+    return { body: data?.text() };
+  }
+}
+
+// Tapping a notification brings an open Asgard window to its tab, or opens one there.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = new URL(event.notification.data?.url ?? "/", self.location.origin).href;
+  event.waitUntil(openOn(url));
+});
+
+async function openOn(url) {
+  const [open] = await self.clients.matchAll({ type: "window" });
+  if (!open) return self.clients.openWindow(url);
+  const focused = await open.focus();
+  if (focused.url === url) return focused;
+  try {
+    return await focused.navigate(url);
+  } catch {
+    return self.clients.openWindow(url);
+  }
 }

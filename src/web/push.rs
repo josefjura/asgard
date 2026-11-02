@@ -113,12 +113,16 @@ mod tests {
     use serde_json::{Value, json};
     use sqlx::SqlitePool;
 
+    use std::time::Duration;
+
     use crate::domain::auth::LinkKind;
     use crate::domain::members::DisplayName;
+    use crate::domain::notifications::fixtures::FakeSender;
     use crate::domain::push::PushDevice;
+    use crate::tasks::notifier;
     use crate::web::links;
     use crate::web::test_support::{
-        PUBLIC_ORIGIN, TestApp, VAPID_PUBLIC_KEY, authenticator, body_text, cookie_pair,
+        PUBLIC_ORIGIN, TestApp, VAPID_PUBLIC_KEY, authenticator, body_text, cookie_pair, post_form,
     };
 
     const ANDROID_CHROME: &str = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36";
@@ -177,6 +181,48 @@ mod tests {
 
     fn endpoints(devices: &[PushDevice]) -> Vec<&str> {
         devices.iter().map(|d| d.subscription.endpoint()).collect()
+    }
+
+    #[sqlx::test]
+    async fn a_push_service_that_never_answers_does_not_slow_a_request(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let ondra = app.sign_in_new_member("Ondra").await;
+        subscribe(&app, &josef, &subscription("josef")).await;
+        subscribe(&app, &ondra, &subscription("ondra")).await;
+        let (sender, mut pushes) = FakeSender::hanging();
+        tokio::spawn(notifier::run(
+            app.state.events.subscribe(),
+            app.state.push.clone(),
+            sender,
+        ));
+        // A Reminder falls due, and both its pushes hang.
+        let fields = [
+            ("text", "Bottle the stout".to_owned()),
+            ("due_at", "2026-01-01T02:00".to_owned()),
+        ];
+        post_form(&app, "/reminders", &josef, &fields, false, PUBLIC_ORIGIN).await;
+        app.clock.advance(Duration::from_hours(2));
+        app.state.reminders.send_due().await.unwrap();
+        for _ in 0..2 {
+            pushes.recv().await.expect("the Reminder is pushed");
+        }
+
+        // Logging an Expense emits an event of its own while those pushes still hang.
+        let expense = [
+            ("amount", "1000".to_owned()),
+            ("description", "Malt".to_owned()),
+            ("payer", "1".to_owned()),
+            ("expense_date", "2026-01-01".to_owned()),
+        ];
+        let response = tokio::time::timeout(
+            Duration::from_secs(2),
+            post_form(&app, "/expenses", &ondra, &expense, false, PUBLIC_ORIGIN),
+        )
+        .await
+        .expect("the request isn't held up by the hung pushes");
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
     }
 
     #[sqlx::test]

@@ -2,4 +2,5 @@
 //!
 //! Tasks depend on domain services only.
 
+pub mod notifier;
 pub mod ticker;

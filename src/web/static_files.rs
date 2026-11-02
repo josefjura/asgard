@@ -112,6 +112,16 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn the_service_worker_shows_pushes_with_the_current_icons(db: SqlitePool) {
+        let body = body_text(get(db, "/sw.js").await).await;
+
+        assert!(body.contains(r#"addEventListener("push""#));
+        assert!(body.contains(r#"addEventListener("notificationclick""#));
+        assert!(body.contains(&format!(r#"icon: "{}""#, assets::ICON_192.url)));
+        assert!(body.contains(&format!(r#"badge: "{}""#, assets::BADGE_96.url)));
+    }
+
+    #[sqlx::test]
     async fn serves_the_service_worker_at_the_root_and_revalidates_it(db: SqlitePool) {
         let response = get(db, "/sw.js").await;
 
