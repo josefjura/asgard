@@ -69,7 +69,7 @@ expression: "edit_page(&edit_form(&open()[0])).into_string().replace(\"><\", \">
 </details>
 <div class="edit-actions">
 <button class="button" type="submit">Save Item</button>
-<a class="button secondary" href="/shopping" hx-get="/shopping/1" hx-target="#item-1">Cancel</a>
+<a class="button secondary" href="/shopping" hx-get="/shopping/1" hx-target="#item-1" hx-swap="outerHTML">Cancel</a>
 <button class="button danger" type="submit" formaction="/shopping/1/delete" formnovalidate hx-post="/shopping/1/delete" hx-confirm="Delete this Item? It's gone for good.">Delete Item</button>
 </div>
 </form>

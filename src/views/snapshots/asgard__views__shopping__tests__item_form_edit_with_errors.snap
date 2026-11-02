@@ -30,7 +30,7 @@ from the usual shop</textarea>
 </details>
 <div class="edit-actions">
 <button class="button" type="submit">Save Item</button>
-<a class="button secondary" href="/shopping" hx-get="/shopping/2" hx-target="#item-2">Cancel</a>
+<a class="button secondary" href="/shopping" hx-get="/shopping/2" hx-target="#item-2" hx-swap="outerHTML">Cancel</a>
 <button class="button danger" type="submit" formaction="/shopping/2/delete" formnovalidate hx-post="/shopping/2/delete" hx-confirm="Delete this Item? It's gone for good.">Delete Item</button>
 </div>
 </form>

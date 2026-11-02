@@ -88,7 +88,7 @@ async fn add(
     state.shopping.add(member.id, &item).await?;
     tracing::info!(member = member.id.get(), "a Member added an Item");
     if !htmx {
-        return Ok(Redirect::to(Tab::Shopping.href()).into_response());
+        return Ok(back_to_tab());
     }
     let open = state.shopping.open().await?;
     Ok(fresh(views::shopping::added(&empty_form(), &open)).into_response())
@@ -118,7 +118,7 @@ async fn row(
 ) -> Result<Response, AppError> {
     let item = state.shopping.open_item(ItemId::from_client(id)).await?;
     if !htmx {
-        return Ok(Redirect::to(Tab::Shopping.href()).into_response());
+        return Ok(back_to_tab());
     }
     Ok(fresh(views::shopping::item_row(&item)).into_response())
 }
@@ -181,7 +181,7 @@ fn edit_form_in_place(htmx: bool, status: StatusCode, id: ItemId, form: &Markup)
 /// What answers an edit or a delete: for htmx, the open list; otherwise the way back to the tab.
 async fn open_list(state: &AppState, htmx: bool) -> Result<Response, AppError> {
     if !htmx {
-        return Ok(Redirect::to(Tab::Shopping.href()).into_response());
+        return Ok(back_to_tab());
     }
     let open = state.shopping.open().await?;
     Ok(fresh(views::shopping::open_items(&open)).into_response())
@@ -223,7 +223,7 @@ async fn undo_bought(
 /// `fold`; otherwise the way back to the tab.
 async fn changed_lists(state: &AppState, htmx: bool, fold: Fold) -> Result<Response, AppError> {
     if !htmx {
-        return Ok(Redirect::to(Tab::Shopping.href()).into_response());
+        return Ok(back_to_tab());
     }
     let open = state.shopping.open().await?;
     let bought = state.shopping.recently_bought().await?;
@@ -250,6 +250,11 @@ fn parse(input: &ItemForm) -> Result<NewItem, ItemProblems> {
                 .then(|| "Pick how soon it's needed.".to_owned()),
         }),
     }
+}
+
+/// The way back to the Shopping tab, after a plain form post or a browser's request for a row.
+fn back_to_tab() -> Response {
+    Redirect::to(Tab::Shopping.href()).into_response()
 }
 
 fn empty_form() -> Markup {

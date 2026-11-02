@@ -470,7 +470,7 @@ fn edit_actions(id: ItemId) -> Markup {
         div.edit-actions {
             button.button type="submit" { (Purpose::Edit(id).submit()) }
             a.button.secondary href=(Tab::Shopping.href()) hx-get=(row)
-                hx-target={ "#" (row_id(id)) } { "Cancel" }
+                hx-target={ "#" (row_id(id)) } hx-swap="outerHTML" { "Cancel" }
             button.button.danger type="submit" formaction=(delete) formnovalidate
                 hx-post=(delete) hx-confirm="Delete this Item? It's gone for good." {
                 "Delete Item"
@@ -751,7 +751,7 @@ mod tests {
         let html = edit_form(&open()[0]).into_string();
 
         assert!(html.contains(
-            r##"<a class="button secondary" href="/shopping" hx-get="/shopping/1" hx-target="#item-1">Cancel</a>"##
+            r##"<a class="button secondary" href="/shopping" hx-get="/shopping/1" hx-target="#item-1" hx-swap="outerHTML">Cancel</a>"##
         ), "{html}");
         assert!(html.contains(
             r#"<button class="button danger" type="submit" formaction="/shopping/1/delete" formnovalidate hx-post="/shopping/1/delete" hx-confirm="Delete this Item? It's gone for good.">Delete Item</button>"#
