@@ -31,21 +31,19 @@ pub fn routes() -> Router<AppState> {
 }
 
 /// The Reminder form's due-time field filled in with the quick time `key`, worked out from now in
-/// Prague, for its quick button to swap in. A key that names no quick time is not found.
+/// Prague, for its quick button to swap in.
 async fn quick_time(
     State(state): State<AppState>,
     Member(_): Member,
     Path(key): Path<String>,
-) -> Response {
-    QuickTime::from_key(&key).map_or_else(
-        || StatusCode::NOT_FOUND.into_response(),
-        |quick| {
-            let reminders = &state.reminders;
-            let field =
-                views::reminders::quick_due_field(reminders.quick_time(quick), reminders.now());
-            fresh(field).into_response()
-        },
-    )
+) -> Result<impl IntoResponse, AppError> {
+    let quick = QuickTime::from_key(&key).ok_or(AppError::NoSuchQuickTime)?;
+    // One reading of the clock, so the time filled in and the earliest allowed agree.
+    let now = state.clock.crew_now();
+    Ok(fresh(views::reminders::quick_due_field(
+        quick.after(&now),
+        now.datetime(),
+    )))
 }
 
 /// The Reminders tab with an empty form.
@@ -728,6 +726,11 @@ mod tests {
         let response = quick_time(&app, &cookie, "yesterday").await;
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(
+            body_text(response)
+                .await
+                .contains("That quick time doesn't exist.")
+        );
     }
 
     #[sqlx::test]

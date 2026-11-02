@@ -40,6 +40,9 @@ pub enum AppError {
     /// The Reminder asked for doesn't exist, was deleted, or was sent and can't be edited.
     #[error("no such Reminder")]
     NoSuchReminder,
+    /// A quick-time button named a quick time that doesn't exist.
+    #[error("no such quick time")]
+    NoSuchQuickTime,
     /// A Reminder would be due now or earlier. Its forms show this beside the due time, so only
     /// a request that skipped the form gets it as an error.
     #[error("Reminder due time has passed")]
@@ -111,6 +114,10 @@ impl AppError {
                     "That Reminder can't be changed any more: it was deleted or has gone out. Reload the page to see the latest Reminders."
                         .to_owned(),
                 ),
+            ),
+            Self::NoSuchQuickTime => (
+                StatusCode::NOT_FOUND,
+                Some("That quick time doesn't exist. Reload the page and try again.".to_owned()),
             ),
             Self::DueTimePassed => (
                 StatusCode::UNPROCESSABLE_ENTITY,

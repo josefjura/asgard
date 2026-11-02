@@ -133,8 +133,11 @@ impl QuickTime {
     /// The due time it stands for when it's `now`, on the clock in `now`'s time zone and to the
     /// minute, as the form's field holds it.
     ///
-    /// An hour is a real hour, so it may move the clock by two when the clocks go forward.
-    /// Tomorrow and next week keep the time on the clock across a change.
+    /// An hour is a real hour, so it may move the clock by two when the clocks go forward. In the
+    /// hour the clocks go back, a real hour later shows the same time on the clock, which the
+    /// field reads as the first time round, now; there it's an hour on the clock instead.
+    /// Tomorrow and next week keep the time on the clock across a change; a time the clocks skip
+    /// moves on by the length of the gap.
     ///
     /// # Panics
     ///
@@ -142,20 +145,38 @@ impl QuickTime {
     #[must_use]
     pub fn after(self, now: &Zoned) -> DateTime {
         let due = match self {
-            Self::InAnHour => now.checked_add(1.hour()).map(|due| due.datetime()),
+            Self::InAnHour => {
+                let real_hour = now
+                    .checked_add(1.hour())
+                    .map(|due| to_minute(due.datetime()));
+                real_hour.and_then(|due| {
+                    let read_as = due.to_zoned(now.time_zone().clone())?;
+                    if read_as.timestamp() > now.timestamp() {
+                        Ok(due)
+                    } else {
+                        now.datetime().checked_add(1.hour()).map(to_minute)
+                    }
+                })
+            }
             Self::TomorrowMorning => now
                 .date()
                 .tomorrow()
                 .map(|tomorrow| tomorrow.at(9, 0, 0, 0)),
-            Self::NextWeek => now.checked_add(7.days()).map(|due| due.datetime()),
-        }
-        .expect("a week from now is within jiff's range");
-        due.with()
-            .second(0)
-            .subsec_nanosecond(0)
-            .build()
-            .expect("a time with whole minutes is valid")
+            Self::NextWeek => now
+                .checked_add(7.days())
+                .map(|due| to_minute(due.datetime())),
+        };
+        due.expect("a week from now is within jiff's range")
     }
+}
+
+/// `time` without its seconds.
+fn to_minute(time: DateTime) -> DateTime {
+    time.with()
+        .second(0)
+        .subsec_nanosecond(0)
+        .build()
+        .expect("a time with whole minutes is valid")
 }
 
 /// A Reminder as a Member enters it, or changes it to.
@@ -205,12 +226,6 @@ impl Reminders {
     #[must_use]
     pub fn now(&self) -> DateTime {
         crew_time_of_unix_seconds(unix_seconds(self.clock.now()))
-    }
-
-    /// The due time `quick` fills the form with, as of now.
-    #[must_use]
-    pub fn quick_time(&self, quick: QuickTime) -> DateTime {
-        quick.after(&self.clock.crew_now())
     }
 
     /// Creates `reminder` for the whole Crew, on behalf of `creator`.
@@ -419,6 +434,18 @@ mod tests {
     }
 
     #[test]
+    fn in_an_hour_is_an_hour_on_the_clock_while_the_clocks_go_back() {
+        // On 25 October 2026 Prague goes back from 03:00 summer time to 02:00 winter time. At
+        // 02:10 summer time a real hour later is 02:10 again, which the form reads as now.
+        let now = prague(date(2026, 10, 25).at(2, 10, 30, 0));
+
+        assert_eq!(
+            QuickTime::InAnHour.after(&now),
+            date(2026, 10, 25).at(3, 10, 0, 0)
+        );
+    }
+
+    #[test]
     fn tomorrow_morning_is_nine_the_next_day() {
         for (now, tomorrow) in [
             (date(2026, 10, 24).at(10, 0, 0, 0), date(2026, 10, 25)),
@@ -451,26 +478,22 @@ mod tests {
     }
 
     #[test]
+    fn next_week_moves_a_skipped_time_on_by_the_gap() {
+        // There is no 02:30 on 29 March 2026; the clocks jump from 02:00 to 03:00.
+        let now = prague(date(2026, 3, 22).at(2, 30, 0, 0));
+
+        assert_eq!(
+            QuickTime::NextWeek.after(&now),
+            date(2026, 3, 29).at(3, 30, 0, 0)
+        );
+    }
+
+    #[test]
     fn a_quick_time_is_found_by_its_key() {
         for quick in QuickTime::ALL {
             assert_eq!(QuickTime::from_key(quick.key()), Some(quick));
         }
         assert_eq!(QuickTime::from_key("yesterday"), None);
-    }
-
-    #[sqlx::test]
-    async fn quick_times_are_worked_out_from_the_clock(db: SqlitePool) {
-        let (reminders, _) = reminders(db);
-
-        // The clock stands at 10:00 in Prague on 24 October 2026.
-        assert_eq!(
-            reminders.quick_time(QuickTime::InAnHour),
-            date(2026, 10, 24).at(11, 0, 0, 0)
-        );
-        assert_eq!(
-            reminders.quick_time(QuickTime::TomorrowMorning),
-            date(2026, 10, 25).at(9, 0, 0, 0)
-        );
     }
 
     #[test]
