@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.0](https://github.com/josefjura/asgard/compare/v0.6.0...v0.7.0) (2026-11-02)
+
+
+### Features
+
+* add Items and see the open Shopping list ([#114](https://github.com/josefjura/asgard/issues/114)) ([5fa02f7](https://github.com/josefjura/asgard/commit/5fa02f765c51563bbd76c1f6314e9c4b3fcabec8))
+* add Quotes and see the collection ([#110](https://github.com/josefjura/asgard/issues/110)) ([#117](https://github.com/josefjura/asgard/issues/117)) ([d1322c6](https://github.com/josefjura/asgard/commit/d1322c6abb15cde499f6f0b27a37a79cfce5a33b))
+* create Reminders and see them in Pending ([#95](https://github.com/josefjura/asgard/issues/95)) ([b445189](https://github.com/josefjura/asgard/commit/b4451897a6f0e8a026f0e6da7ab4dc94317167dc))
+* edit and delete any Item ([#116](https://github.com/josefjura/asgard/issues/116)) ([63a6cc9](https://github.com/josefjura/asgard/commit/63a6cc9bf7d3f518d04158af93bffa892c8f7c7e))
+* edit and delete pending Reminders ([#96](https://github.com/josefjura/asgard/issues/96)) ([464749b](https://github.com/josefjura/asgard/commit/464749b2bb69ea31dd5eb52ee1b271d82bb18568))
+* mark Items bought, with Recently bought and undo ([#115](https://github.com/josefjura/asgard/issues/115)) ([5d3b028](https://github.com/josefjura/asgard/commit/5d3b0285b44504c9b808db4de22a6c0852767e1c))
+* push due Reminders to every subscribed device ([#99](https://github.com/josefjura/asgard/issues/99)) ([e98b8d0](https://github.com/josefjura/asgard/commit/e98b8d03b5ef5351a79c41db88cccdac4c1fb350))
+* push Expense and Payment changes to the Members they involve ([#100](https://github.com/josefjura/asgard/issues/100)) ([7578d3c](https://github.com/josefjura/asgard/commit/7578d3c0266a8296a4b0b9c07673b1bd7b88b461))
+* quick buttons for the Reminder time ([#98](https://github.com/josefjura/asgard/issues/98)) ([ed87189](https://github.com/josefjura/asgard/commit/ed87189a64442e4ea8a8bfc41be4065d4cb13ed0))
+* send due Reminders into a Sent list ([#97](https://github.com/josefjura/asgard/issues/97)) ([2230b07](https://github.com/josefjura/asgard/commit/2230b07a4d4b6222ede774491d7c6f36d03d4950))
+* turn notifications on and off for this device ([#93](https://github.com/josefjura/asgard/issues/93)) ([26a90d5](https://github.com/josefjura/asgard/commit/26a90d5d076e104089e6193af0ba6e819824999c))
+
 ## [0.6.0](https://github.com/josefjura/asgard/compare/v0.5.0...v0.6.0) (2026-11-01)
 
 
