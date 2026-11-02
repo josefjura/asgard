@@ -20,6 +20,7 @@ use crate::views::passkey::CeremonyUrls;
 use crate::views::passkeys::{self, Outcome as PasskeyOutcome};
 use crate::views::push::{self, PushState, PushUrls};
 use crate::views::reminders::{self, ReminderProblems, ReminderValues};
+use crate::views::shopping::{self, ItemProblems, ItemValues};
 use crate::views::{invite, offline, settings, sign_in, tabs, welcome};
 
 /// One component in one state, rendered as a complete document.
@@ -70,6 +71,12 @@ const PUSH_CONTROL_HEIGHT: u16 = 300;
 const REMINDERS_HEIGHT: u16 = 1100;
 /// A Reminder's edit page: the form, and delete beneath it.
 const REMINDER_EDIT_HEIGHT: u16 = 700;
+/// The Shopping tab: the form, and five Items in three groups under it on a phone.
+const SHOPPING_HEIGHT: u16 = 1300;
+/// An open Item with a two-line note.
+const ITEM_ROW_HEIGHT: u16 = 160;
+/// The Item form with its note open and a problem under it.
+const ITEM_FORM_HEIGHT: u16 = 560;
 const DESKTOP_WIDTH: u16 = 1280;
 
 /// # Panics
@@ -173,6 +180,7 @@ pub fn fixtures() -> Vec<Fixture> {
         .chain(admin_pages())
         .chain(finance_pages())
         .chain(reminder_pages())
+        .chain(shopping_pages())
         .collect()
 }
 
@@ -369,6 +377,45 @@ fn reminder_pages() -> Vec<Fixture> {
         height: REMINDER_EDIT_HEIGHT,
     });
     tabs.into_iter().chain(edits).collect()
+}
+
+/// The Shopping tab with nothing to buy, with Items in every group, with long names and notes,
+/// and with a refused form; an open Item row with a link in its note; and the Item form empty
+/// and refused.
+fn shopping_pages() -> Vec<Fixture> {
+    use shopping::fixtures::{long, open, refused};
+
+    let empty = shopping::form(ItemValues::default(), &ItemProblems::default());
+    let (values, problems) = refused();
+    let refused = shopping::form(values, &problems);
+    let tabs = [
+        ("Nothing to buy", &empty, Vec::new()),
+        ("Every Urgency", &empty, open()),
+        ("Long names and notes", &empty, long()),
+        ("Refused", &refused, open()),
+    ]
+    .map(|(state, form, open)| Fixture {
+        component: "Shopping tab",
+        state: state.to_owned(),
+        document: shopping::page(form, &open),
+        height: SHOPPING_HEIGHT,
+    });
+    let row = Fixture {
+        component: "Item row",
+        state: "Open, with a link in its note".to_owned(),
+        document: document(
+            "Item row",
+            &html! { main.shell-main { ul.item-list { (shopping::item_row(&open()[2])) } } },
+        ),
+        height: ITEM_ROW_HEIGHT,
+    };
+    let forms = [("Empty", empty), ("With errors", refused)].map(|(state, form)| Fixture {
+        component: "Item form",
+        state: state.to_owned(),
+        document: document("Item form", &html! { main.shell-main { (form) } }),
+        height: ITEM_FORM_HEIGHT,
+    });
+    tabs.into_iter().chain([row]).chain(forms).collect()
 }
 
 /// The page an entry form in `purpose` sits on, its delete button posting to `delete`.
@@ -746,6 +793,9 @@ mod tests {
             "History",
             "Reminders tab",
             "Reminder edit page",
+            "Shopping tab",
+            "Item row",
+            "Item form",
         ] {
             assert!(
                 html.contains(&format!("<h2>{component}</h2>")),
@@ -800,6 +850,10 @@ mod tests {
             "Form with errors",
             "Opened",
             "Edit refused",
+            "Nothing to buy",
+            "Every Urgency",
+            "Long names and notes",
+            "Open, with a link in its note",
             "Unfiltered",
             "Filtered",
             "Nothing matches",

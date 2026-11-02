@@ -399,7 +399,8 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   min-height: 3rem;
   padding: var(--space-2) var(--space-3);
@@ -408,6 +409,10 @@ select {
   background: var(--surface);
   color: var(--ink);
   font: inherit;
+}
+
+textarea {
+  resize: vertical;
 }
 
 [aria-invalid="true"] {
@@ -802,6 +807,35 @@ select {
   font-size: var(--text-small);
 }
 
+/* The open Items on the Shopping list: each one's name, its note with line breaks kept, and who
+   added it when beneath. */
+.item-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: grid;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.item-name {
+  overflow-wrap: anywhere;
+}
+
+.item-note {
+  margin: var(--space-1) 0 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.item-meta {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
 /* The Expense and Payment forms: one field under another, each with its problem beneath it.
    The Expense date folds away while it is today. */
 
@@ -824,6 +858,62 @@ select {
 }
 
 .expense-date[open] summary {
+  margin-bottom: var(--space-1);
+}
+
+/* The Item's Urgency: a row of choices that wraps when the screen is narrow, the chosen one
+   outlined. Its note folds away like the Expense date. */
+.urgency-choice {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.urgency-choice legend {
+  margin-bottom: var(--space-1);
+  padding: 0;
+  font-weight: 600;
+}
+
+.urgency-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.urgency-option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2.75rem;
+  margin: 0;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.urgency-option input {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--active);
+}
+
+.urgency-option:has(input:checked) {
+  border-color: var(--active);
+  box-shadow: inset 0 0 0 1px var(--active);
+}
+
+.item-note-field summary {
+  min-height: 2.75rem;
+  padding: var(--space-2) 0;
+  color: var(--active);
+  cursor: pointer;
+}
+
+.item-note-field[open] summary {
   margin-bottom: var(--space-1);
 }
 

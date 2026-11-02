@@ -13,6 +13,7 @@ use crate::views::finance::problem;
 use crate::views::icon::chevron;
 use crate::views::layout::shell;
 use crate::views::nav::{Place, Tab};
+use crate::views::time::{field_time, shown_time};
 
 /// Where a Reminder's links and forms lead. The routes in `web::reminders` spell out the same
 /// paths.
@@ -81,16 +82,6 @@ pub struct ReminderValues<'a> {
 pub struct ReminderProblems {
     pub text: Option<String>,
     pub due_at: Option<String>,
-}
-
-/// A date and time the way a `datetime-local` field holds it, to the minute.
-fn field_time(time: DateTime) -> String {
-    time.strftime("%Y-%m-%dT%H:%M").to_string()
-}
-
-/// A due or sent time the way the lists show it, in the Crew's time zone.
-fn shown_time(time: DateTime) -> String {
-    time.strftime("%A %-d %B %Y, %H:%M").to_string()
 }
 
 /// The Reminders tab: `form` to create a Reminder, every one in `pending`, soonest first, and

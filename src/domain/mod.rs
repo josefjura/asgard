@@ -11,5 +11,6 @@ pub mod members;
 pub mod notifications;
 pub mod push;
 pub mod reminders;
+pub mod shopping;
 pub mod user_agent;
 pub mod web_push;
