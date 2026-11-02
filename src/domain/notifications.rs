@@ -75,37 +75,37 @@ impl Notification {
     /// Who did what to an Expense or Payment, for `wording`'s reader, with its amount and what
     /// it was for.
     fn finance(change: &FinanceEvent, wording: &Wording<'_>) -> Self {
-        let actor = change.actor;
+        let actor = wording.name(change.actor);
         let verb = match change.action {
             EntryAction::Added => "logged",
             EntryAction::Edited => "edited",
             EntryAction::Deleted => "deleted",
         };
-        let (what, amount, description) = match &change.entry {
+        let (title, amount, description) = match &change.entry {
             ChangedEntry::Expense(_, expense) => (
-                format!("{} Expense", wording.whose(expense.payer, actor, "an")),
+                format!(
+                    "{actor} {verb} {} Expense",
+                    wording.whose(expense.payer, "an")
+                ),
                 expense.amount,
                 Some(&expense.description),
             ),
             ChangedEntry::Payment(_, payment) => (
-                format!(
-                    "{} Payment to {}",
-                    wording.whose(payment.sender, actor, "a"),
-                    wording.whom(payment.recipient, actor)
-                ),
+                if change.action == EntryAction::Added
+                    && payment.sender == change.actor
+                    && payment.recipient == wording.reader
+                {
+                    format!("{actor} sent you a Payment")
+                } else {
+                    format!(
+                        "{actor} {verb} {} Payment to {}",
+                        wording.whose(payment.sender, "a"),
+                        wording.whom(payment.recipient)
+                    )
+                },
                 payment.amount,
                 payment.description.as_ref(),
             ),
-        };
-        let title = match &change.entry {
-            ChangedEntry::Payment(_, payment)
-                if change.action == EntryAction::Added
-                    && payment.sender == actor
-                    && payment.recipient == wording.reader =>
-            {
-                format!("{} sent you a Payment", wording.name(actor))
-            }
-            _ => format!("{} {verb} {what}", wording.name(actor)),
         };
         let amount = amount.crowns();
         Self {
@@ -157,7 +157,14 @@ impl Delivery {
                 .notify
                 .iter()
                 .map(|&reader| Self {
-                    notification: Notification::finance(change, &Wording { crew, reader }),
+                    notification: Notification::finance(
+                        change,
+                        &Wording {
+                            crew,
+                            reader,
+                            actor: change.actor,
+                        },
+                    ),
                     to: vec![reader],
                 })
                 .collect(),
@@ -169,6 +176,8 @@ impl Delivery {
 struct Wording<'a> {
     crew: &'a [MemberName],
     reader: MemberId,
+    /// The Member whose action the notification is about.
+    actor: MemberId,
 }
 
 impl Wording<'_> {
@@ -180,10 +189,10 @@ impl Wording<'_> {
             .map_or("Someone", |named| named.display_name.as_str())
     }
 
-    /// Whose an Expense or Payment `actor` changed is: "an"/"a" for the actor's own, "your" for
-    /// the reader's, or the owner's name.
-    fn whose(&self, owner: MemberId, actor: MemberId, article: &'static str) -> String {
-        if owner == actor {
+    /// Whose an Expense or Payment the actor changed is: `article` ("an"/"a") for the actor's
+    /// own, "your" for the reader's, or the owner's name.
+    fn whose(&self, owner: MemberId, article: &'static str) -> String {
+        if owner == self.actor {
             article.to_owned()
         } else if owner == self.reader {
             "your".to_owned()
@@ -192,11 +201,11 @@ impl Wording<'_> {
         }
     }
 
-    /// Who a Payment `actor` changed went to: "you", "them" for the actor, or their name.
-    fn whom(&self, recipient: MemberId, actor: MemberId) -> String {
+    /// Who a Payment the actor changed went to: "you", "them" for the actor, or their name.
+    fn whom(&self, recipient: MemberId) -> String {
         if recipient == self.reader {
             "you".to_owned()
-        } else if recipient == actor {
+        } else if recipient == self.actor {
             "them".to_owned()
         } else {
             self.name(recipient).to_owned()

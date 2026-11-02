@@ -109,6 +109,7 @@ async fn deliver<S: PushSender>(
 mod tests {
     use std::time::{Duration, SystemTime};
 
+    use jiff::civil::date;
     use sqlx::SqlitePool;
 
     use super::*;
@@ -116,8 +117,6 @@ mod tests {
     use crate::domain::auth::fixtures::add_session;
     use crate::domain::auth::passkey_fixtures::add_passkey;
     use crate::domain::channel::{Channel, Emitter};
-    use jiff::civil::date;
-
     use crate::domain::clock::ManualClock;
     use crate::domain::finance::money::Amount;
     use crate::domain::finance::{Description, Finance, NewExpense, NewPayment};
