@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!\" FROM reminders\n               WHERE sent_at IS NULL AND due_at <= ?\n               ORDER BY due_at, id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "02e02cc61a7ae89e83797a225cc79948970ea42a90c618422e7c81b9b0a5715c"
+}

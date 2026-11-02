@@ -6,11 +6,13 @@
 
 use crate::domain::channel::Channel;
 use crate::domain::finance::FinanceEvent;
+use crate::domain::reminders::ReminderDue;
 
-/// Something a Member did that others may want to hear about.
+/// Something that happened that Members may want to hear about.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
     Finance(FinanceEvent),
+    ReminderDue(ReminderDue),
 }
 
 /// The app-wide channel of [`Event`]s, built once at startup.

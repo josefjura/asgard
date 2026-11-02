@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT reminders.id AS \"id!\", reminders.text,\n                      reminders.sent_at AS \"sent_at!\", members.display_name AS created_by\n               FROM reminders\n               JOIN members ON members.id = reminders.created_by\n               WHERE reminders.sent_at >= ?\n               ORDER BY reminders.sent_at DESC, reminders.due_at DESC, reminders.id DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "text",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "sent_at!",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "4abca89f0e426f40958e8e5fdb3a8ce5d46cdebe03cde9264185ee3ac3a49a1a"
+}
