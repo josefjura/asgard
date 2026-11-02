@@ -6,7 +6,8 @@ use asgard::db;
 use asgard::domain::auth::{Auth, LINK_LIFETIME_HOURS};
 use asgard::domain::clock::Clock;
 use asgard::domain::members::Members;
-use asgard::tasks::ticker;
+use asgard::domain::web_push::WebPushSender;
+use asgard::tasks::{notifier, ticker};
 use asgard::web::{self, AppState};
 use sqlx::SqlitePool;
 use tracing_subscriber::EnvFilter;
@@ -86,6 +87,13 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         &config.public_url,
         config.vapid_private_key.public_key(),
     )?;
+    let sender = WebPushSender::new(config.vapid_private_key.as_base64(), &config.public_url)?;
+    // Subscribed before anything can emit, so no event is missed.
+    tokio::spawn(notifier::run(
+        state.events.subscribe(),
+        state.push.clone(),
+        sender,
+    ));
     tokio::spawn(ticker::run(state.reminders.clone()));
     axum::serve(listener, web::router(state))
         .with_graceful_shutdown(shutdown_signal())

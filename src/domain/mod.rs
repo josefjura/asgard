@@ -8,6 +8,8 @@ pub mod clock;
 pub mod events;
 pub mod finance;
 pub mod members;
+pub mod notifications;
 pub mod push;
 pub mod reminders;
 pub mod user_agent;
+pub mod web_push;

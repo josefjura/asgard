@@ -173,6 +173,21 @@ impl PushSubscriptions {
         Ok(())
     }
 
+    /// Removes the subscription at `endpoint`, as when its push service says it's gone.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the database does.
+    pub async fn forget(&self, endpoint: &str) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "DELETE FROM push_subscriptions WHERE endpoint = ?",
+            endpoint
+        )
+        .execute(&self.db)
+        .await?;
+        Ok(())
+    }
+
     /// Whether `session` has a subscription.
     ///
     /// # Errors
@@ -413,6 +428,28 @@ mod tests {
 
         push.unsubscribe(ondra).await.unwrap();
         push.unsubscribe(ondra).await.unwrap();
+
+        assert!(!push.is_subscribed(ondra).await.unwrap());
+        assert_eq!(
+            endpoints(&push.devices().await.unwrap()),
+            ["https://push.example/karel"]
+        );
+    }
+
+    #[sqlx::test]
+    async fn forgetting_an_endpoint_removes_only_its_subscription(db: SqlitePool) {
+        let (_, ondra) = signed_in(&db, "Ondra").await;
+        let (_, karel) = signed_in(&db, "Karel").await;
+        let (push, _) = subscriptions(db);
+        push.subscribe(ondra, &subscription("ondra"), "Phone")
+            .await
+            .unwrap();
+        push.subscribe(karel, &subscription("karel"), "Phone")
+            .await
+            .unwrap();
+
+        push.forget("https://push.example/ondra").await.unwrap();
+        push.forget("https://push.example/unknown").await.unwrap();
 
         assert!(!push.is_subscribed(ondra).await.unwrap());
         assert_eq!(

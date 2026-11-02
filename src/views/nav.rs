@@ -119,7 +119,19 @@ pub fn settings_link(current: Place) -> Markup {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::notifications::Opens;
     use crate::views::assert_html_snapshot;
+
+    #[test]
+    fn a_notification_opens_its_tabs_page() {
+        for (opens, tab) in [
+            (Opens::Finance, Tab::Finance),
+            (Opens::Shopping, Tab::Shopping),
+            (Opens::Reminders, Tab::Reminders),
+        ] {
+            assert_eq!(opens.path(), tab.href());
+        }
+    }
 
     #[test]
     fn bottom_nav_marks_only_the_active_tab() {
