@@ -11,7 +11,10 @@ expression: "item_row(&open()[2]).into_string().replace(\"><\", \">\\n<\")"
 <span class="item-meta">
 <time datetime="2026-10-21T12:15">Wednesday 21 October 2026, 12:15</time> · Šimon</span>
 </div>
+<div class="item-actions">
+<a class="button small secondary" href="/shopping/2/edit" hx-get="/shopping/2/edit" hx-target="#item-2" hx-swap="outerHTML" aria-describedby="item-2-name">Edit</a>
 <form method="post" action="/shopping/2/bought" hx-post="/shopping/2/bought" hx-target="#open-items" hx-swap="outerHTML">
 <button class="button small secondary" type="submit" aria-describedby="item-2-name">Bought</button>
 </form>
+</div>
 </li>

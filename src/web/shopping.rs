@@ -1,5 +1,5 @@
 //! The Shopping tab: adding an Item to the Crew's Shopping list, the open Items grouped by
-//! Urgency, and marking them bought and back.
+//! Urgency, editing and deleting them, and marking them bought and back.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -10,7 +10,7 @@ use maud::Markup;
 use serde::Deserialize;
 
 use super::access::Member;
-use super::htmx::Htmx;
+use super::htmx::{HX_RETARGET, Htmx};
 use super::pages::fresh;
 use super::{AppError, AppState};
 use crate::domain::shopping::{
@@ -18,13 +18,16 @@ use crate::domain::shopping::{
 };
 use crate::views;
 use crate::views::nav::Tab;
-use crate::views::shopping::{Fold, ItemProblems, ItemValues};
+use crate::views::shopping::{Fold, ItemProblems, ItemValues, Purpose, row_id};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route(Tab::Shopping.href(), get(show).post(add))
         .route("/shopping/{id}/bought", post(mark_bought))
         .route("/shopping/{id}/undo", post(undo_bought))
+        .route("/shopping/{id}", get(row).post(save))
+        .route("/shopping/{id}/edit", get(edit))
+        .route("/shopping/{id}/delete", post(delete))
 }
 
 /// The Shopping tab with an empty form.
@@ -73,7 +76,7 @@ async fn add(
     let item = match parse(&input) {
         Ok(item) => item,
         Err(problems) => {
-            let form = views::shopping::form(input.values(), &problems);
+            let form = views::shopping::form(Purpose::Add, input.values(), &problems);
             let body = if htmx {
                 form
             } else {
@@ -85,10 +88,103 @@ async fn add(
     state.shopping.add(member.id, &item).await?;
     tracing::info!(member = member.id.get(), "a Member added an Item");
     if !htmx {
-        return Ok(Redirect::to(Tab::Shopping.href()).into_response());
+        return Ok(back_to_tab());
     }
     let open = state.shopping.open().await?;
     Ok(fresh(views::shopping::added(&empty_form(), &open)).into_response())
+}
+
+/// The open Item `id` in its edit form, for any Member to edit or delete: in its row for htmx,
+/// on a page of its own otherwise.
+async fn edit(
+    State(state): State<AppState>,
+    Member(_): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let id = ItemId::from_client(id);
+    let item = state.shopping.open_item(id).await?;
+    let form = views::shopping::edit_form(&item);
+    Ok(edit_form_in_place(htmx, StatusCode::OK, id, &form))
+}
+
+/// The open Item `id`'s row, put back by cancelling its edit. Only htmx asks for a row; a
+/// browser is sent to the tab.
+async fn row(
+    State(state): State<AppState>,
+    Member(_): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let item = state.shopping.open_item(ItemId::from_client(id)).await?;
+    if !htmx {
+        return Ok(back_to_tab());
+    }
+    Ok(fresh(views::shopping::item_row(&item)).into_response())
+}
+
+/// Saves the edited Item `id`. htmx gets the open list with it in its group; a plain form post
+/// goes back to the tab. A refused form shows what to fix: in the Item's row for htmx, on its edit
+/// page otherwise.
+async fn save(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+    Form(input): Form<ItemForm>,
+) -> Result<Response, AppError> {
+    let id = ItemId::from_client(id);
+    let item = match parse(&input) {
+        Ok(item) => item,
+        Err(problems) => {
+            // An Item that is gone is reported as gone, not as a form to fix.
+            state.shopping.open_item(id).await?;
+            let form = views::shopping::form(Purpose::Edit(id), input.values(), &problems);
+            return Ok(edit_form_in_place(
+                htmx,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                id,
+                &form,
+            ));
+        }
+    };
+    state.shopping.edit(id, &item).await?;
+    tracing::info!(member = member.id.get(), "a Member edited an Item");
+    open_list(&state, htmx).await
+}
+
+/// Deletes the open Item `id` for good. htmx gets the open list without it; a plain form post
+/// goes back to the tab.
+async fn delete(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    state.shopping.delete(ItemId::from_client(id)).await?;
+    tracing::info!(member = member.id.get(), "a Member deleted an Item");
+    open_list(&state, htmx).await
+}
+
+/// The edit `form` of the Item `id`, with `status`: in the Item's row for htmx, which it's swapped
+/// into whatever the request targeted, or on the edit page otherwise.
+fn edit_form_in_place(htmx: bool, status: StatusCode, id: ItemId, form: &Markup) -> Response {
+    if htmx {
+        let row = views::shopping::editing_row(id, form);
+        let target = format!("#{}", row_id(id));
+        (status, [(HX_RETARGET, target)], fresh(row)).into_response()
+    } else {
+        (status, fresh(views::shopping::edit_page(form))).into_response()
+    }
+}
+
+/// What answers an edit or a delete: for htmx, the open list; otherwise the way back to the tab.
+async fn open_list(state: &AppState, htmx: bool) -> Result<Response, AppError> {
+    if !htmx {
+        return Ok(back_to_tab());
+    }
+    let open = state.shopping.open().await?;
+    Ok(fresh(views::shopping::open_items(&open)).into_response())
 }
 
 /// Marks the open Item `id` bought by the Member. htmx gets the open list without it and Recently
@@ -127,7 +223,7 @@ async fn undo_bought(
 /// `fold`; otherwise the way back to the tab.
 async fn changed_lists(state: &AppState, htmx: bool, fold: Fold) -> Result<Response, AppError> {
     if !htmx {
-        return Ok(Redirect::to(Tab::Shopping.href()).into_response());
+        return Ok(back_to_tab());
     }
     let open = state.shopping.open().await?;
     let bought = state.shopping.recently_bought().await?;
@@ -156,8 +252,17 @@ fn parse(input: &ItemForm) -> Result<NewItem, ItemProblems> {
     }
 }
 
+/// The way back to the Shopping tab, after a plain form post or a browser's request for a row.
+fn back_to_tab() -> Response {
+    Redirect::to(Tab::Shopping.href()).into_response()
+}
+
 fn empty_form() -> Markup {
-    views::shopping::form(ItemValues::default(), &ItemProblems::default())
+    views::shopping::form(
+        Purpose::Add,
+        ItemValues::default(),
+        &ItemProblems::default(),
+    )
 }
 
 /// The Shopping tab around `form`, with every open Item and those bought lately.
@@ -181,13 +286,13 @@ fn note_message() -> String {
 #[cfg(test)]
 mod tests {
     use axum::body::Body;
-    use axum::http::header::LOCATION;
+    use axum::http::header::{COOKIE, LOCATION};
     use axum::http::{Method, Response, StatusCode};
     use sqlx::SqlitePool;
 
     use crate::domain::events::Event;
     use crate::domain::shopping::{NAME_MAX, NOTE_MAX};
-    use crate::web::htmx::{HX_REDIRECT, HX_REQUEST};
+    use crate::web::htmx::{HX_REDIRECT, HX_REQUEST, HX_RETARGET};
     use crate::web::test_support::{PUBLIC_ORIGIN, TestApp, body_text, post_form, request};
 
     /// Posts the Item form with `fields`, as htmx does if `htmx`.
@@ -699,5 +804,310 @@ mod tests {
         assert_eq!(added.name.as_str(), "Star San");
         assert_eq!(added.notify.len(), 1, "everyone but Josef");
         assert_ne!(added.notify[0], added.added_by);
+    }
+
+    /// A GET of `uri` by a browser holding `cookie`, as htmx sends it if `htmx`.
+    async fn get(app: &TestApp, uri: &str, cookie: &str, htmx: bool) -> Response<Body> {
+        let mut get = request(Method::GET, uri, None);
+        let headers = get.headers_mut();
+        headers.insert(COOKIE, cookie.parse().unwrap());
+        if htmx {
+            headers.insert(HX_REQUEST, "true".parse().unwrap());
+        }
+        app.send(get).await
+    }
+
+    /// Posts the edit form of the Item `id` with `fields`, as htmx does if `htmx`.
+    async fn save(
+        app: &TestApp,
+        cookie: &str,
+        id: i64,
+        fields: &[(&'static str, &str)],
+        htmx: bool,
+    ) -> Response<Body> {
+        let fields: Vec<(&str, String)> = fields
+            .iter()
+            .map(|&(name, value)| (name, value.to_owned()))
+            .collect();
+        post_form(
+            app,
+            &format!("/shopping/{id}"),
+            cookie,
+            &fields,
+            htmx,
+            PUBLIC_ORIGIN,
+        )
+        .await
+    }
+
+    #[sqlx::test]
+    async fn the_edit_form_opens_in_the_items_row_filled_in(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let ondra = app.sign_in_new_member("Ondra").await;
+        add(
+            &app,
+            &josef,
+            &[("name", "Saaz"), ("urgency", "asap"), ("note", "2 packs")],
+        )
+        .await;
+
+        let response = get(&app, "/shopping/1/edit", &ondra, true).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body_text(response).await;
+        assert!(
+            html.starts_with(r#"<li class="item editing" id="item-1"><form "#),
+            "{html}"
+        );
+        assert!(html.contains(r#"name="name" value="Saaz""#));
+        assert!(html.contains(r#"value="asap" checked>"#));
+        assert!(html.contains(">2 packs</textarea>"));
+        assert!(html.contains(r#"action="/shopping/1""#));
+    }
+
+    #[sqlx::test]
+    async fn without_htmx_the_edit_form_has_its_own_page(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add(&app, &cookie, &[("name", "Saaz")]).await;
+
+        let response = get(&app, "/shopping/1/edit", &cookie, false).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body_text(response).await;
+        assert!(html.contains("<h1>Edit Item</h1>"), "{html}");
+        assert!(html.contains(r#"name="name" value="Saaz""#));
+        assert!(html.contains(r#"formaction="/shopping/1/delete""#));
+    }
+
+    #[sqlx::test]
+    async fn a_member_edits_an_item_another_added_and_it_is_regrouped(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let simon = app.sign_in_new_member("Šimon").await;
+        add(&app, &josef, &[("name", "Star San"), ("urgency", "asap")]).await;
+        app.clock.advance(std::time::Duration::from_mins(1));
+        add(
+            &app,
+            &josef,
+            &[("name", "Saaz"), ("urgency", "nice-to-have")],
+        )
+        .await;
+
+        let response = save(
+            &app,
+            &simon,
+            2,
+            &[
+                ("name", " Saaz pellets "),
+                ("urgency", "asap"),
+                ("note", "the usual shop"),
+            ],
+            true,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body_text(response).await;
+        assert!(html.starts_with(r#"<div id="open-items">"#), "{html}");
+        assert!(!html.contains("<h1>"), "a fragment, not the page");
+        let regrouped = [
+            ("ASAP".to_owned(), "Star San".to_owned()),
+            ("ASAP".to_owned(), "Saaz pellets".to_owned()),
+        ];
+        assert_eq!(grouped(&html), regrouped);
+        assert!(html.contains(r#"<p class="item-note">the usual shop</p>"#));
+        // Still added by Josef when he added it, and the whole Crew sees the change.
+        let tab = tab(&app, &josef).await;
+        assert_eq!(grouped(&tab), regrouped);
+        assert!(tab.contains("01:01</time> · Josef"));
+    }
+
+    #[sqlx::test]
+    async fn a_plain_post_saves_and_goes_back_to_the_tab(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add(&app, &cookie, &[("name", "Saaz")]).await;
+
+        let response = save(&app, &cookie, 1, &[("name", "Hallertau")], false).await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[LOCATION], "/shopping");
+        assert_eq!(
+            grouped(&tab(&app, &cookie).await),
+            [("Next brewday".to_owned(), "Hallertau".to_owned())]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_refused_edit_keeps_what_was_typed_in_the_items_row_and_changes_nothing(
+        db: SqlitePool,
+    ) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add(&app, &cookie, &[("name", "Saaz")]).await;
+        let long_note = "b".repeat(NOTE_MAX + 1);
+
+        let response = save(
+            &app,
+            &cookie,
+            1,
+            &[("name", " "), ("urgency", "asap"), ("note", &long_note)],
+            true,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(response.headers()[HX_RETARGET], "#item-1");
+        let html = body_text(response).await;
+        assert!(
+            html.starts_with(r#"<li class="item editing" id="item-1"><form "#),
+            "{html}"
+        );
+        assert!(html.contains("Say what's needed."));
+        assert!(html.contains("Keep the note to 500 characters or fewer."));
+        assert!(html.contains(r#"value="asap" checked>"#));
+        assert!(html.contains(&format!(">{long_note}</textarea>")));
+        assert_eq!(
+            grouped(&tab(&app, &cookie).await),
+            [("Next brewday".to_owned(), "Saaz".to_owned())]
+        );
+    }
+
+    #[sqlx::test]
+    async fn without_htmx_a_refused_edit_comes_back_on_its_page(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add(&app, &cookie, &[("name", "Saaz")]).await;
+
+        let response = save(
+            &app,
+            &cookie,
+            1,
+            &[("name", "Saaz"), ("urgency", "yesterday")],
+            false,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let html = body_text(response).await;
+        assert!(html.contains("<h1>Edit Item</h1>"), "{html}");
+        assert!(html.contains("Pick how soon it's needed."));
+    }
+
+    #[sqlx::test]
+    async fn cancelling_an_edit_puts_the_row_back(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add(&app, &cookie, &[("name", "Saaz")]).await;
+
+        let response = get(&app, "/shopping/1", &cookie, true).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body_text(response).await;
+        assert!(
+            html.starts_with(r#"<li class="item" id="item-1">"#),
+            "{html}"
+        );
+        assert!(html.contains(r#"href="/shopping/1/edit""#));
+
+        let response = get(&app, "/shopping/1", &cookie, false).await;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[LOCATION], "/shopping");
+    }
+
+    #[sqlx::test]
+    async fn a_member_deletes_an_item_another_added(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let ondra = app.sign_in_new_member("Ondra").await;
+        add(&app, &josef, &[("name", "Saaz")]).await;
+        add(&app, &josef, &[("name", "Caps")]).await;
+
+        let html = pressed(&app, &ondra, 1, "delete").await;
+
+        assert!(html.starts_with(r#"<div id="open-items">"#), "{html}");
+        assert!(!html.contains("<h1>"), "a fragment, not the page");
+        let caps = [("Next brewday".to_owned(), "Caps".to_owned())];
+        assert_eq!(grouped(&html), caps);
+        assert_eq!(grouped(&tab(&app, &josef).await), caps);
+
+        let response = app.post_with("/shopping/2/delete", &josef).await;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[LOCATION], "/shopping");
+        assert!(tab(&app, &josef).await.contains("Nothing to buy."));
+    }
+
+    #[sqlx::test]
+    async fn an_item_that_isnt_open_to_edit_or_delete_is_not_found(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add(&app, &cookie, &[("name", "Caps")]).await;
+        pressed(&app, &cookie, 1, "bought").await;
+
+        for id in [1, 999] {
+            let responses = [
+                get(&app, &format!("/shopping/{id}/edit"), &cookie, true).await,
+                get(&app, &format!("/shopping/{id}"), &cookie, true).await,
+                save(&app, &cookie, id, &[("name", "Saaz")], true).await,
+                // Gone is reported as gone, not as a form to fix.
+                save(&app, &cookie, id, &[("name", " ")], true).await,
+                press(&app, &cookie, id, "delete").await,
+            ];
+            for response in responses {
+                assert_eq!(response.status(), StatusCode::NOT_FOUND, "{id}");
+                assert!(body_text(response).await.contains("Reload the page"));
+            }
+        }
+        assert_eq!(recently_bought(&tab(&app, &cookie).await), ["Caps"]);
+    }
+
+    #[sqlx::test]
+    async fn editing_and_deleting_need_a_member_and_our_origin(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add(&app, &cookie, &[("name", "Saaz")]).await;
+
+        for path in ["/shopping/1/edit", "/shopping/1"] {
+            let response = app.get(path).await;
+            assert_eq!(response.status(), StatusCode::SEE_OTHER, "{path}");
+            assert_eq!(response.headers()[LOCATION], "/sign-in");
+        }
+        let fields = [("name", "Hallertau".to_owned())];
+        for path in ["/shopping/1", "/shopping/1/delete"] {
+            let response = post_form(&app, path, "", &fields, false, PUBLIC_ORIGIN).await;
+            assert_eq!(response.status(), StatusCode::SEE_OTHER, "{path}");
+            assert_eq!(response.headers()[LOCATION], "/sign-in");
+
+            let response = post_form(&app, path, &cookie, &fields, true, "https://evil.test").await;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{path}");
+        }
+        assert_eq!(
+            grouped(&tab(&app, &cookie).await),
+            [("Next brewday".to_owned(), "Saaz".to_owned())]
+        );
+    }
+
+    #[sqlx::test]
+    async fn editing_even_to_asap_and_deleting_announce_nothing(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        app.sign_in_new_member("Ondra").await;
+        add(&app, &josef, &[("name", "Saaz")]).await;
+        let mut events = app.state.events.subscribe();
+
+        let response = save(
+            &app,
+            &josef,
+            1,
+            &[("name", "Saaz"), ("urgency", "asap")],
+            true,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        pressed(&app, &josef, 1, "delete").await;
+
+        assert!(events.try_recv().is_err());
     }
 }

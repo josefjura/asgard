@@ -139,7 +139,7 @@ impl Urgency {
     }
 }
 
-/// An Item as a Member adds it.
+/// An Item as a Member adds it, or edits it to say.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewItem {
     pub name: ItemName,
@@ -194,7 +194,8 @@ impl BoughtAt {
 #[derive(Debug, thiserror::Error)]
 pub enum ItemError {
     /// There is no Item with that id in the state the change needs: it never existed, was
-    /// deleted, or was already bought (to mark it bought) or is open (to undo that).
+    /// deleted, or was already bought (to mark it bought, edit or delete it) or is open (to undo
+    /// buying it).
     #[error("no such Item")]
     NotFound,
     #[error("database error")]
@@ -212,8 +213,8 @@ pub struct AsapItemAdded {
     pub notify: Vec<MemberId>,
 }
 
-/// Adds Items to the Shopping list, marks them bought and back, and lists the open ones and those
-/// bought lately. Any Member may change any Item.
+/// Adds Items to the Shopping list, edits and deletes them, marks them bought and back, and lists
+/// the open ones and those bought lately. Any Member may change any Item.
 #[derive(Debug, Clone)]
 pub struct Shopping {
     db: SqlitePool,
@@ -302,6 +303,72 @@ impl Shopping {
         // Stable, so each Urgency keeps the oldest first.
         open.sort_by_key(|item| item.urgency);
         Ok(open)
+    }
+
+    /// The open Item `id`, as its edit form opens with it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ItemError::NotFound`] if there's no open Item `id`, or a database error.
+    pub async fn open_item(&self, id: ItemId) -> Result<OpenItem, ItemError> {
+        let row = sqlx::query!(
+            r#"SELECT items.id AS "id!", items.name, items.note, items.urgency, items.added_at,
+                      members.display_name AS added_by
+               FROM items
+               JOIN members ON members.id = items.added_by
+               WHERE items.id = ? AND items.bought_at IS NULL"#,
+            id.0,
+        )
+        .fetch_optional(&self.db)
+        .await?
+        .ok_or(ItemError::NotFound)?;
+        Ok(OpenItem {
+            id: ItemId(row.id),
+            name: ItemName(row.name),
+            note: row.note.map(ItemNote),
+            urgency: Urgency::from_stored(&row.urgency)?,
+            added_by: DisplayName::from_stored(row.added_by),
+            added_at: AddedAt(row.added_at),
+        })
+    }
+
+    /// Changes the open Item `id` to say what `item` does. Who added it, and when, stay as they
+    /// were. Nobody hears about it, even if it's now *ASAP*.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ItemError::NotFound`] if there's no open Item `id`, or a database error.
+    pub async fn edit(&self, id: ItemId, item: &NewItem) -> Result<(), ItemError> {
+        let note = item.note.as_ref().map(ItemNote::as_str);
+        let urgency = item.urgency.key();
+        let done = sqlx::query!(
+            "UPDATE items SET name = ?, note = ?, urgency = ? WHERE id = ? AND bought_at IS NULL",
+            item.name.0,
+            note,
+            urgency,
+            id.0,
+        )
+        .execute(&self.db)
+        .await?;
+        if done.rows_affected() == 0 {
+            return Err(ItemError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Deletes the open Item `id` for good.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ItemError::NotFound`] if there's no open Item `id`, or a database error.
+    pub async fn delete(&self, id: ItemId) -> Result<(), ItemError> {
+        let done = sqlx::query!("DELETE FROM items WHERE id = ? AND bought_at IS NULL", id.0)
+            .execute(&self.db)
+            .await?;
+        if done.rows_affected() == 0 {
+            return Err(ItemError::NotFound);
+        }
+        Ok(())
     }
 
     /// Marks the open Item `id` bought by `bought_by`, now. It leaves the open list for Recently
@@ -812,6 +879,133 @@ mod tests {
 
         shopping.mark_bought(josef, id).await.unwrap();
         shopping.undo_bought(id).await.unwrap();
+
+        assert_eq!(emitted(&mut events), []);
+    }
+
+    #[sqlx::test]
+    async fn an_edited_item_moves_to_its_new_urgency_and_keeps_who_added_it(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (shopping, clock, _) = shopping(db);
+        let saaz = shopping
+            .add(josef, &item("Saaz", "2 packs", Urgency::NiceToHave))
+            .await
+            .unwrap();
+        clock.advance(Duration::from_mins(1));
+        shopping
+            .add(josef, &item("Star San", "", Urgency::Asap))
+            .await
+            .unwrap();
+        clock.advance(Duration::from_hours(1));
+
+        shopping
+            .edit(saaz, &item(" Saaz pellets ", "", Urgency::Asap))
+            .await
+            .unwrap();
+
+        // Still added when and by whom it was, so it stays the oldest ASAP Item.
+        let edited = shopping.open_item(saaz).await.unwrap();
+        assert_eq!(
+            edited,
+            OpenItem {
+                id: saaz,
+                name: ItemName::parse("Saaz pellets").unwrap(),
+                note: None,
+                urgency: Urgency::Asap,
+                added_by: DisplayName::parse("Josef").unwrap(),
+                added_at: AddedAt(unix_seconds(saturday_morning())),
+            }
+        );
+        assert_eq!(
+            names(&shopping.open().await.unwrap()),
+            [("Saaz pellets", Urgency::Asap), ("Star San", Urgency::Asap)]
+        );
+        shopping
+            .edit(saaz, &item("Saaz", "the usual", Urgency::NextBrewday))
+            .await
+            .unwrap();
+        assert_eq!(
+            shopping.open_item(saaz).await.unwrap().note,
+            ItemNote::parse("the usual").unwrap()
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_deleted_item_is_gone_for_good(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (shopping, _, _) = shopping(db);
+        let saaz = shopping
+            .add(josef, &item("Saaz", "", Urgency::NextBrewday))
+            .await
+            .unwrap();
+        shopping
+            .add(josef, &item("Caps", "", Urgency::NextBrewday))
+            .await
+            .unwrap();
+
+        shopping.delete(saaz).await.unwrap();
+
+        assert_eq!(
+            names(&shopping.open().await.unwrap()),
+            [("Caps", Urgency::NextBrewday)]
+        );
+        assert!(matches!(
+            shopping.open_item(saaz).await,
+            Err(ItemError::NotFound)
+        ));
+        assert!(matches!(
+            shopping.mark_bought(josef, saaz).await,
+            Err(ItemError::NotFound)
+        ));
+    }
+
+    #[sqlx::test]
+    async fn only_an_open_item_is_edited_or_deleted(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (shopping, _, _) = shopping(db);
+        let bought = shopping
+            .add(josef, &item("Caps", "", Urgency::NextBrewday))
+            .await
+            .unwrap();
+        shopping.mark_bought(josef, bought).await.unwrap();
+        let missing = ItemId::from_client(999);
+        let edit = item("Saaz", "", Urgency::Asap);
+
+        for id in [bought, missing] {
+            assert!(matches!(
+                shopping.open_item(id).await,
+                Err(ItemError::NotFound)
+            ));
+            assert!(matches!(
+                shopping.edit(id, &edit).await,
+                Err(ItemError::NotFound)
+            ));
+            assert!(matches!(
+                shopping.delete(id).await,
+                Err(ItemError::NotFound)
+            ));
+        }
+        assert_eq!(
+            bought_names(&shopping.recently_bought().await.unwrap()),
+            ["Caps"]
+        );
+    }
+
+    #[sqlx::test]
+    async fn editing_even_to_asap_and_deleting_announce_nothing(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        add_member(&db, "Ondra", false).await;
+        let (shopping, _, mut events) = shopping(db);
+        let id = shopping
+            .add(josef, &item("Saaz", "", Urgency::NiceToHave))
+            .await
+            .unwrap();
+
+        shopping
+            .edit(id, &item("Saaz", "", Urgency::Asap))
+            .await
+            .unwrap();
+        shopping.delete(id).await.unwrap();
 
         assert_eq!(emitted(&mut events), []);
     }

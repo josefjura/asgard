@@ -1,0 +1,33 @@
+---
+source: src/views/shopping.rs
+expression: "edit_form(&open()[2]).into_string().replace(\"><\", \">\\n<\")"
+---
+<form class="entry-form" method="post" action="/shopping/2" hx-post="/shopping/2" hx-target="#open-items" hx-swap="outerHTML">
+<div class="field">
+<label for="item-2-edit-name">What's needed</label>
+<input id="item-2-edit-name" type="text" name="name" value="Pilsner malt" required maxlength="200" autocomplete="off">
+</div>
+<fieldset class="field urgency-choice">
+<legend>How soon</legend>
+<div class="urgency-options">
+<label class="urgency-option">
+<input type="radio" name="urgency" value="asap">ASAP</label>
+<label class="urgency-option">
+<input type="radio" name="urgency" value="next-brewday" checked>Next brewday</label>
+<label class="urgency-option">
+<input type="radio" name="urgency" value="nice-to-have">Nice to have</label>
+</div>
+</fieldset>
+<details class="field item-note-field" open>
+<summary>Add a note</summary>
+<label for="item-2-edit-note">Note <span class="optional">(optional)</span>
+</label>
+<textarea id="item-2-edit-note" name="note" rows="3" maxlength="500">25 kg
+https://www.example.cz/slady/pilsner?bag=25</textarea>
+</details>
+<div class="edit-actions">
+<button class="button" type="submit">Save Item</button>
+<a class="button secondary" href="/shopping" hx-get="/shopping/2" hx-target="#item-2" hx-swap="outerHTML">Cancel</a>
+<button class="button danger" type="submit" formaction="/shopping/2/delete" formnovalidate hx-post="/shopping/2/delete" hx-confirm="Delete this Item? It's gone for good.">Delete Item</button>
+</div>
+</form>

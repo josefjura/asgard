@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE items SET name = ?, note = ?, urgency = ? WHERE id = ? AND bought_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "894fd106de98240700ca0fdbce6c42e4c0f999743519ee67d6431a621e54b7cf"
+}

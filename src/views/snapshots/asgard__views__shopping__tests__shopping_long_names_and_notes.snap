@@ -83,9 +83,12 @@ expression: "page(&empty_form(), &long(), &[]).into_string().replace(\"><\", \">
 <span class="item-meta">
 <time datetime="2026-10-24T09:30">Saturday 24 October 2026, 09:30</time> · Šimon</span>
 </div>
+<div class="item-actions">
+<a class="button small secondary" href="/shopping/6/edit" hx-get="/shopping/6/edit" hx-target="#item-6" hx-swap="outerHTML" aria-describedby="item-6-name">Edit</a>
 <form method="post" action="/shopping/6/bought" hx-post="/shopping/6/bought" hx-target="#open-items" hx-swap="outerHTML">
 <button class="button small secondary" type="submit" aria-describedby="item-6-name">Bought</button>
 </form>
+</div>
 </li>
 </ul>
 </section>
@@ -101,9 +104,12 @@ expression: "page(&empty_form(), &long(), &[]).into_string().replace(\"><\", \">
 <span class="item-meta">
 <time datetime="2026-10-24T09:45">Saturday 24 October 2026, 09:45</time> · Josef</span>
 </div>
+<div class="item-actions">
+<a class="button small secondary" href="/shopping/7/edit" hx-get="/shopping/7/edit" hx-target="#item-7" hx-swap="outerHTML" aria-describedby="item-7-name">Edit</a>
 <form method="post" action="/shopping/7/bought" hx-post="/shopping/7/bought" hx-target="#open-items" hx-swap="outerHTML">
 <button class="button small secondary" type="submit" aria-describedby="item-7-name">Bought</button>
 </form>
+</div>
 </li>
 </ul>
 </section>
