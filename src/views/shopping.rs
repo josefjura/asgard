@@ -1,15 +1,46 @@
-//! The Shopping tab: the form a Member adds an Item with, and the open Items grouped by Urgency.
+//! The Shopping tab: the form a Member adds an Item with, the open Items grouped by Urgency, and
+//! those bought lately.
 
 use maud::{Markup, html};
 
-use crate::domain::shopping::{NAME_MAX, NOTE_MAX, OpenItem, Urgency};
+use crate::domain::shopping::{
+    BoughtItem, ItemId, NAME_MAX, NOTE_MAX, OpenItem, RECENTLY_BOUGHT_FOR, Urgency,
+};
 use crate::views::finance::problem;
 use crate::views::layout::shell;
 use crate::views::nav::{Place, Tab};
 use crate::views::time::{field_time, shown_time};
 
-/// The id of the open list, which adding an Item swaps in afresh.
+/// The id of the open list, which adding, buying and undoing swap in afresh.
 const OPEN_ITEMS_ID: &str = "open-items";
+
+/// The id of Recently bought, which buying and undoing swap in afresh.
+const RECENTLY_BOUGHT_ID: &str = "recently-bought";
+
+/// Whether Recently bought shows its Items or only its heading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fold {
+    Folded,
+    Unfolded,
+}
+
+/// Where the Shopping tab's buttons post. Routes match on the same paths.
+pub mod paths {
+    use crate::domain::shopping::ItemId;
+    use crate::views::nav::Tab;
+
+    /// Marks the open Item `id` bought.
+    #[must_use]
+    pub fn bought(id: ItemId) -> String {
+        format!("{}/{}/bought", Tab::Shopping.href(), id.get())
+    }
+
+    /// Takes back marking the Item `id` bought.
+    #[must_use]
+    pub fn undo(id: ItemId) -> String {
+        format!("{}/{}/undo", Tab::Shopping.href(), id.get())
+    }
+}
 
 /// What the Item form shows in its fields: what was typed, or nothing yet.
 #[derive(Debug, Clone, Copy, Default)]
@@ -36,9 +67,10 @@ const fn label(urgency: Urgency) -> &'static str {
     }
 }
 
-/// The Shopping tab: `form` to add an Item above every `open` one, grouped by Urgency.
+/// The Shopping tab: `form` to add an Item above every `open` one, grouped by Urgency, and the
+/// Items `bought` lately, folded away beneath.
 #[must_use]
-pub fn page(form: &Markup, open: &[OpenItem]) -> Markup {
+pub fn page(form: &Markup, open: &[OpenItem], bought: &[BoughtItem]) -> Markup {
     shell(
         Place::Tab(Tab::Shopping),
         &html! {
@@ -48,8 +80,19 @@ pub fn page(form: &Markup, open: &[OpenItem]) -> Markup {
                 (form)
             }
             (open_list(open, false))
+            (recently_bought_section(bought, Fold::Folded, false))
         },
     )
+}
+
+/// What htmx swaps in once an Item is marked bought or back: the `open` list in place of the old
+/// one, and Recently bought out of band, folded as `fold`.
+#[must_use]
+pub fn changed_lists(open: &[OpenItem], bought: &[BoughtItem], fold: Fold) -> Markup {
+    html! {
+        (open_list(open, false))
+        (recently_bought_section(bought, fold, true))
+    }
 }
 
 /// What htmx swaps in once an Item is added: `form` emptied for the next one, and the open list
@@ -88,22 +131,100 @@ fn open_list(open: &[OpenItem], out_of_band: bool) -> Markup {
     }
 }
 
-/// An open Item: its name, its note, and who added it when, in Prague time.
+/// An open Item: its name, its note, who added it when, in Prague time, and the button that
+/// marks it bought.
 #[must_use]
 pub fn item_row(item: &OpenItem) -> Markup {
     let time = item.added_at.crew_time();
+    let name_id = name_id(item.id);
     html! {
         li.item #{ "item-" (item.id.get()) } {
-            span.item-name { (item.name.as_str()) }
-            @if let Some(note) = &item.note {
-                p.item-note { (note_text(note.as_str())) }
+            div.item-main {
+                span.item-name #(name_id) { (item.name.as_str()) }
+                @if let Some(note) = &item.note {
+                    p.item-note { (note_text(note.as_str())) }
+                }
+                span.item-meta {
+                    time datetime=(field_time(time)) { (shown_time(time)) }
+                    " · " (item.added_by)
+                }
             }
-            span.item-meta {
-                time datetime=(field_time(time)) { (shown_time(time)) }
-                " · " (item.added_by)
+            (list_button(&paths::bought(item.id), "Bought", &name_id))
+        }
+    }
+}
+
+/// An Item bought lately: its name, who bought it when, in Prague time, and the button that takes
+/// it back.
+#[must_use]
+pub fn bought_row(item: &BoughtItem) -> Markup {
+    let time = item.bought_at.crew_time();
+    let name_id = name_id(item.id);
+    html! {
+        li.item #{ "item-" (item.id.get()) } {
+            div.item-main {
+                span.item-name #(name_id) { (item.name.as_str()) }
+                span.item-meta {
+                    "Bought " time datetime=(field_time(time)) { (shown_time(time)) }
+                    " · " (item.bought_by)
+                }
+            }
+            (list_button(&paths::undo(item.id), "Undo", &name_id))
+        }
+    }
+}
+
+/// The id of the name of the Item `id`, which its button is described by.
+fn name_id(id: ItemId) -> String {
+    format!("item-{}-name", id.get())
+}
+
+/// A button on an Item row that posts to `action` and, with htmx, swaps in the lists it answers
+/// with. Without htmx, it posts as a plain form.
+fn list_button(action: &str, text: &str, name_id: &str) -> Markup {
+    html! {
+        form method="post" action=(action) hx-post=(action)
+            hx-target={ "#" (OPEN_ITEMS_ID) } hx-swap="outerHTML" {
+            button.button.small.secondary type="submit" aria-describedby=(name_id) { (text) }
+        }
+    }
+}
+
+/// Recently bought, folded as `fold`: the Items `bought` lately, newest first, or a message
+/// saying nothing was. Swapped in out of band if `out_of_band`.
+fn recently_bought_section(bought: &[BoughtItem], fold: Fold, out_of_band: bool) -> Markup {
+    html! {
+        details.section.recently-bought #(RECENTLY_BOUGHT_ID) open[fold == Fold::Unfolded]
+            hx-swap-oob=[out_of_band.then_some("true")] {
+            summary {
+                h2 { "Recently bought" }
+                @if !bought.is_empty() {
+                    " " span.count { "(" (bought.len()) ")" }
+                }
+            }
+            @if bought.is_empty() {
+                p.muted { "Nothing bought in the last " (bought_days()) " days." }
+            } @else {
+                p.muted { "The last " (bought_days()) " days, newest first." }
+                ul.item-list {
+                    @for item in bought {
+                        (bought_row(item))
+                    }
+                }
             }
         }
     }
+}
+
+/// Recently bought on its own, folded as `fold`, as the gallery shows it.
+#[must_use]
+pub fn recently_bought(bought: &[BoughtItem], fold: Fold) -> Markup {
+    recently_bought_section(bought, fold, false)
+}
+
+/// How many days back Recently bought reaches.
+const fn bought_days() -> u64 {
+    RECENTLY_BOUGHT_FOR.as_secs() / (24 * 3600)
 }
 
 /// `note` as plain text, with each web address in it a link that opens in a new tab.
@@ -230,8 +351,23 @@ pub fn form(values: ItemValues, problems: &ItemProblems) -> Markup {
 #[cfg(any(test, debug_assertions))]
 pub mod fixtures {
     use super::{ItemProblems, ItemValues};
-    use crate::domain::shopping::fixtures::open as item;
-    use crate::domain::shopping::{OpenItem, Urgency};
+    use crate::domain::shopping::fixtures::{bought as bought_item, open as item};
+    use crate::domain::shopping::{BoughtItem, OpenItem, Urgency};
+
+    /// Three Items bought lately, newest first.
+    #[must_use]
+    pub fn bought() -> Vec<BoughtItem> {
+        vec![
+            bought_item(9, "Bottle caps", "2026-10-24T08:30", "Šimon"),
+            bought_item(8, "Irish moss", "2026-10-22T17:05", "Josef"),
+            bought_item(
+                10,
+                "A spare tap for the fermenter, the one with the long spout",
+                "2026-10-18T11:20",
+                "Ondra",
+            ),
+        ]
+    }
 
     /// A form refused for a blank name and a note over the limit.
     #[must_use]
@@ -323,7 +459,7 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
-    use super::fixtures::{long, open, refused};
+    use super::fixtures::{bought, long, open, refused};
     use super::*;
     use crate::domain::shopping::fixtures::open as item;
     use crate::views::assert_html_snapshot;
@@ -334,22 +470,95 @@ mod tests {
 
     #[test]
     fn shopping_empty() {
-        assert_html_snapshot!(page(&empty_form(), &[]));
+        assert_html_snapshot!(page(&empty_form(), &[], &[]));
     }
 
     #[test]
     fn shopping_all_groups() {
-        assert_html_snapshot!(page(&empty_form(), &open()));
+        assert_html_snapshot!(page(&empty_form(), &open(), &bought()));
     }
 
     #[test]
     fn shopping_long_names_and_notes() {
-        assert_html_snapshot!(page(&empty_form(), &long()));
+        assert_html_snapshot!(page(&empty_form(), &long(), &[]));
     }
 
     #[test]
     fn open_item_row() {
         assert_html_snapshot!(item_row(&open()[2]));
+    }
+
+    #[test]
+    fn bought_item_row() {
+        assert_html_snapshot!(bought_row(&bought()[0]));
+    }
+
+    #[test]
+    fn recently_bought_empty() {
+        assert_html_snapshot!(recently_bought(&[], Fold::Folded));
+    }
+
+    #[test]
+    fn recently_bought_with_items() {
+        assert_html_snapshot!(recently_bought(&bought(), Fold::Unfolded));
+    }
+
+    #[test]
+    fn an_open_item_is_marked_bought_in_place() {
+        let html = item_row(&open()[0]).into_string();
+
+        assert!(html.contains(
+            r##"<form method="post" action="/shopping/1/bought" hx-post="/shopping/1/bought" hx-target="#open-items" hx-swap="outerHTML"><button class="button small secondary" type="submit" aria-describedby="item-1-name">Bought</button></form>"##
+        ), "{html}");
+        assert!(html.contains(r#"<span class="item-name" id="item-1-name">Star San</span>"#));
+    }
+
+    #[test]
+    fn a_bought_item_shows_who_bought_it_when_in_prague_and_can_be_undone() {
+        let html = bought_row(&bought()[0]).into_string();
+
+        assert!(html.contains(
+            r#"Bought <time datetime="2026-10-24T08:30">Saturday 24 October 2026, 08:30</time> · Šimon"#
+        ), "{html}");
+        assert!(html.contains(
+            r##"action="/shopping/9/undo" hx-post="/shopping/9/undo" hx-target="#open-items""##
+        ));
+        assert!(html.contains(">Undo</button>"));
+    }
+
+    #[test]
+    fn recently_bought_is_folded_away_on_the_tab() {
+        let html = page(&empty_form(), &open(), &bought()).into_string();
+
+        assert!(html.contains(r#"<details class="section recently-bought" id="recently-bought">"#));
+        assert!(html.contains(r#"<h2>Recently bought</h2> <span class="count">(3)</span>"#));
+        let open_list = html.find(r#"id="open-items""#).unwrap();
+        assert!(open_list < html.find(r#"id="recently-bought""#).unwrap());
+    }
+
+    #[test]
+    fn nothing_bought_says_so() {
+        let html = recently_bought(&[], Fold::Folded).into_string();
+
+        assert!(html.contains("Nothing bought in the last 7 days."));
+        assert!(!html.contains("count"));
+    }
+
+    #[test]
+    fn buying_swaps_in_the_open_list_and_recently_bought_out_of_band() {
+        let html = changed_lists(&open(), &bought(), Fold::Folded).into_string();
+
+        assert!(html.starts_with(r#"<div id="open-items">"#), "{html}");
+        assert!(html.contains(
+            r#"<details class="section recently-bought" id="recently-bought" hx-swap-oob="true">"#
+        ));
+
+        let html = changed_lists(&open(), &bought(), Fold::Unfolded).into_string();
+
+        assert!(
+            html.contains(r#"id="recently-bought" open hx-swap-oob="true">"#),
+            "{html}"
+        );
     }
 
     #[test]
@@ -373,13 +582,13 @@ mod tests {
             "2026-10-20T08:00",
             "Josef",
         )];
-        let html = page(&empty_form(), &only_later).into_string();
+        let html = page(&empty_form(), &only_later, &[]).into_string();
 
         assert!(html.contains(r#"<h2 id="urgency-nice-to-have">Nice to have</h2>"#));
         assert!(!html.contains("urgency-asap"));
         assert!(!html.contains("Nothing to buy"));
 
-        let html = page(&empty_form(), &open()).into_string();
+        let html = page(&empty_form(), &open(), &[]).into_string();
         let asap = html.find(">ASAP</h2>").unwrap();
         let next = html.find(">Next brewday</h2>").unwrap();
         let nice = html.find(">Nice to have</h2>").unwrap();
@@ -397,7 +606,7 @@ mod tests {
 
     #[test]
     fn an_empty_list_says_theres_nothing_to_buy() {
-        let html = page(&empty_form(), &[]).into_string();
+        let html = page(&empty_form(), &[], &[]).into_string();
 
         assert!(html.contains("Nothing to buy."));
     }

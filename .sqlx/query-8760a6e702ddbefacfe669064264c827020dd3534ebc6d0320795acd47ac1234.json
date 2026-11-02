@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT items.id AS \"id!\", items.name, items.bought_at AS \"bought_at!\",\n                      members.display_name AS bought_by\n               FROM items\n               JOIN members ON members.id = items.bought_by\n               WHERE items.bought_at >= ?\n               ORDER BY items.bought_at DESC, items.id DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "bought_at!",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "bought_by",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "8760a6e702ddbefacfe669064264c827020dd3534ebc6d0320795acd47ac1234"
+}

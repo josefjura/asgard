@@ -1,0 +1,39 @@
+---
+source: src/views/shopping.rs
+expression: "recently_bought(&bought(), true).into_string().replace(\"><\", \">\\n<\")"
+---
+<details class="section recently-bought" id="recently-bought" open>
+<summary>
+<h2>Recently bought</h2> <span class="count">(3)</span>
+</summary>
+<p class="muted">The last 7 days, newest first.</p>
+<ul class="item-list">
+<li class="item" id="item-9">
+<div class="item-main">
+<span class="item-name" id="item-9-name">Bottle caps</span>
+<span class="item-meta">Bought <time datetime="2026-10-24T08:30">Saturday 24 October 2026, 08:30</time> · Šimon</span>
+</div>
+<form method="post" action="/shopping/9/undo" hx-post="/shopping/9/undo" hx-target="#open-items" hx-swap="outerHTML">
+<button class="button small secondary" type="submit" aria-describedby="item-9-name">Undo</button>
+</form>
+</li>
+<li class="item" id="item-8">
+<div class="item-main">
+<span class="item-name" id="item-8-name">Irish moss</span>
+<span class="item-meta">Bought <time datetime="2026-10-22T17:05">Thursday 22 October 2026, 17:05</time> · Josef</span>
+</div>
+<form method="post" action="/shopping/8/undo" hx-post="/shopping/8/undo" hx-target="#open-items" hx-swap="outerHTML">
+<button class="button small secondary" type="submit" aria-describedby="item-8-name">Undo</button>
+</form>
+</li>
+<li class="item" id="item-10">
+<div class="item-main">
+<span class="item-name" id="item-10-name">A spare tap for the fermenter, the one with the long spout</span>
+<span class="item-meta">Bought <time datetime="2026-10-18T11:20">Sunday 18 October 2026, 11:20</time> · Ondra</span>
+</div>
+<form method="post" action="/shopping/10/undo" hx-post="/shopping/10/undo" hx-target="#open-items" hx-swap="outerHTML">
+<button class="button small secondary" type="submit" aria-describedby="item-10-name">Undo</button>
+</form>
+</li>
+</ul>
+</details>

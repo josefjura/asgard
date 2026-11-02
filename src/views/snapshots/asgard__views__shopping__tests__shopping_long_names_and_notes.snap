@@ -1,6 +1,6 @@
 ---
 source: src/views/shopping.rs
-expression: "page(&empty_form(), &long()).into_string().replace(\"><\", \">\\n<\")"
+expression: "page(&empty_form(), &long(), &[]).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -77,10 +77,15 @@ expression: "page(&empty_form(), &long()).into_string().replace(\"><\", \">\\n<\
 <h2 id="urgency-asap">ASAP</h2>
 <ul class="item-list">
 <li class="item" id="item-6">
-<span class="item-name">Mangrove Jack's Bavarian Wheat yeast, or any other dry wheat yeast if they don't have it Mangrove Jack's Bavarian Wheat yeast, or any other dry wheat yeast if they don't have it</span>
+<div class="item-main">
+<span class="item-name" id="item-6-name">Mangrove Jack's Bavarian Wheat yeast, or any other dry wheat yeast if they don't have it Mangrove Jack's Bavarian Wheat yeast, or any other dry wheat yeast if they don't have it</span>
 <p class="item-note">Ask at the counter whether they can order more for next month. Ask at the counter whether they can order more for next month. Ask at the counter whether they can order more for next month. Ask at the counter whether they can order more for next month. Ask at the counter whether they can order more for next month. Ask at the counter whether they can order more for next month. Ask at the counter whether they can order more for next month.</p>
 <span class="item-meta">
 <time datetime="2026-10-24T09:30">Saturday 24 October 2026, 09:30</time> · Šimon</span>
+</div>
+<form method="post" action="/shopping/6/bought" hx-post="/shopping/6/bought" hx-target="#open-items" hx-swap="outerHTML">
+<button class="button small secondary" type="submit" aria-describedby="item-6-name">Bought</button>
+</form>
 </li>
 </ul>
 </section>
@@ -88,16 +93,27 @@ expression: "page(&empty_form(), &long()).into_string().replace(\"><\", \">\\n<\
 <h2 id="urgency-nice-to-have">Nice to have</h2>
 <ul class="item-list">
 <li class="item" id="item-7">
-<span class="item-name">Dezinfekčnípřípravekprorozlévárnupiva</span>
+<div class="item-main">
+<span class="item-name" id="item-7-name">Dezinfekčnípřípravekprorozlévárnupiva</span>
 <p class="item-note">
 <a href="https://www.example.cz/a/very/long/address/that/goes/on/and/on/without/a/single/space/to/break/at" target="_blank" rel="noopener noreferrer">https://www.example.cz/a/very/long/address/that/goes/on/and/on/without/a/single/space/to/break/at</a>
 </p>
 <span class="item-meta">
 <time datetime="2026-10-24T09:45">Saturday 24 October 2026, 09:45</time> · Josef</span>
+</div>
+<form method="post" action="/shopping/7/bought" hx-post="/shopping/7/bought" hx-target="#open-items" hx-swap="outerHTML">
+<button class="button small secondary" type="submit" aria-describedby="item-7-name">Bought</button>
+</form>
 </li>
 </ul>
 </section>
 </div>
+<details class="section recently-bought" id="recently-bought">
+<summary>
+<h2>Recently bought</h2>
+</summary>
+<p class="muted">Nothing bought in the last 7 days.</p>
+</details>
 </main>
 <nav class="tabs" aria-label="Sections">
 <a class="tab" href="/">

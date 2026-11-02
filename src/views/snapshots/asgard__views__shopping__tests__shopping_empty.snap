@@ -1,6 +1,6 @@
 ---
 source: src/views/shopping.rs
-expression: "page(&empty_form(), &[]).into_string().replace(\"><\", \">\\n<\")"
+expression: "page(&empty_form(), &[], &[]).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -75,6 +75,12 @@ expression: "page(&empty_form(), &[]).into_string().replace(\"><\", \">\\n<\")"
 <div id="open-items">
 <p class="empty">Nothing to buy. Add an Item and the Crew sees it here.</p>
 </div>
+<details class="section recently-bought" id="recently-bought">
+<summary>
+<h2>Recently bought</h2>
+</summary>
+<p class="muted">Nothing bought in the last 7 days.</p>
+</details>
 </main>
 <nav class="tabs" aria-label="Sections">
 <a class="tab" href="/">

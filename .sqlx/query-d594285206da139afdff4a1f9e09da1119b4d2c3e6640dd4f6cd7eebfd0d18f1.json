@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE items SET bought_by = ?, bought_at = ? WHERE id = ? AND bought_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "d594285206da139afdff4a1f9e09da1119b4d2c3e6640dd4f6cd7eebfd0d18f1"
+}

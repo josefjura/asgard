@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT items.id AS \"id!\", items.name, items.note, items.urgency, items.added_at,\n                      members.display_name AS added_by\n               FROM items\n               JOIN members ON members.id = items.added_by\n               ORDER BY items.added_at, items.id",
+  "query": "SELECT items.id AS \"id!\", items.name, items.note, items.urgency, items.added_at,\n                      members.display_name AS added_by\n               FROM items\n               JOIN members ON members.id = items.added_by\n               WHERE items.bought_at IS NULL\n               ORDER BY items.added_at, items.id",
   "describe": {
     "columns": [
       {
@@ -46,5 +46,5 @@
       false
     ]
   },
-  "hash": "d8acc942857ada0f3f3c3306982381e4db18a801aab945544b0b3cccaef3d2bf"
+  "hash": "af0be85bcfa5d9cdbe2e9a273be842a607c86c64b6075535c1f3aa5775e7a224"
 }

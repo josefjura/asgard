@@ -1,0 +1,13 @@
+---
+source: src/views/shopping.rs
+expression: "bought_row(&bought()[0]).into_string().replace(\"><\", \">\\n<\")"
+---
+<li class="item" id="item-9">
+<div class="item-main">
+<span class="item-name" id="item-9-name">Bottle caps</span>
+<span class="item-meta">Bought <time datetime="2026-10-24T08:30">Saturday 24 October 2026, 08:30</time> · Šimon</span>
+</div>
+<form method="post" action="/shopping/9/undo" hx-post="/shopping/9/undo" hx-target="#open-items" hx-swap="outerHTML">
+<button class="button small secondary" type="submit" aria-describedby="item-9-name">Undo</button>
+</form>
+</li>
