@@ -16,6 +16,7 @@ pub mod offline;
 pub mod passkey;
 pub mod passkeys;
 pub mod push;
+pub mod quotes;
 pub mod reminders;
 pub mod settings;
 pub mod shopping;

@@ -14,6 +14,7 @@ mod origin;
 mod pages;
 mod passkeys;
 mod push;
+mod quotes;
 mod registration;
 mod reminders;
 mod settings;
@@ -39,10 +40,9 @@ use crate::domain::events::{Event, Events};
 use crate::domain::finance::Finance;
 use crate::domain::members::Members;
 use crate::domain::push::PushSubscriptions;
+use crate::domain::quotes::Quotes;
 use crate::domain::reminders::Reminders;
 use crate::domain::shopping::Shopping;
-use crate::views::nav::Tab;
-
 pub use access::{Member, MemberSession};
 pub use error::AppError;
 pub use origin::PublicOrigin;
@@ -59,6 +59,7 @@ pub struct AppState {
     pub push: PushSubscriptions,
     pub reminders: Reminders,
     pub shopping: Shopping,
+    pub quotes: Quotes,
     /// The VAPID public key browsers subscribe with, base64url.
     pub vapid_public_key: Arc<str>,
     pub events: Events,
@@ -94,6 +95,7 @@ impl AppState {
                 clock.clone(),
                 events.emitter(Event::AsapItemAdded),
             ),
+            quotes: Quotes::new(db.clone(), clock.clone()),
             vapid_public_key: vapid_public_key.into(),
             events,
             public_origin: PublicOrigin::of(public_url),
@@ -108,7 +110,7 @@ pub fn router(state: AppState) -> Router {
 }
 
 fn routes() -> Router<AppState> {
-    let mut router = Router::new()
+    let router = Router::new()
         .route("/health/live", get(health::live))
         .route("/health/ready", get(health::ready))
         .route("/offline", get(pages::offline))
@@ -121,6 +123,7 @@ fn routes() -> Router<AppState> {
         .merge(finance::routes())
         .merge(reminders::routes())
         .merge(shopping::routes())
+        .merge(quotes::routes())
         .merge(sign_in::routes())
         .merge(links::routes())
         .merge(welcome::routes())
@@ -128,12 +131,8 @@ fn routes() -> Router<AppState> {
         .merge(passkeys::routes())
         .merge(push::routes())
         .merge(admin::routes());
-    // Quotes is a placeholder for now; the other tabs have their own routes.
-    router = router.route(Tab::Quotes.href(), pages::tab(Tab::Quotes));
     #[cfg(debug_assertions)]
-    {
-        router = router.route("/dev/gallery", get(gallery::show));
-    }
+    let router = router.route("/dev/gallery", get(gallery::show));
     router
 }
 

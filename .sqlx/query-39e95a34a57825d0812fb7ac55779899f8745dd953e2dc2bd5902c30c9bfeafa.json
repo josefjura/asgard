@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT quotes.id AS \"id!\", quotes.text, quotes.author,\n                      quotes.added_at AS \"added_at!\",\n                      members.display_name AS \"added_by?\"\n               FROM quotes\n               LEFT JOIN members ON members.id = quotes.added_by\n               ORDER BY quotes.added_at DESC, quotes.id DESC\n               LIMIT ? OFFSET ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "text",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "author",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "added_at!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "added_by?",
+        "ordinal": 4,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "39e95a34a57825d0812fb7ac55779899f8745dd953e2dc2bd5902c30c9bfeafa"
+}

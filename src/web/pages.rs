@@ -1,17 +1,8 @@
 use axum::http::header::CACHE_CONTROL;
 use axum::response::IntoResponse;
-use axum::routing::{MethodRouter, get};
 use maud::Markup;
 
-use super::AppState;
-use super::access::Member;
 use crate::views;
-use crate::views::nav::Tab;
-
-/// A tab's placeholder page, for signed-in Members only.
-pub fn tab(tab: Tab) -> MethodRouter<AppState> {
-    get(move |Member(_): Member| async move { fresh(views::tabs::page(tab)) })
-}
 
 /// The page the service worker caches and shows when there is no network.
 pub async fn offline() -> impl IntoResponse {
