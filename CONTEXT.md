@@ -106,6 +106,10 @@ _Avoid_: notification, alert
 A common due time the Reminder form fills in with one tap, worked out from now in Prague: *+1 hour*, *Tomorrow 9:00* or *+1 week*.
 _Avoid_: preset, shortcut
 
+**Notification**:
+A push message shown on a Member's subscribed device, telling them about a due Reminder, an Expense or Payment that involves them, or an *ASAP* Item. Tapping it opens the tab it is about.
+_Avoid_: alert, message
+
 ## Quotes
 
 **Quote**:

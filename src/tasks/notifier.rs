@@ -60,8 +60,12 @@ async fn deliver<S: PushSender>(delivery: Delivery, subscriptions: PushSubscript
         });
     }
     while let Some(pushed) = pushes.join_next().await {
-        let Ok((device, outcome)) = pushed else {
-            continue;
+        let (device, outcome) = match pushed {
+            Ok(done) => done,
+            Err(err) => {
+                tracing::error!(error = %err, "a push task failed");
+                continue;
+            }
         };
         match outcome {
             Outcome::Delivered => {}

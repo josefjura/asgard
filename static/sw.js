@@ -47,7 +47,7 @@ async function offlineResponse() {
 
 // A push carries the notification as JSON: { title, body, url }, url being the tab to open.
 self.addEventListener("push", (event) => {
-  const { title, body, url } = event.data?.json() ?? {};
+  const { title, body, url } = readPush(event.data);
   event.waitUntil(
     self.registration.showNotification(title ?? "Asgard", {
       body,
@@ -57,6 +57,14 @@ self.addEventListener("push", (event) => {
     }),
   );
 });
+
+function readPush(data) {
+  try {
+    return data?.json() ?? {};
+  } catch {
+    return { body: data?.text() };
+  }
+}
 
 // Tapping a notification brings an open Asgard window to its tab, or opens one there.
 self.addEventListener("notificationclick", (event) => {
