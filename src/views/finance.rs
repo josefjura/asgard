@@ -92,20 +92,10 @@ pub enum Purpose {
     Edit,
 }
 
-/// `crowns` the way the Crew reads money: thousands grouped by a space that never breaks, and
-/// "Kč". A negative amount gets a true minus sign.
+/// `crowns` the way the Crew reads money, as [`Crowns`] displays it.
 #[must_use]
 pub fn crowns(crowns: Crowns) -> String {
-    let digits = crowns.get().unsigned_abs().to_string();
-    let mut grouped = String::new();
-    for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            grouped.push('\u{a0}');
-        }
-        grouped.push(digit);
-    }
-    let sign = if crowns.get() < 0 { "\u{2212}" } else { "" };
-    format!("{sign}{grouped}\u{a0}Kč")
+    crowns.to_string()
 }
 
 /// A Balance as the Crew list shows it: Even, or with its sign spelled out so owing and being

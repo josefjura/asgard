@@ -13,21 +13,27 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinSet;
 
 use crate::domain::events::Event;
+use crate::domain::members::Members;
 use crate::domain::notifications::{Delivery, Outcome, PushSender};
 use crate::domain::push::PushSubscriptions;
 
-/// Delivers every event that arrives on `events` until the channel closes.
+/// Delivers every event that arrives on `events` until the channel closes, naming Members as
+/// `members` does.
 pub async fn run<S: PushSender>(
     mut events: broadcast::Receiver<Event>,
+    members: Members,
     subscriptions: PushSubscriptions,
     sender: S,
 ) {
     loop {
         match events.recv().await {
             Ok(event) => {
-                if let Some(delivery) = Delivery::for_event(&event) {
-                    tokio::spawn(deliver(delivery, subscriptions.clone(), sender.clone()));
-                }
+                tokio::spawn(deliver(
+                    event,
+                    members.clone(),
+                    subscriptions.clone(),
+                    sender.clone(),
+                ));
             }
             Err(RecvError::Lagged(missed)) => {
                 tracing::warn!(missed, "the notifier fell behind and dropped events");
@@ -37,27 +43,35 @@ pub async fn run<S: PushSender>(
     }
 }
 
-/// Pushes `delivery` to every device of the Members it's for.
-async fn deliver<S: PushSender>(delivery: Delivery, subscriptions: PushSubscriptions, sender: S) {
-    let devices = match subscriptions.devices().await {
-        Ok(devices) => devices,
+/// Pushes each notification `event` makes to every device of the Members it's for.
+async fn deliver<S: PushSender>(
+    event: Event,
+    members: Members,
+    subscriptions: PushSubscriptions,
+    sender: S,
+) {
+    let (crew, devices) = match tokio::try_join!(members.all(), subscriptions.devices()) {
+        Ok(found) => found,
         Err(err) => {
             tracing::error!(error = %err, "the notifier can't reach the database");
             return;
         }
     };
-    let notification = Arc::new(delivery.notification);
     let mut pushes = JoinSet::new();
-    for device in devices
-        .into_iter()
-        .filter(|device| delivery.to.contains(&device.member))
-    {
-        let sender = sender.clone();
-        let notification = Arc::clone(&notification);
-        pushes.spawn(async move {
-            let outcome = sender.send(&device.subscription, &notification).await;
-            (device, outcome)
-        });
+    for delivery in Delivery::for_event(&event, &crew) {
+        let notification = Arc::new(delivery.notification);
+        for device in devices
+            .iter()
+            .filter(|device| delivery.to.contains(&device.member))
+        {
+            let sender = sender.clone();
+            let device = device.clone();
+            let notification = Arc::clone(&notification);
+            pushes.spawn(async move {
+                let outcome = sender.send(&device.subscription, &notification).await;
+                (device, outcome)
+            });
+        }
     }
     while let Some(pushed) = pushes.join_next().await {
         let (device, outcome) = match pushed {
@@ -102,7 +116,11 @@ mod tests {
     use crate::domain::auth::fixtures::add_session;
     use crate::domain::auth::passkey_fixtures::add_passkey;
     use crate::domain::channel::{Channel, Emitter};
+    use jiff::civil::date;
+
     use crate::domain::clock::ManualClock;
+    use crate::domain::finance::money::Amount;
+    use crate::domain::finance::{Description, Finance, NewExpense, NewPayment};
     use crate::domain::members::MemberId;
     use crate::domain::members::fixtures::add_member;
     use crate::domain::notifications::fixtures::{FakeSender, Sent, drain};
@@ -112,7 +130,9 @@ mod tests {
 
     /// A Crew whose devices the notifier pushes to.
     struct Crew {
+        members: Members,
         subscriptions: PushSubscriptions,
+        finance: Finance,
         due: Emitter<ReminderDue>,
         channel: Channel<Event>,
     }
@@ -121,7 +141,18 @@ mod tests {
         fn new(db: SqlitePool) -> Self {
             let clock = ManualClock::starting_at(SystemTime::UNIX_EPOCH);
             let channel = Channel::new();
+            // After the fixture Members joined, so Finance takes their Expenses.
+            let april = ManualClock::starting_at(
+                date(2026, 4, 1)
+                    .at(12, 0, 0, 0)
+                    .to_zoned(jiff::tz::TimeZone::UTC)
+                    .unwrap()
+                    .timestamp()
+                    .into(),
+            );
             Self {
+                members: Members::new(db.clone()),
+                finance: Finance::new(db.clone(), april.clock(), channel.emitter(Event::Finance)),
                 subscriptions: PushSubscriptions::new(db, clock.clock()),
                 due: channel.emitter(Event::ReminderDue),
                 channel,
@@ -132,6 +163,7 @@ mod tests {
         fn notify_with(&self, sender: FakeSender) {
             tokio::spawn(run(
                 self.channel.subscribe(),
+                self.members.clone(),
                 self.subscriptions.clone(),
                 sender,
             ));
@@ -292,5 +324,82 @@ mod tests {
         .await
         .expect("both Reminders are pushed while the other's push hangs");
         assert_eq!(bodies, ["First", "Second"]);
+    }
+
+    fn finance(title: &str, body: &str) -> Notification {
+        Notification {
+            title: title.to_owned(),
+            body: body.to_owned(),
+            opens: Opens::Finance,
+            urgency: Urgency::Normal,
+        }
+    }
+
+    #[sqlx::test]
+    async fn an_expense_reaches_its_split_but_not_the_actor(db: SqlitePool) {
+        let crew = Crew::new(db.clone());
+        let josef = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let simon = add_member(&db, "Šimon", false).await;
+        crew.subscribe(&db, josef, "josef").await;
+        crew.subscribe(&db, ondra, "ondra").await;
+        crew.subscribe(&db, simon, "simon").await;
+        let (sender, mut pushes) = FakeSender::delivering();
+        crew.notify_with(sender);
+
+        crew.finance
+            .log_expense(
+                ondra,
+                &NewExpense {
+                    payer: ondra,
+                    amount: Amount::new(1240).unwrap(),
+                    description: Description::parse("Hops").unwrap(),
+                    expense_date: date(2026, 3, 20),
+                },
+            )
+            .await
+            .unwrap();
+
+        let expected = finance("Ondra logged an Expense", "1\u{a0}240\u{a0}Kč · Hops");
+        assert_eq!(
+            drain(&mut pushes).await,
+            [sent("josef", &expected), sent("simon", &expected)]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_payment_reaches_only_its_other_side(db: SqlitePool) {
+        let crew = Crew::new(db.clone());
+        let josef = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let simon = add_member(&db, "Šimon", false).await;
+        crew.subscribe(&db, josef, "josef-laptop").await;
+        crew.subscribe(&db, josef, "josef-phone").await;
+        crew.subscribe(&db, ondra, "ondra").await;
+        crew.subscribe(&db, simon, "simon").await;
+        let (sender, mut pushes) = FakeSender::delivering();
+        crew.notify_with(sender);
+
+        crew.finance
+            .log_payment(
+                ondra,
+                &NewPayment {
+                    sender: ondra,
+                    recipient: josef,
+                    amount: Amount::new(500).unwrap(),
+                    description: None,
+                },
+            )
+            .await
+            .unwrap();
+
+        let expected = finance("Ondra sent you a Payment", "500\u{a0}Kč");
+        assert_eq!(
+            drain(&mut pushes).await,
+            [
+                sent("josef-laptop", &expected),
+                sent("josef-phone", &expected)
+            ]
+        );
     }
 }

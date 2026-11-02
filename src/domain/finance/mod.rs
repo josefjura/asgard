@@ -302,10 +302,28 @@ pub enum EntryAction {
     Deleted,
 }
 
+/// The Expense or Payment an event is about, as it stands after an edit, or as it was before a
+/// deletion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChangedEntry {
+    Expense(ExpenseId, NewExpense),
+    Payment(PaymentId, NewPayment),
+}
+
+impl ChangedEntry {
+    #[must_use]
+    pub const fn id(&self) -> EntryId {
+        match self {
+            Self::Expense(id, _) => EntryId::Expense(*id),
+            Self::Payment(id, _) => EntryId::Payment(*id),
+        }
+    }
+}
+
 /// A Member added, edited or deleted an Expense or Payment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FinanceEvent {
-    pub entry: EntryId,
+    pub entry: ChangedEntry,
     pub action: EntryAction,
     /// The Member who did it.
     pub actor: MemberId,
@@ -366,7 +384,12 @@ impl Finance {
         .execute(&self.db)
         .await?;
         let id = ExpenseId(done.last_insert_rowid());
-        self.emit(EntryId::Expense(id), EntryAction::Added, logger, split);
+        self.emit(
+            ChangedEntry::Expense(id, expense.clone()),
+            EntryAction::Added,
+            logger,
+            split,
+        );
         Ok(id)
     }
 
@@ -392,7 +415,7 @@ impl Finance {
     /// Emits that `actor` did `action` to `entry`, for everyone `involved` but the actor to hear.
     fn emit(
         &self,
-        entry: EntryId,
+        entry: ChangedEntry,
         action: EntryAction,
         actor: MemberId,
         involved: impl IntoIterator<Item = MemberId>,
@@ -501,7 +524,7 @@ impl Finance {
             return Err(EntryError::NotFound.into());
         }
         self.emit(
-            EntryId::Expense(id),
+            ChangedEntry::Expense(id, expense.clone()),
             EntryAction::Edited,
             editor.id,
             involved,
@@ -533,7 +556,12 @@ impl Finance {
         if done.rows_affected() == 0 {
             return Err(EntryError::NotFound);
         }
-        self.emit(EntryId::Expense(id), EntryAction::Deleted, member.id, split);
+        self.emit(
+            ChangedEntry::Expense(id, expense),
+            EntryAction::Deleted,
+            member.id,
+            split,
+        );
         Ok(())
     }
 
@@ -570,7 +598,7 @@ impl Finance {
         .await?;
         let id = PaymentId(done.last_insert_rowid());
         self.emit(
-            EntryId::Payment(id),
+            ChangedEntry::Payment(id, payment.clone()),
             EntryAction::Added,
             logger,
             payment.involved(),
@@ -677,7 +705,7 @@ impl Finance {
             return Err(EntryError::NotFound.into());
         }
         self.emit(
-            EntryId::Payment(id),
+            ChangedEntry::Payment(id, payment.clone()),
             EntryAction::Edited,
             editor.id,
             involved,
@@ -708,11 +736,12 @@ impl Finance {
         if done.rows_affected() == 0 {
             return Err(EntryError::NotFound);
         }
+        let involved = payment.involved();
         self.emit(
-            EntryId::Payment(id),
+            ChangedEntry::Payment(id, payment),
             EntryAction::Deleted,
             member.id,
-            payment.involved(),
+            involved,
         );
         Ok(())
     }
@@ -1768,22 +1797,78 @@ mod tests {
     }
 
     /// Every event emitted since the last call.
-    fn emitted(subscription: &mut broadcast::Receiver<FinanceEvent>) -> Vec<FinanceEvent> {
+    fn emitted_events(subscription: &mut broadcast::Receiver<FinanceEvent>) -> Vec<FinanceEvent> {
         std::iter::from_fn(|| subscription.try_recv().ok()).collect()
     }
 
-    fn event(
+    /// An event without the entry's details: which entry, what was done to it, by whom, and
+    /// who hears of it.
+    #[derive(Debug, PartialEq, Eq)]
+    struct Heard {
         entry: EntryId,
         action: EntryAction,
-        actor: &Member,
-        notify: &[&Member],
-    ) -> FinanceEvent {
-        FinanceEvent {
+        actor: MemberId,
+        notify: Vec<MemberId>,
+    }
+
+    /// Every event emitted since the last call, without the entries' details.
+    fn emitted(subscription: &mut broadcast::Receiver<FinanceEvent>) -> Vec<Heard> {
+        emitted_events(subscription)
+            .into_iter()
+            .map(|event| Heard {
+                entry: event.entry.id(),
+                action: event.action,
+                actor: event.actor,
+                notify: event.notify,
+            })
+            .collect()
+    }
+
+    fn event(entry: EntryId, action: EntryAction, actor: &Member, notify: &[&Member]) -> Heard {
+        Heard {
             entry,
             action,
             actor: actor.id,
             notify: notify.iter().map(|member| member.id).collect(),
         }
+    }
+
+    #[sqlx::test]
+    async fn an_event_carries_the_entry_as_it_stands(db: SqlitePool) {
+        let (josef, ondra, _) = crew_of_three(&db).await;
+        let (finance, mut events) = finance_and_events(db);
+        let logged = expense(ondra.id, 300, "Malt", date(2026, 3, 20));
+        let edited = expense(ondra.id, 600, "Hops", date(2026, 3, 21));
+        let expense_id = finance.log_expense(ondra.id, &logged).await.unwrap();
+        finance
+            .edit_expense(&ondra, expense_id, &edited)
+            .await
+            .unwrap();
+        finance.delete_expense(&josef, expense_id).await.unwrap();
+        let sent = payment(ondra.id, josef.id, 200, "");
+        let resent = payment(ondra.id, josef.id, 250, "Beer money");
+        let payment_id = finance.log_payment(ondra.id, &sent).await.unwrap();
+        finance
+            .edit_payment(&ondra, payment_id, &resent)
+            .await
+            .unwrap();
+        finance.delete_payment(&josef, payment_id).await.unwrap();
+
+        let entries: Vec<_> = emitted_events(&mut events)
+            .into_iter()
+            .map(|event| event.entry)
+            .collect();
+        assert_eq!(
+            entries,
+            [
+                ChangedEntry::Expense(expense_id, logged),
+                ChangedEntry::Expense(expense_id, edited.clone()),
+                ChangedEntry::Expense(expense_id, edited),
+                ChangedEntry::Payment(payment_id, sent),
+                ChangedEntry::Payment(payment_id, resent.clone()),
+                ChangedEntry::Payment(payment_id, resent),
+            ]
+        );
     }
 
     /// Moves Šimon's join date to 25 March 2026, after the other fixture Members' 14 March.
