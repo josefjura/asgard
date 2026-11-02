@@ -1,0 +1,11 @@
+---
+source: src/views/quotes.rs
+expression: "quote_row(&imported()).into_string().replace(\"><\", \">\\n<\")"
+---
+<li class="quote">
+<p class="quote-text">Dej tam ještě jeden chmel.</p>
+<p class="quote-author">The brewer next door</p>
+<p class="quote-meta">
+<time datetime="2026-10-24T11:30">Saturday 24 October 2026, 11:30</time>
+</p>
+</li>

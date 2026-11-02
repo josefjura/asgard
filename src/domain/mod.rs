@@ -10,6 +10,7 @@ pub mod finance;
 pub mod members;
 pub mod notifications;
 pub mod push;
+pub mod quotes;
 pub mod reminders;
 pub mod shopping;
 pub mod user_agent;

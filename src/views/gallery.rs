@@ -19,6 +19,7 @@ use crate::views::nav::{ADMIN_HREF, Place, Tab, bottom_nav};
 use crate::views::passkey::CeremonyUrls;
 use crate::views::passkeys::{self, Outcome as PasskeyOutcome};
 use crate::views::push::{self, PushState, PushUrls};
+use crate::views::quotes::{self, QuoteProblems, QuoteValues};
 use crate::views::reminders::{self, ReminderProblems, ReminderValues};
 use crate::views::shopping::{self, Fold, ItemProblems, ItemValues};
 use crate::views::{invite, offline, settings, sign_in, tabs, welcome};
@@ -80,6 +81,12 @@ const ITEM_ROW_HEIGHT: u16 = 160;
 const RECENTLY_BOUGHT_HEIGHT: u16 = 420;
 /// The Item form with its note open and a problem under it.
 const ITEM_FORM_HEIGHT: u16 = 560;
+/// The Quotes tab with nothing in the collection yet.
+const QUOTES_HEIGHT: u16 = 900;
+/// A Quote row whose text wraps, or breaks across lines.
+const QUOTE_ROW_HEIGHT: u16 = 280;
+/// The add form with a problem under each field.
+const QUOTE_FORM_HEIGHT: u16 = 700;
 const DESKTOP_WIDTH: u16 = 1280;
 
 /// # Panics
@@ -184,6 +191,7 @@ pub fn fixtures() -> Vec<Fixture> {
         .chain(finance_pages())
         .chain(reminder_pages())
         .chain(shopping_pages())
+        .chain(quotes_pages())
         .collect()
 }
 
@@ -469,6 +477,50 @@ fn shopping_pages() -> Vec<Fixture> {
         .chain(forms)
         .chain([edit_page])
         .collect()
+}
+
+/// The Quotes tab with nothing in the collection; a Quote row with and without Added by, a long
+/// one and a multi-line one; and the add form empty and refused.
+fn quotes_pages() -> Vec<Fixture> {
+    use quotes::fixtures::{authors, empty, imported, long, multiline, refused, remembered};
+
+    let authors = authors();
+    let empty_form = quotes::form(QuoteValues::default(), &QuoteProblems::default(), &authors);
+    let (values, problems) = refused();
+    let refused_form = quotes::form(values, &problems, &authors);
+    let tab = Fixture {
+        component: "Quotes tab",
+        state: "No Quotes".to_owned(),
+        document: quotes::page(&quotes::add_button(), &empty()),
+        height: QUOTES_HEIGHT,
+    };
+    let rows = [
+        ("With Added by", quotes::quote_row(&remembered()), 200),
+        ("Without Added by", quotes::quote_row(&imported()), 200),
+        ("Long text", quotes::quote_row(&long()), 420),
+        (
+            "Multi-line text",
+            quotes::quote_row(&multiline()),
+            QUOTE_ROW_HEIGHT,
+        ),
+    ]
+    .map(|(state, row, height)| Fixture {
+        component: "Quote row",
+        state: state.to_owned(),
+        document: document(
+            "Quote row",
+            &html! { main.shell-main { ul.quote-list { (row) } } },
+        ),
+        height,
+    });
+    let forms =
+        [("Empty", empty_form), ("With errors", refused_form)].map(|(state, form)| Fixture {
+            component: "Quote form",
+            state: state.to_owned(),
+            document: document("Quote form", &html! { main.shell-main { (form) } }),
+            height: QUOTE_FORM_HEIGHT,
+        });
+    std::iter::once(tab).chain(rows).chain(forms).collect()
 }
 
 /// The page an entry form in `purpose` sits on, its delete button posting to `delete`.

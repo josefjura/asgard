@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT text, author, text_search, author_search FROM quotes",
+  "describe": {
+    "columns": [
+      {
+        "name": "text",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "author",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "text_search",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "author_search",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4fc3260c3f852a83cd2c2d29e8e8b99fc1e91c0033888478a215bc4e824cd077"
+}

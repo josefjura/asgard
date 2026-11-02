@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO quotes (text, author, added_at, text_search, author_search)\n             VALUES (?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "528251652430e4c8f06fc2eafb0fb692937145fc1884f23631a027574240a1a0"
+}

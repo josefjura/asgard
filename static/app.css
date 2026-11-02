@@ -977,6 +977,41 @@ textarea {
   margin-bottom: var(--space-1);
 }
 
+/* "+ Quote" stays a comfortable line long; the form that replaces it is the same width. */
+#quote-adder {
+  max-width: 28rem;
+  margin-bottom: var(--space-4);
+}
+
+/* A Quote: the text with its line breaks, the Author beneath it, and who added it when. */
+.quote-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quote {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.quote-text {
+  margin: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.quote-author {
+  margin: var(--space-2) 0 0;
+  font-weight: 600;
+}
+
+.quote-meta {
+  margin: var(--space-1) 0 0;
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
 /* The Reminder's quick times: a row of small buttons under its due-time field, wrapping when
    the screen is narrow. */
 .quick-times {

@@ -108,6 +108,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "unicode-normalization",
  "url",
  "web-push",
  "webauthn-authenticator-rs",
