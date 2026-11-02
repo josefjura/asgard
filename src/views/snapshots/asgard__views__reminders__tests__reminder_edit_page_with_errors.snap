@@ -1,6 +1,5 @@
 ---
 source: src/views/reminders.rs
-assertion_line: 284
 expression: "edit_page(ReminderId::from_client(3),\n&edit_form_with_errors()).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
@@ -51,10 +50,15 @@ expression: "edit_page(ReminderId::from_client(3),\n&edit_form_with_errors()).in
 <input id="reminder-text" type="text" name="text" value="" required maxlength="500" autocomplete="off" aria-invalid="true" aria-describedby="reminder-text-problem">
 <p class="field-problem" id="reminder-text-problem">Say what to remember.</p>
 </div>
-<div class="field">
+<div class="field" id="reminder-due-field">
 <label for="reminder-due">Due, Prague time</label>
 <input id="reminder-due" type="datetime-local" name="due_at" value="2026-10-23T18:00" min="2026-10-24T10:00" required aria-invalid="true" aria-describedby="reminder-due-problem">
 <p class="field-problem" id="reminder-due-problem">Pick a time that hasn't passed yet.</p>
+<div class="quick-times" role="group" aria-label="Quick times">
+<button class="button secondary small" type="button" hx-get="/reminders/quick-times/in-an-hour" hx-target="#reminder-due-field" hx-swap="outerHTML">+1 hour</button>
+<button class="button secondary small" type="button" hx-get="/reminders/quick-times/tomorrow-morning" hx-target="#reminder-due-field" hx-swap="outerHTML">Tomorrow 9:00</button>
+<button class="button secondary small" type="button" hx-get="/reminders/quick-times/next-week" hx-target="#reminder-due-field" hx-swap="outerHTML">+1 week</button>
+</div>
 </div>
 <button class="button large" type="submit">Save Reminder</button>
 </form>

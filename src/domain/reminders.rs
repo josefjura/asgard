@@ -2,6 +2,7 @@
 //! until it is sent.
 
 use jiff::civil::DateTime;
+use jiff::{ToSpan, Zoned};
 use sqlx::SqlitePool;
 
 use crate::domain::clock::{
@@ -97,6 +98,66 @@ impl DueAt {
 #[error("not a date and time")]
 pub struct DueAtError;
 
+/// A quick button on the Reminder form: a common due time, worked out from now in the Crew's
+/// time zone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuickTime {
+    /// Now plus one hour.
+    InAnHour,
+    /// 09:00 on the next calendar day.
+    TomorrowMorning,
+    /// The same time on the clock seven days later.
+    NextWeek,
+}
+
+impl QuickTime {
+    /// Every quick time, in the order the form shows them.
+    pub const ALL: [Self; 3] = [Self::InAnHour, Self::TomorrowMorning, Self::NextWeek];
+
+    /// How a request names it.
+    #[must_use]
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::InAnHour => "in-an-hour",
+            Self::TomorrowMorning => "tomorrow-morning",
+            Self::NextWeek => "next-week",
+        }
+    }
+
+    /// The quick time a request names by its [`key`](Self::key), if any.
+    #[must_use]
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|quick| quick.key() == key)
+    }
+
+    /// The due time it stands for when it's `now`, on the clock in `now`'s time zone and to the
+    /// minute, as the form's field holds it.
+    ///
+    /// An hour is a real hour, so it may move the clock by two when the clocks go forward.
+    /// Tomorrow and next week keep the time on the clock across a change.
+    ///
+    /// # Panics
+    ///
+    /// Within a week of the end of jiff's range, which is the year 9999.
+    #[must_use]
+    pub fn after(self, now: &Zoned) -> DateTime {
+        let due = match self {
+            Self::InAnHour => now.checked_add(1.hour()).map(|due| due.datetime()),
+            Self::TomorrowMorning => now
+                .date()
+                .tomorrow()
+                .map(|tomorrow| tomorrow.at(9, 0, 0, 0)),
+            Self::NextWeek => now.checked_add(7.days()).map(|due| due.datetime()),
+        }
+        .expect("a week from now is within jiff's range");
+        due.with()
+            .second(0)
+            .subsec_nanosecond(0)
+            .build()
+            .expect("a time with whole minutes is valid")
+    }
+}
+
 /// A Reminder as a Member enters it, or changes it to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewReminder {
@@ -144,6 +205,12 @@ impl Reminders {
     #[must_use]
     pub fn now(&self) -> DateTime {
         crew_time_of_unix_seconds(unix_seconds(self.clock.now()))
+    }
+
+    /// The due time `quick` fills the form with, as of now.
+    #[must_use]
+    pub fn quick_time(&self, quick: QuickTime) -> DateTime {
+        quick.after(&self.clock.crew_now())
     }
 
     /// Creates `reminder` for the whole Crew, on behalf of `creator`.
@@ -301,10 +368,11 @@ pub mod fixtures {
 mod tests {
     use std::time::{Duration, SystemTime};
 
+    use jiff::Zoned;
     use jiff::civil::date;
 
     use super::*;
-    use crate::domain::clock::ManualClock;
+    use crate::domain::clock::{CREW_TIME_ZONE, ManualClock};
     use crate::domain::members::fixtures::add_member;
 
     /// 2026-10-24T08:00:00Z: 10:00 in Prague, the day before the clocks go back.
@@ -322,6 +390,87 @@ mod tests {
             text: ReminderText::parse(text).unwrap(),
             due_at: DueAt::parse(due).unwrap(),
         }
+    }
+
+    /// `time` on the clock in Prague.
+    fn prague(time: DateTime) -> Zoned {
+        time.in_tz(CREW_TIME_ZONE).unwrap()
+    }
+
+    #[test]
+    fn in_an_hour_is_now_plus_an_hour_to_the_minute() {
+        let now = prague(date(2026, 10, 24).at(10, 23, 45, 0));
+
+        assert_eq!(
+            QuickTime::InAnHour.after(&now),
+            date(2026, 10, 24).at(11, 23, 0, 0)
+        );
+    }
+
+    #[test]
+    fn in_an_hour_counts_a_real_hour_when_the_clocks_go_forward() {
+        // At 02:00 on 29 March 2026 Prague's clocks jump to 03:00.
+        let now = prague(date(2026, 3, 29).at(1, 30, 0, 0));
+
+        assert_eq!(
+            QuickTime::InAnHour.after(&now),
+            date(2026, 3, 29).at(3, 30, 0, 0)
+        );
+    }
+
+    #[test]
+    fn tomorrow_morning_is_nine_the_next_day() {
+        for (now, tomorrow) in [
+            (date(2026, 10, 24).at(10, 0, 0, 0), date(2026, 10, 25)),
+            // Just before midnight, and at the end of a year.
+            (date(2026, 10, 24).at(23, 59, 0, 0), date(2026, 10, 25)),
+            (date(2026, 12, 31).at(8, 0, 0, 0), date(2027, 1, 1)),
+        ] {
+            assert_eq!(
+                QuickTime::TomorrowMorning.after(&prague(now)),
+                tomorrow.at(9, 0, 0, 0),
+                "{now}"
+            );
+        }
+    }
+
+    #[test]
+    fn next_week_keeps_the_time_on_the_clock() {
+        for (now, next_week) in [
+            (date(2026, 11, 2).at(18, 15, 30, 0), date(2026, 11, 9)),
+            // The clocks go back on 25 October and forward on 29 March in between.
+            (date(2026, 10, 24).at(10, 0, 0, 0), date(2026, 10, 31)),
+            (date(2026, 3, 25).at(10, 0, 0, 0), date(2026, 4, 1)),
+        ] {
+            assert_eq!(
+                QuickTime::NextWeek.after(&prague(now)),
+                next_week.at(now.hour(), now.minute(), 0, 0),
+                "{now}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_quick_time_is_found_by_its_key() {
+        for quick in QuickTime::ALL {
+            assert_eq!(QuickTime::from_key(quick.key()), Some(quick));
+        }
+        assert_eq!(QuickTime::from_key("yesterday"), None);
+    }
+
+    #[sqlx::test]
+    async fn quick_times_are_worked_out_from_the_clock(db: SqlitePool) {
+        let (reminders, _) = reminders(db);
+
+        // The clock stands at 10:00 in Prague on 24 October 2026.
+        assert_eq!(
+            reminders.quick_time(QuickTime::InAnHour),
+            date(2026, 10, 24).at(11, 0, 0, 0)
+        );
+        assert_eq!(
+            reminders.quick_time(QuickTime::TomorrowMorning),
+            date(2026, 10, 25).at(9, 0, 0, 0)
+        );
     }
 
     #[test]
