@@ -18,7 +18,7 @@ use crate::domain::shopping::{
 };
 use crate::views;
 use crate::views::nav::Tab;
-use crate::views::shopping::{ItemProblems, ItemValues};
+use crate::views::shopping::{Fold, ItemProblems, ItemValues};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -104,7 +104,7 @@ async fn mark_bought(
         .mark_bought(member.id, ItemId::from_client(id))
         .await?;
     tracing::info!(member = member.id.get(), "a Member marked an Item bought");
-    lists(&state, htmx, false).await
+    changed_lists(&state, htmx, Fold::Folded).await
 }
 
 /// Takes back marking the Item `id` bought. htmx gets the open list with it back in its group and
@@ -120,18 +120,18 @@ async fn undo_bought(
         member = member.id.get(),
         "a Member took back buying an Item"
     );
-    lists(&state, htmx, true).await
+    changed_lists(&state, htmx, Fold::Unfolded).await
 }
 
-/// What answers a change to an Item: for htmx, the open list and Recently bought, unfolded if
-/// `unfold_bought`; otherwise the way back to the tab.
-async fn lists(state: &AppState, htmx: bool, unfold_bought: bool) -> Result<Response, AppError> {
+/// What answers a change to an Item: for htmx, the open list and Recently bought, folded as
+/// `fold`; otherwise the way back to the tab.
+async fn changed_lists(state: &AppState, htmx: bool, fold: Fold) -> Result<Response, AppError> {
     if !htmx {
         return Ok(Redirect::to(Tab::Shopping.href()).into_response());
     }
     let open = state.shopping.open().await?;
     let bought = state.shopping.recently_bought().await?;
-    Ok(fresh(views::shopping::lists(&open, &bought, unfold_bought)).into_response())
+    Ok(fresh(views::shopping::changed_lists(&open, &bought, fold)).into_response())
 }
 
 /// The Item as typed, or what is wrong with each field.

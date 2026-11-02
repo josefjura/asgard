@@ -96,6 +96,10 @@ _Avoid_: todo, task
 How soon an Item is needed: *ASAP*, *Next brewday* or *Nice to have*.
 _Avoid_: priority
 
+**Recently bought**:
+The Items bought in the last 7 days, where marking one bought can be undone. Older bought Items are kept but not shown.
+_Avoid_: done, history
+
 ## Reminders
 
 **Reminder**:

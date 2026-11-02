@@ -17,6 +17,13 @@ const OPEN_ITEMS_ID: &str = "open-items";
 /// The id of Recently bought, which buying and undoing swap in afresh.
 const RECENTLY_BOUGHT_ID: &str = "recently-bought";
 
+/// Whether Recently bought shows its Items or only its heading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fold {
+    Folded,
+    Unfolded,
+}
+
 /// Where the Shopping tab's buttons post. Routes match on the same paths.
 pub mod paths {
     use crate::domain::shopping::ItemId;
@@ -73,19 +80,18 @@ pub fn page(form: &Markup, open: &[OpenItem], bought: &[BoughtItem]) -> Markup {
                 (form)
             }
             (open_list(open, false))
-            (recently_bought_section(bought, false, false))
+            (recently_bought_section(bought, Fold::Folded, false))
         },
     )
 }
 
 /// What htmx swaps in once an Item is marked bought or back: the `open` list in place of the old
-/// one, and Recently bought out of band, unfolded if `unfold_bought` because the Member was just
-/// using it.
+/// one, and Recently bought out of band, folded as `fold`.
 #[must_use]
-pub fn lists(open: &[OpenItem], bought: &[BoughtItem], unfold_bought: bool) -> Markup {
+pub fn changed_lists(open: &[OpenItem], bought: &[BoughtItem], fold: Fold) -> Markup {
     html! {
         (open_list(open, false))
-        (recently_bought_section(bought, unfold_bought, true))
+        (recently_bought_section(bought, fold, true))
     }
 }
 
@@ -184,11 +190,11 @@ fn list_button(action: &str, text: &str, name_id: &str) -> Markup {
     }
 }
 
-/// Recently bought, folded away unless `unfolded`: the Items `bought` lately, newest first, or a
-/// message saying nothing was. Swapped in out of band if `out_of_band`.
-fn recently_bought_section(bought: &[BoughtItem], unfolded: bool, out_of_band: bool) -> Markup {
+/// Recently bought, folded as `fold`: the Items `bought` lately, newest first, or a message
+/// saying nothing was. Swapped in out of band if `out_of_band`.
+fn recently_bought_section(bought: &[BoughtItem], fold: Fold, out_of_band: bool) -> Markup {
     html! {
-        details.section.recently-bought #(RECENTLY_BOUGHT_ID) open[unfolded]
+        details.section.recently-bought #(RECENTLY_BOUGHT_ID) open[fold == Fold::Unfolded]
             hx-swap-oob=[out_of_band.then_some("true")] {
             summary {
                 h2 { "Recently bought" }
@@ -210,10 +216,10 @@ fn recently_bought_section(bought: &[BoughtItem], unfolded: bool, out_of_band: b
     }
 }
 
-/// Recently bought on its own, folded away unless `unfolded`, as the gallery shows it.
+/// Recently bought on its own, folded as `fold`, as the gallery shows it.
 #[must_use]
-pub fn recently_bought(bought: &[BoughtItem], unfolded: bool) -> Markup {
-    recently_bought_section(bought, unfolded, false)
+pub fn recently_bought(bought: &[BoughtItem], fold: Fold) -> Markup {
+    recently_bought_section(bought, fold, false)
 }
 
 /// How many days back Recently bought reaches.
@@ -489,12 +495,12 @@ mod tests {
 
     #[test]
     fn recently_bought_empty() {
-        assert_html_snapshot!(recently_bought(&[], false));
+        assert_html_snapshot!(recently_bought(&[], Fold::Folded));
     }
 
     #[test]
     fn recently_bought_with_items() {
-        assert_html_snapshot!(recently_bought(&bought(), true));
+        assert_html_snapshot!(recently_bought(&bought(), Fold::Unfolded));
     }
 
     #[test]
@@ -532,7 +538,7 @@ mod tests {
 
     #[test]
     fn nothing_bought_says_so() {
-        let html = recently_bought(&[], false).into_string();
+        let html = recently_bought(&[], Fold::Folded).into_string();
 
         assert!(html.contains("Nothing bought in the last 7 days."));
         assert!(!html.contains("count"));
@@ -540,14 +546,14 @@ mod tests {
 
     #[test]
     fn buying_swaps_in_the_open_list_and_recently_bought_out_of_band() {
-        let html = lists(&open(), &bought(), false).into_string();
+        let html = changed_lists(&open(), &bought(), Fold::Folded).into_string();
 
         assert!(html.starts_with(r#"<div id="open-items">"#), "{html}");
         assert!(html.contains(
             r#"<details class="section recently-bought" id="recently-bought" hx-swap-oob="true">"#
         ));
 
-        let html = lists(&open(), &bought(), true).into_string();
+        let html = changed_lists(&open(), &bought(), Fold::Unfolded).into_string();
 
         assert!(
             html.contains(r#"id="recently-bought" open hx-swap-oob="true">"#),

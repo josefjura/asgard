@@ -304,15 +304,15 @@ impl Shopping {
         Ok(open)
     }
 
-    /// Marks the open Item `id` bought by `buyer`, now. It leaves the open list for Recently
+    /// Marks the open Item `id` bought by `bought_by`, now. It leaves the open list for Recently
     /// bought.
     ///
     /// # Errors
     ///
     /// Returns [`ItemError::NotFound`] if there's no open Item `id`, or a database error.
-    pub async fn mark_bought(&self, buyer: MemberId, id: ItemId) -> Result<(), ItemError> {
+    pub async fn mark_bought(&self, bought_by: MemberId, id: ItemId) -> Result<(), ItemError> {
         let bought_at = unix_seconds(self.clock.now());
-        let bought_by = buyer.get();
+        let bought_by = bought_by.get();
         let done = sqlx::query!(
             "UPDATE items SET bought_by = ?, bought_at = ? WHERE id = ? AND bought_at IS NULL",
             bought_by,
@@ -417,7 +417,7 @@ pub mod fixtures {
     ///
     /// # Panics
     ///
-    /// If the fixture's name, time or buyer is invalid, which is a bug in the fixtures.
+    /// If the fixture's name, time or Member is invalid, which is a bug in the fixtures.
     #[must_use]
     pub fn bought(id: i64, name: &str, bought: &str, bought_by: &str) -> BoughtItem {
         let bought = bought.parse().expect("fixture times are valid");
@@ -733,7 +733,7 @@ mod tests {
         }
         shopping.mark_bought(josef, ids[1]).await.unwrap();
         clock.advance(Duration::from_mins(5));
-        // In the same second, so the one marked last comes first.
+        // In the same second as each other, so the later-added one comes first.
         shopping.mark_bought(josef, ids[0]).await.unwrap();
         shopping.mark_bought(josef, ids[2]).await.unwrap();
 

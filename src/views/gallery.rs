@@ -20,7 +20,7 @@ use crate::views::passkey::CeremonyUrls;
 use crate::views::passkeys::{self, Outcome as PasskeyOutcome};
 use crate::views::push::{self, PushState, PushUrls};
 use crate::views::reminders::{self, ReminderProblems, ReminderValues};
-use crate::views::shopping::{self, ItemProblems, ItemValues};
+use crate::views::shopping::{self, Fold, ItemProblems, ItemValues};
 use crate::views::{invite, offline, settings, sign_in, tabs, welcome};
 
 /// One component in one state, rendered as a complete document.
@@ -420,9 +420,12 @@ fn shopping_pages() -> Vec<Fixture> {
         height: ITEM_ROW_HEIGHT,
     });
     let recently_bought = [
-        ("Empty", shopping::recently_bought(&[], true)),
-        ("Folded", shopping::recently_bought(&bought(), false)),
-        ("Unfolded", shopping::recently_bought(&bought(), true)),
+        ("Empty", shopping::recently_bought(&[], Fold::Unfolded)),
+        ("Folded", shopping::recently_bought(&bought(), Fold::Folded)),
+        (
+            "Unfolded",
+            shopping::recently_bought(&bought(), Fold::Unfolded),
+        ),
     ]
     .map(|(state, section)| Fixture {
         component: "Recently bought",
