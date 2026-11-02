@@ -10,6 +10,7 @@ use crate::domain::finance::{DESCRIPTION_MAX, DescriptionError, EntryError};
 use crate::domain::members::{DISPLAY_NAME_MAX, NameError};
 use crate::domain::push::SubscriptionError;
 use crate::domain::reminders::ReminderError;
+use crate::domain::shopping::ItemError;
 use crate::views::finance::crowns;
 
 /// The one error type handlers return.
@@ -40,6 +41,9 @@ pub enum AppError {
     /// The Reminder asked for doesn't exist, was deleted, or was sent and can't be edited.
     #[error("no such Reminder")]
     NoSuchReminder,
+    /// The Item asked for doesn't exist, was deleted, or has already been marked bought or back.
+    #[error("no such Item")]
+    NoSuchItem,
     /// A quick-time button named a quick time that doesn't exist.
     #[error("no such quick time")]
     NoSuchQuickTime,
@@ -70,6 +74,15 @@ impl From<ReminderError> for AppError {
             ReminderError::NotFound => Self::NoSuchReminder,
             ReminderError::NotInFuture => Self::DueTimePassed,
             ReminderError::Database(err) => Self::Database(err),
+        }
+    }
+}
+
+impl From<ItemError> for AppError {
+    fn from(err: ItemError) -> Self {
+        match err {
+            ItemError::NotFound => Self::NoSuchItem,
+            ItemError::Database(err) => Self::Database(err),
         }
     }
 }
@@ -112,6 +125,13 @@ impl AppError {
                 StatusCode::NOT_FOUND,
                 Some(
                     "That Reminder can't be changed any more: it was deleted or has gone out. Reload the page to see the latest Reminders."
+                        .to_owned(),
+                ),
+            ),
+            Self::NoSuchItem => (
+                StatusCode::NOT_FOUND,
+                Some(
+                    "That Item has changed since you loaded the list: someone may have bought, put back or deleted it. Reload the page to see the latest list."
                         .to_owned(),
                 ),
             ),

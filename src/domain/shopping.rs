@@ -1,4 +1,7 @@
-//! The Shopping list: the Items the Crew needs to buy, each with an Urgency.
+//! The Shopping list: the Items the Crew needs to buy, each with an Urgency, and those bought
+//! lately.
+
+use std::time::Duration;
 
 use jiff::civil::DateTime;
 use sqlx::SqlitePool;
@@ -13,10 +16,19 @@ pub const NAME_MAX: usize = 200;
 /// The longest note on an Item, in characters.
 pub const NOTE_MAX: usize = 500;
 
+/// How long a bought Item stays in Recently bought. Older ones are kept but not shown.
+pub const RECENTLY_BOUGHT_FOR: Duration = Duration::from_hours(7 * 24);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ItemId(i64);
 
 impl ItemId {
+    /// An id a client sent back. Nothing about it is trusted until the Item is found.
+    #[must_use]
+    pub const fn from_client(id: i64) -> Self {
+        Self(id)
+    }
+
     #[must_use]
     pub const fn get(self) -> i64 {
         self.0
@@ -158,6 +170,37 @@ impl AddedAt {
     }
 }
 
+/// An Item a Member bought lately, as Recently bought shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoughtItem {
+    pub id: ItemId,
+    pub name: ItemName,
+    pub bought_by: DisplayName,
+    pub bought_at: BoughtAt,
+}
+
+/// When an Item was bought: an instant, shown as a date and time in the Crew's time zone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BoughtAt(i64);
+
+impl BoughtAt {
+    /// The date and time it showed on the clock in the Crew's time zone.
+    #[must_use]
+    pub fn crew_time(self) -> DateTime {
+        crew_time_of_unix_seconds(self.0)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ItemError {
+    /// There is no Item with that id in the state the change needs: it never existed, was
+    /// deleted, or was already bought (to mark it bought) or is open (to undo that).
+    #[error("no such Item")]
+    NotFound,
+    #[error("database error")]
+    Database(#[from] sqlx::Error),
+}
+
 /// A Member added an *ASAP* Item, for the rest of the Crew to hear about.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AsapItemAdded {
@@ -169,7 +212,8 @@ pub struct AsapItemAdded {
     pub notify: Vec<MemberId>,
 }
 
-/// Adds Items to the Shopping list and lists the open ones. Any Member may change any Item.
+/// Adds Items to the Shopping list, marks them bought and back, and lists the open ones and those
+/// bought lately. Any Member may change any Item.
 #[derive(Debug, Clone)]
 pub struct Shopping {
     db: SqlitePool,
@@ -237,6 +281,7 @@ impl Shopping {
                       members.display_name AS added_by
                FROM items
                JOIN members ON members.id = items.added_by
+               WHERE items.bought_at IS NULL
                ORDER BY items.added_at, items.id"#
         )
         .fetch_all(&self.db)
@@ -258,12 +303,84 @@ impl Shopping {
         open.sort_by_key(|item| item.urgency);
         Ok(open)
     }
+
+    /// Marks the open Item `id` bought by `buyer`, now. It leaves the open list for Recently
+    /// bought.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ItemError::NotFound`] if there's no open Item `id`, or a database error.
+    pub async fn mark_bought(&self, buyer: MemberId, id: ItemId) -> Result<(), ItemError> {
+        let bought_at = unix_seconds(self.clock.now());
+        let bought_by = buyer.get();
+        let done = sqlx::query!(
+            "UPDATE items SET bought_by = ?, bought_at = ? WHERE id = ? AND bought_at IS NULL",
+            bought_by,
+            bought_at,
+            id.0,
+        )
+        .execute(&self.db)
+        .await?;
+        if done.rows_affected() == 0 {
+            return Err(ItemError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Takes back marking the Item `id` bought: it's open again, under the Urgency it had.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ItemError::NotFound`] if there's no bought Item `id`, or a database error.
+    pub async fn undo_bought(&self, id: ItemId) -> Result<(), ItemError> {
+        let done = sqlx::query!(
+            "UPDATE items SET bought_by = NULL, bought_at = NULL
+             WHERE id = ? AND bought_at IS NOT NULL",
+            id.0,
+        )
+        .execute(&self.db)
+        .await?;
+        if done.rows_affected() == 0 {
+            return Err(ItemError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// The Items bought in the last [`RECENTLY_BOUGHT_FOR`], newest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error.
+    pub async fn recently_bought(&self) -> Result<Vec<BoughtItem>, sqlx::Error> {
+        let shown_for = i64::try_from(RECENTLY_BOUGHT_FOR.as_secs()).unwrap_or(i64::MAX);
+        let since = unix_seconds(self.clock.now()).saturating_sub(shown_for);
+        let rows = sqlx::query!(
+            r#"SELECT items.id AS "id!", items.name, items.bought_at AS "bought_at!",
+                      members.display_name AS bought_by
+               FROM items
+               JOIN members ON members.id = items.bought_by
+               WHERE items.bought_at >= ?
+               ORDER BY items.bought_at DESC, items.id DESC"#,
+            since
+        )
+        .fetch_all(&self.db)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| BoughtItem {
+                id: ItemId(row.id),
+                name: ItemName(row.name),
+                bought_by: DisplayName::from_stored(row.bought_by),
+                bought_at: BoughtAt(row.bought_at),
+            })
+            .collect())
+    }
 }
 
-/// Open Items for the gallery and the snapshots.
+/// Open and bought Items for the gallery and the snapshots.
 #[cfg(any(test, debug_assertions))]
 pub mod fixtures {
-    use super::{AddedAt, ItemId, ItemName, ItemNote, OpenItem, Urgency};
+    use super::{AddedAt, BoughtAt, BoughtItem, ItemId, ItemName, ItemNote, OpenItem, Urgency};
     use crate::domain::clock::unix_seconds_at_crew_time;
     use crate::domain::members::DisplayName;
 
@@ -293,6 +410,22 @@ pub mod fixtures {
             urgency,
             added_by: DisplayName::parse(added_by).expect("fixture names are valid"),
             added_at: AddedAt(unix_seconds_at_crew_time(added).expect("fixture times exist")),
+        }
+    }
+
+    /// An Item with `id`, bought at `bought` in Prague (`2026-10-20T08:00`) by `bought_by`.
+    ///
+    /// # Panics
+    ///
+    /// If the fixture's name, time or buyer is invalid, which is a bug in the fixtures.
+    #[must_use]
+    pub fn bought(id: i64, name: &str, bought: &str, bought_by: &str) -> BoughtItem {
+        let bought = bought.parse().expect("fixture times are valid");
+        BoughtItem {
+            id: ItemId(id),
+            name: ItemName::parse(name).expect("fixture names are valid"),
+            bought_by: DisplayName::parse(bought_by).expect("fixture names are valid"),
+            bought_at: BoughtAt(unix_seconds_at_crew_time(bought).expect("fixture times exist")),
         }
     }
 }
@@ -515,6 +648,172 @@ mod tests {
                 notify: vec![josef, simon],
             }]
         );
+    }
+
+    fn bought_names(bought: &[BoughtItem]) -> Vec<&str> {
+        bought.iter().map(|item| item.name.as_str()).collect()
+    }
+
+    #[sqlx::test]
+    async fn a_bought_item_leaves_the_open_list_for_recently_bought(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let (shopping, clock, _) = shopping(db);
+        let saaz = shopping
+            .add(josef, &item("Saaz", "", Urgency::NextBrewday))
+            .await
+            .unwrap();
+        shopping
+            .add(josef, &item("Star San", "", Urgency::Asap))
+            .await
+            .unwrap();
+        clock.advance(Duration::from_hours(2));
+
+        shopping.mark_bought(ondra, saaz).await.unwrap();
+
+        assert_eq!(
+            names(&shopping.open().await.unwrap()),
+            [("Star San", Urgency::Asap)]
+        );
+        let bought = shopping.recently_bought().await.unwrap();
+        assert_eq!(
+            bought,
+            [BoughtItem {
+                id: saaz,
+                name: ItemName::parse("Saaz").unwrap(),
+                bought_by: DisplayName::parse("Ondra").unwrap(),
+                bought_at: BoughtAt(unix_seconds(saturday_morning()) + 2 * 3600),
+            }]
+        );
+        assert_eq!(
+            bought[0].bought_at.crew_time(),
+            date(2026, 10, 24).at(12, 0, 0, 0)
+        );
+    }
+
+    #[sqlx::test]
+    async fn undoing_puts_an_item_back_under_its_urgency(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (shopping, clock, _) = shopping(db);
+        let caps = shopping
+            .add(josef, &item("Bottle caps", "", Urgency::NiceToHave))
+            .await
+            .unwrap();
+        clock.advance(Duration::from_mins(1));
+        shopping
+            .add(josef, &item("A new hydrometer", "", Urgency::NiceToHave))
+            .await
+            .unwrap();
+        shopping.mark_bought(josef, caps).await.unwrap();
+
+        shopping.undo_bought(caps).await.unwrap();
+
+        assert_eq!(
+            names(&shopping.open().await.unwrap()),
+            [
+                ("Bottle caps", Urgency::NiceToHave),
+                ("A new hydrometer", Urgency::NiceToHave),
+            ]
+        );
+        assert_eq!(shopping.recently_bought().await.unwrap(), []);
+    }
+
+    #[sqlx::test]
+    async fn recently_bought_is_newest_first(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (shopping, clock, _) = shopping(db);
+        let mut ids = Vec::new();
+        for name in ["Saaz", "Star San", "Caps"] {
+            ids.push(
+                shopping
+                    .add(josef, &item(name, "", Urgency::NextBrewday))
+                    .await
+                    .unwrap(),
+            );
+        }
+        shopping.mark_bought(josef, ids[1]).await.unwrap();
+        clock.advance(Duration::from_mins(5));
+        // In the same second, so the one marked last comes first.
+        shopping.mark_bought(josef, ids[0]).await.unwrap();
+        shopping.mark_bought(josef, ids[2]).await.unwrap();
+
+        assert_eq!(
+            bought_names(&shopping.recently_bought().await.unwrap()),
+            ["Caps", "Saaz", "Star San"]
+        );
+    }
+
+    #[sqlx::test]
+    async fn recently_bought_reaches_back_seven_days(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (shopping, clock, _) = shopping(db);
+        for name in ["Older", "Newer"] {
+            let id = shopping
+                .add(josef, &item(name, "", Urgency::NextBrewday))
+                .await
+                .unwrap();
+            shopping.mark_bought(josef, id).await.unwrap();
+            clock.advance(Duration::from_mins(2));
+        }
+        // "Older" was bought 7 days and a minute ago, "Newer" 7 days less a minute ago.
+        clock.advance(
+            RECENTLY_BOUGHT_FOR
+                .checked_sub(Duration::from_mins(3))
+                .unwrap(),
+        );
+
+        assert_eq!(
+            bought_names(&shopping.recently_bought().await.unwrap()),
+            ["Newer"]
+        );
+        // Hidden, but still bought rather than open.
+        assert_eq!(shopping.open().await.unwrap(), []);
+    }
+
+    #[sqlx::test]
+    async fn an_item_that_isnt_there_to_change_is_not_found(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (shopping, _, _) = shopping(db);
+        let open = shopping
+            .add(josef, &item("Saaz", "", Urgency::NextBrewday))
+            .await
+            .unwrap();
+        let bought = shopping
+            .add(josef, &item("Caps", "", Urgency::NextBrewday))
+            .await
+            .unwrap();
+        shopping.mark_bought(josef, bought).await.unwrap();
+        let missing = ItemId::from_client(999);
+
+        for id in [bought, missing] {
+            assert!(matches!(
+                shopping.mark_bought(josef, id).await,
+                Err(ItemError::NotFound)
+            ));
+        }
+        for id in [open, missing] {
+            assert!(matches!(
+                shopping.undo_bought(id).await,
+                Err(ItemError::NotFound)
+            ));
+        }
+    }
+
+    #[sqlx::test]
+    async fn buying_and_undoing_announce_nothing(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        add_member(&db, "Ondra", false).await;
+        let (shopping, _, mut events) = shopping(db);
+        let id = shopping
+            .add(josef, &item("Star San", "", Urgency::Asap))
+            .await
+            .unwrap();
+        emitted(&mut events);
+
+        shopping.mark_bought(josef, id).await.unwrap();
+        shopping.undo_bought(id).await.unwrap();
+
+        assert_eq!(emitted(&mut events), []);
     }
 
     #[sqlx::test]

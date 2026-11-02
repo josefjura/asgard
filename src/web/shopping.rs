@@ -1,10 +1,10 @@
-//! The Shopping tab: adding an Item to the Crew's Shopping list, and the open Items grouped by
-//! Urgency.
+//! The Shopping tab: adding an Item to the Crew's Shopping list, the open Items grouped by
+//! Urgency, and marking them bought and back.
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Form, Router};
 use maud::Markup;
 use serde::Deserialize;
@@ -14,14 +14,17 @@ use super::htmx::Htmx;
 use super::pages::fresh;
 use super::{AppError, AppState};
 use crate::domain::shopping::{
-    ItemName, ItemNote, NAME_MAX, NOTE_MAX, NameError, NewItem, Urgency,
+    ItemId, ItemName, ItemNote, NAME_MAX, NOTE_MAX, NameError, NewItem, Urgency,
 };
 use crate::views;
 use crate::views::nav::Tab;
 use crate::views::shopping::{ItemProblems, ItemValues};
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route(Tab::Shopping.href(), get(show).post(add))
+    Router::new()
+        .route(Tab::Shopping.href(), get(show).post(add))
+        .route("/shopping/{id}/bought", post(mark_bought))
+        .route("/shopping/{id}/undo", post(undo_bought))
 }
 
 /// The Shopping tab with an empty form.
@@ -88,6 +91,49 @@ async fn add(
     Ok(fresh(views::shopping::added(&empty_form(), &open)).into_response())
 }
 
+/// Marks the open Item `id` bought by the Member. htmx gets the open list without it and Recently
+/// bought with it; a plain form post goes back to the tab.
+async fn mark_bought(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    state
+        .shopping
+        .mark_bought(member.id, ItemId::from_client(id))
+        .await?;
+    tracing::info!(member = member.id.get(), "a Member marked an Item bought");
+    lists(&state, htmx, false).await
+}
+
+/// Takes back marking the Item `id` bought. htmx gets the open list with it back in its group and
+/// Recently bought, still unfolded, without it; a plain form post goes back to the tab.
+async fn undo_bought(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    state.shopping.undo_bought(ItemId::from_client(id)).await?;
+    tracing::info!(
+        member = member.id.get(),
+        "a Member took back buying an Item"
+    );
+    lists(&state, htmx, true).await
+}
+
+/// What answers a change to an Item: for htmx, the open list and Recently bought, unfolded if
+/// `unfold_bought`; otherwise the way back to the tab.
+async fn lists(state: &AppState, htmx: bool, unfold_bought: bool) -> Result<Response, AppError> {
+    if !htmx {
+        return Ok(Redirect::to(Tab::Shopping.href()).into_response());
+    }
+    let open = state.shopping.open().await?;
+    let bought = state.shopping.recently_bought().await?;
+    Ok(fresh(views::shopping::lists(&open, &bought, unfold_bought)).into_response())
+}
+
 /// The Item as typed, or what is wrong with each field.
 fn parse(input: &ItemForm) -> Result<NewItem, ItemProblems> {
     match (
@@ -114,10 +160,11 @@ fn empty_form() -> Markup {
     views::shopping::form(ItemValues::default(), &ItemProblems::default())
 }
 
-/// The Shopping tab around `form`, with every open Item.
+/// The Shopping tab around `form`, with every open Item and those bought lately.
 async fn page(state: &AppState, form: &Markup) -> Result<Markup, AppError> {
     let open = state.shopping.open().await?;
-    Ok(views::shopping::page(form, &open))
+    let bought = state.shopping.recently_bought().await?;
+    Ok(views::shopping::page(form, &open, &bought))
 }
 
 fn name_message(err: NameError) -> String {
@@ -186,14 +233,25 @@ mod tests {
         body_text(response).await
     }
 
-    /// The Urgency heading each Item named in `html` sits under, in the order they're listed.
+    /// The name of the Item a tag in `html` split at each `<` starts, if it starts one.
+    fn item_name(tag: &str) -> Option<&str> {
+        let (_, name) = tag
+            .strip_prefix("span class=\"item-name\" id=\"")?
+            .split_once('>')?;
+        Some(name)
+    }
+
+    /// The Urgency heading each open Item named in `html` sits under, in the order they're
+    /// listed.
     fn grouped(html: &str) -> Vec<(String, String)> {
         let mut group = String::new();
         let mut listed = Vec::new();
-        for line in html.split('<') {
-            if let Some(heading) = line.strip_prefix("h2 id=\"urgency-") {
+        for tag in html.split('<') {
+            if let Some(heading) = tag.strip_prefix("h2 id=\"urgency-") {
                 group = heading.split('>').nth(1).unwrap_or_default().to_owned();
-            } else if let Some(name) = line.strip_prefix("span class=\"item-name\">") {
+            } else if tag.starts_with("details class=\"section recently-bought\"") {
+                break;
+            } else if let Some(name) = item_name(tag) {
                 listed.push((group.clone(), name.to_owned()));
             }
         }
@@ -328,7 +386,7 @@ mod tests {
         assert!(
             tab(&app, &cookie)
                 .await
-                .contains(r#"<span class="item-name">Saaz</span>"#)
+                .contains(r#"<span class="item-name" id="item-1-name">Saaz</span>"#)
         );
     }
 
@@ -429,6 +487,193 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         assert!(tab(&app, &cookie).await.contains("Nothing to buy."));
+    }
+
+    /// Marks the Item `id` bought, or takes that back if `action` is `undo`, as htmx does.
+    async fn press(app: &TestApp, cookie: &str, id: i64, action: &str) -> Response<Body> {
+        post_form(
+            app,
+            &format!("/shopping/{id}/{action}"),
+            cookie,
+            &[],
+            true,
+            PUBLIC_ORIGIN,
+        )
+        .await
+    }
+
+    /// Presses a button on the Item `id`, expecting it done, and answers with what came back.
+    async fn pressed(app: &TestApp, cookie: &str, id: i64, action: &str) -> String {
+        let response = press(app, cookie, id, action).await;
+        let status = response.status();
+        let body = body_text(response).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        body
+    }
+
+    /// The names in Recently bought, in the order they're listed.
+    fn recently_bought(html: &str) -> Vec<String> {
+        let Some((_, section)) = html.split_once(r#"id="recently-bought""#) else {
+            return Vec::new();
+        };
+        section
+            .split('<')
+            .filter_map(item_name)
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[sqlx::test]
+    async fn a_member_marks_an_item_bought_and_it_moves_to_recently_bought(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let ondra = app.sign_in_new_member("Ondra").await;
+        add(&app, &josef, &[("name", "Saaz")]).await;
+        add(&app, &josef, &[("name", "Star San"), ("urgency", "asap")]).await;
+        app.clock.advance(std::time::Duration::from_hours(3));
+
+        let html = pressed(&app, &ondra, 1, "bought").await;
+
+        assert!(html.starts_with(r#"<div id="open-items">"#), "{html}");
+        assert!(!html.contains("<h1>"), "a fragment, not the page");
+        assert!(
+            html.contains(r#"id="recently-bought" hx-swap-oob="true">"#),
+            "folded: {html}"
+        );
+        let (open, _) = html.split_once(r#"id="recently-bought""#).unwrap();
+        assert_eq!(grouped(open), [("ASAP".to_owned(), "Star San".to_owned())]);
+        assert_eq!(recently_bought(&html), ["Saaz"]);
+        assert!(html.contains(
+            r#"Bought <time datetime="2026-01-01T04:00">Thursday 1 January 2026, 04:00</time> · Ondra"#
+        ));
+        // The whole Crew sees it too.
+        let tab = tab(&app, &josef).await;
+        assert_eq!(recently_bought(&tab), ["Saaz"]);
+        assert!(tab.contains(r#"<details class="section recently-bought" id="recently-bought">"#));
+    }
+
+    #[sqlx::test]
+    async fn undo_puts_an_item_back_in_its_group(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let simon = app.sign_in_new_member("Šimon").await;
+        add(
+            &app,
+            &josef,
+            &[("name", "Caps"), ("urgency", "nice-to-have")],
+        )
+        .await;
+        add(&app, &josef, &[("name", "Saaz")]).await;
+        pressed(&app, &josef, 1, "bought").await;
+
+        let html = pressed(&app, &simon, 1, "undo").await;
+
+        assert!(html.starts_with(r#"<div id="open-items">"#), "{html}");
+        assert!(
+            html.contains(r#"id="recently-bought" open hx-swap-oob="true">"#),
+            "unfolded: {html}"
+        );
+        assert!(html.contains("Nothing bought in the last 7 days."));
+        assert_eq!(
+            grouped(&tab(&app, &josef).await),
+            [
+                ("Next brewday".to_owned(), "Saaz".to_owned()),
+                ("Nice to have".to_owned(), "Caps".to_owned()),
+            ]
+        );
+    }
+
+    #[sqlx::test]
+    async fn recently_bought_is_newest_first_and_reaches_back_seven_days(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        for name in ["Oldest", "Older", "Newest"] {
+            add(&app, &cookie, &[("name", name)]).await;
+        }
+        for id in 1..=3 {
+            pressed(&app, &cookie, id, "bought").await;
+            app.clock.advance(std::time::Duration::from_hours(24));
+        }
+        assert_eq!(
+            recently_bought(&tab(&app, &cookie).await),
+            ["Newest", "Older", "Oldest"]
+        );
+
+        // "Oldest" was bought 7 days and a minute ago.
+        app.clock
+            .advance(std::time::Duration::from_hours(4 * 24) + std::time::Duration::from_mins(1));
+
+        let html = tab(&app, &cookie).await;
+        assert_eq!(recently_bought(&html), ["Newest", "Older"]);
+        assert!(html.contains("Nothing to buy."), "hidden, not open again");
+    }
+
+    #[sqlx::test]
+    async fn a_plain_post_goes_back_to_the_tab_after_buying_or_undoing(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add(&app, &cookie, &[("name", "Saaz")]).await;
+
+        for action in ["bought", "undo"] {
+            let response = app
+                .post_with(&format!("/shopping/1/{action}"), &cookie)
+                .await;
+
+            assert_eq!(response.status(), StatusCode::SEE_OTHER);
+            assert_eq!(response.headers()[LOCATION], "/shopping");
+        }
+        assert_eq!(grouped(&tab(&app, &cookie).await).len(), 1);
+    }
+
+    #[sqlx::test]
+    async fn an_item_that_isnt_there_to_buy_or_undo_is_not_found(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add(&app, &cookie, &[("name", "Saaz")]).await;
+        add(&app, &cookie, &[("name", "Caps")]).await;
+        pressed(&app, &cookie, 2, "bought").await;
+
+        for (id, action) in [(999, "bought"), (2, "bought"), (999, "undo"), (1, "undo")] {
+            let response = press(&app, &cookie, id, action).await;
+
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{id} {action}");
+            assert!(body_text(response).await.contains("Reload the page"));
+        }
+    }
+
+    #[sqlx::test]
+    async fn buying_and_undoing_need_a_member_and_our_origin(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add(&app, &cookie, &[("name", "Saaz")]).await;
+
+        for action in ["bought", "undo"] {
+            let path = format!("/shopping/1/{action}");
+            let response = app.post_with(&path, "").await;
+            assert_eq!(response.status(), StatusCode::SEE_OTHER);
+            assert_eq!(response.headers()[LOCATION], "/sign-in");
+
+            let response = post_form(&app, &path, &cookie, &[], true, "https://evil.test").await;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        }
+        assert_eq!(
+            recently_bought(&tab(&app, &cookie).await),
+            Vec::<String>::new()
+        );
+    }
+
+    #[sqlx::test]
+    async fn buying_and_undoing_announce_nothing(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        app.sign_in_new_member("Ondra").await;
+        add(&app, &josef, &[("name", "Star San"), ("urgency", "asap")]).await;
+        let mut events = app.state.events.subscribe();
+
+        pressed(&app, &josef, 1, "bought").await;
+        pressed(&app, &josef, 1, "undo").await;
+
+        assert!(events.try_recv().is_err());
     }
 
     #[sqlx::test]

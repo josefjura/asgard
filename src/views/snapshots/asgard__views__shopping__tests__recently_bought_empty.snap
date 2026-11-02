@@ -1,0 +1,10 @@
+---
+source: src/views/shopping.rs
+expression: "recently_bought(&[], false).into_string().replace(\"><\", \">\\n<\")"
+---
+<details class="section recently-bought" id="recently-bought">
+<summary>
+<h2>Recently bought</h2>
+</summary>
+<p class="muted">Nothing bought in the last 7 days.</p>
+</details>
