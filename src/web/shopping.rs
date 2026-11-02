@@ -6,14 +6,15 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
 use axum::{Form, Router};
+use maud::Markup;
 use serde::Deserialize;
 
 use super::access::Member;
-use super::htmx::{Htmx, fragment_or_page};
+use super::htmx::Htmx;
 use super::pages::fresh;
 use super::{AppError, AppState};
 use crate::domain::shopping::{
-    ItemName, ItemNote, NAME_MAX, NOTE_MAX, NameError, NewItem, NoteTooLong, Urgency,
+    ItemName, ItemNote, NAME_MAX, NOTE_MAX, NameError, NewItem, Urgency,
 };
 use crate::views;
 use crate::views::nav::Tab;
@@ -28,9 +29,7 @@ async fn show(
     State(state): State<AppState>,
     Member(_): Member,
 ) -> Result<impl IntoResponse, AppError> {
-    let form = views::shopping::form(ItemValues::default(), &ItemProblems::default());
-    let open = state.shopping.open().await?;
-    Ok(fresh(views::shopping::page(&form, &open)))
+    Ok(fresh(page(&state, &empty_form()).await?))
 }
 
 #[derive(Deserialize)]
@@ -42,6 +41,23 @@ struct ItemForm {
     urgency: Option<String>,
 }
 
+impl ItemForm {
+    /// The Urgency chosen, the default if none was, or `None` for one there isn't.
+    fn urgency(&self) -> Option<Urgency> {
+        self.urgency
+            .as_deref()
+            .map_or_else(|| Some(Urgency::default()), Urgency::from_key)
+    }
+
+    fn values(&self) -> ItemValues<'_> {
+        ItemValues {
+            name: &self.name,
+            note: &self.note,
+            urgency: self.urgency().unwrap_or_default(),
+        }
+    }
+}
+
 /// Adds the Item. htmx gets the form emptied for the next one and the open list with the Item in
 /// its group; a plain form post goes back to the tab. A refused form shows what to fix: alone
 /// for htmx, inside the tab otherwise.
@@ -51,41 +67,16 @@ async fn add(
     Htmx(htmx): Htmx,
     Form(input): Form<ItemForm>,
 ) -> Result<Response, AppError> {
-    let urgency = input.urgency.as_deref().map(Urgency::from_key);
-    let values = ItemValues {
-        name: &input.name,
-        note: &input.note,
-        urgency: urgency.flatten().unwrap_or_default(),
-    };
-    let item = match (
-        ItemName::parse(&input.name),
-        ItemNote::parse(&input.note),
-        urgency,
-    ) {
-        (Ok(name), Ok(note), None | Some(Some(_))) => NewItem {
-            name,
-            note,
-            urgency: values.urgency,
-        },
-        (name, note, urgency) => {
-            let problems = ItemProblems {
-                name: name.err().map(name_message),
-                note: note.err().map(note_message),
-                urgency: matches!(urgency, Some(None))
-                    .then(|| "Pick how soon it's needed.".to_owned()),
-            };
-            let form = views::shopping::form(values, &problems);
-            let open = if htmx {
-                Vec::new()
+    let item = match parse(&input) {
+        Ok(item) => item,
+        Err(problems) => {
+            let form = views::shopping::form(input.values(), &problems);
+            let body = if htmx {
+                form
             } else {
-                state.shopping.open().await?
+                page(&state, &form).await?
             };
-            return Ok(fragment_or_page(
-                htmx,
-                StatusCode::UNPROCESSABLE_ENTITY,
-                form,
-                |form| views::shopping::page(form, &open),
-            ));
+            return Ok((StatusCode::UNPROCESSABLE_ENTITY, fresh(body)).into_response());
         }
     };
     state.shopping.add(member.id, &item).await?;
@@ -93,9 +84,40 @@ async fn add(
     if !htmx {
         return Ok(Redirect::to(Tab::Shopping.href()).into_response());
     }
-    let form = views::shopping::form(ItemValues::default(), &ItemProblems::default());
     let open = state.shopping.open().await?;
-    Ok(fresh(views::shopping::added(&form, &open)).into_response())
+    Ok(fresh(views::shopping::added(&empty_form(), &open)).into_response())
+}
+
+/// The Item as typed, or what is wrong with each field.
+fn parse(input: &ItemForm) -> Result<NewItem, ItemProblems> {
+    match (
+        ItemName::parse(&input.name),
+        ItemNote::parse(&input.note),
+        input.urgency(),
+    ) {
+        (Ok(name), Ok(note), Some(urgency)) => Ok(NewItem {
+            name,
+            note,
+            urgency,
+        }),
+        (name, note, urgency) => Err(ItemProblems {
+            name: name.err().map(name_message),
+            note: note.err().map(|_| note_message()),
+            urgency: urgency
+                .is_none()
+                .then(|| "Pick how soon it's needed.".to_owned()),
+        }),
+    }
+}
+
+fn empty_form() -> Markup {
+    views::shopping::form(ItemValues::default(), &ItemProblems::default())
+}
+
+/// The Shopping tab around `form`, with every open Item.
+async fn page(state: &AppState, form: &Markup) -> Result<Markup, AppError> {
+    let open = state.shopping.open().await?;
+    Ok(views::shopping::page(form, &open))
 }
 
 fn name_message(err: NameError) -> String {
@@ -105,7 +127,7 @@ fn name_message(err: NameError) -> String {
     }
 }
 
-fn note_message(NoteTooLong: NoteTooLong) -> String {
+fn note_message() -> String {
     format!("Keep the note to {NOTE_MAX} characters or fewer.")
 }
 
