@@ -1,6 +1,6 @@
 ---
 source: src/views/reminders.rs
-expression: "page(&empty_form(), &pending()).into_string().replace(\"><\", \">\\n<\")"
+expression: "page(&empty_form(), &pending(), &[]).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -65,6 +65,7 @@ expression: "page(&empty_form(), &pending()).into_string().replace(\"><\", \">\\
 <button class="button large" type="submit">Create Reminder</button>
 </form>
 </section>
+<div>
 <section class="section" aria-labelledby="pending">
 <h2 id="pending">Pending</h2>
 <ul class="reminder-list">
@@ -109,6 +110,11 @@ expression: "page(&empty_form(), &pending()).into_string().replace(\"><\", \">\\
 </li>
 </ul>
 </section>
+<section class="section" aria-labelledby="sent">
+<h2 id="sent">Sent</h2>
+<p class="muted">Nothing sent in the last 30 days.</p>
+</section>
+</div>
 </div>
 </main>
 <nav class="tabs" aria-label="Sections">
