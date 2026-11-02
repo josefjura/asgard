@@ -6,7 +6,8 @@ use std::future::Future;
 use serde::Serialize;
 
 use super::events::Event;
-use super::members::MemberId;
+use super::finance::{ChangedEntry, EntryAction, FinanceEvent};
+use super::members::{MemberId, MemberName};
 use super::push::Subscription;
 use super::reminders::ReminderDue;
 
@@ -71,6 +72,53 @@ impl Notification {
         .expect("a payload of strings always serializes")
     }
 
+    /// Who did what to an Expense or Payment, for `wording`'s reader, with its amount and what
+    /// it was for.
+    fn finance(change: &FinanceEvent, wording: &Wording<'_>) -> Self {
+        let actor = wording.name(change.actor);
+        let verb = match change.action {
+            EntryAction::Added => "logged",
+            EntryAction::Edited => "edited",
+            EntryAction::Deleted => "deleted",
+        };
+        let (title, amount, description) = match &change.entry {
+            ChangedEntry::Expense(_, expense) => (
+                format!(
+                    "{actor} {verb} {} Expense",
+                    wording.whose(expense.payer, "an")
+                ),
+                expense.amount,
+                Some(&expense.description),
+            ),
+            ChangedEntry::Payment(_, payment) => (
+                if change.action == EntryAction::Added
+                    && payment.sender == change.actor
+                    && payment.recipient == wording.reader
+                {
+                    format!("{actor} sent you a Payment")
+                } else {
+                    format!(
+                        "{actor} {verb} {} Payment to {}",
+                        wording.whose(payment.sender, "a"),
+                        wording.whom(payment.recipient)
+                    )
+                },
+                payment.amount,
+                payment.description.as_ref(),
+            ),
+        };
+        let amount = amount.crowns();
+        Self {
+            title,
+            body: description.map_or_else(
+                || amount.to_string(),
+                |description| format!("{amount} · {}", description.as_str()),
+            ),
+            opens: Opens::Finance,
+            urgency: Urgency::Normal,
+        }
+    }
+
     fn reminder(due: &ReminderDue) -> Self {
         let text = due.text.as_str();
         Self {
@@ -96,16 +144,71 @@ pub struct Delivery {
 }
 
 impl Delivery {
-    /// The notification `event` makes, if it makes one yet.
+    /// The notifications `event` makes, naming Members as `crew` does. Members may each be told
+    /// it in their own words, as "you" for themselves.
     #[must_use]
-    pub fn for_event(event: &Event) -> Option<Self> {
+    pub fn for_event(event: &Event, crew: &[MemberName]) -> Vec<Self> {
         match event {
-            Event::ReminderDue(due) => Some(Self {
+            Event::ReminderDue(due) => vec![Self {
                 notification: Notification::reminder(due),
                 to: due.notify.clone(),
-            }),
-            // Finance notifications come with their own wording (#68).
-            Event::Finance(_) => None,
+            }],
+            Event::Finance(change) => change
+                .notify
+                .iter()
+                .map(|&reader| Self {
+                    notification: Notification::finance(
+                        change,
+                        &Wording {
+                            crew,
+                            reader,
+                            actor: change.actor,
+                        },
+                    ),
+                    to: vec![reader],
+                })
+                .collect(),
+        }
+    }
+}
+
+/// How one reader of a notification hears the Members it names.
+struct Wording<'a> {
+    crew: &'a [MemberName],
+    reader: MemberId,
+    /// The Member whose action the notification is about.
+    actor: MemberId,
+}
+
+impl Wording<'_> {
+    /// `member`'s display name, as the Crew knows it now.
+    fn name(&self, member: MemberId) -> &str {
+        self.crew
+            .iter()
+            .find(|named| named.id == member)
+            .map_or("Someone", |named| named.display_name.as_str())
+    }
+
+    /// Whose an Expense or Payment the actor changed is: `article` ("an"/"a") for the actor's
+    /// own, "your" for the reader's, or the owner's name.
+    fn whose(&self, owner: MemberId, article: &'static str) -> String {
+        if owner == self.actor {
+            article.to_owned()
+        } else if owner == self.reader {
+            "your".to_owned()
+        } else {
+            format!("{}'s", self.name(owner))
+        }
+    }
+
+    /// Who a Payment the actor changed went to: "you", "them" for the actor, or their name.
+    fn whom(&self, recipient: MemberId) -> String {
+        if recipient == self.reader {
+            "you".to_owned()
+        } else if recipient == self.actor {
+            "them".to_owned()
+        } else {
+            self.name(recipient).to_owned()
         }
     }
 }
@@ -212,58 +315,282 @@ pub(crate) mod fixtures {
 
 #[cfg(test)]
 mod tests {
+    use jiff::civil::date;
+
     use super::*;
-    use crate::domain::finance::{EntryAction, EntryId, ExpenseId, FinanceEvent};
+    use crate::domain::finance::money::Amount;
+    use crate::domain::finance::{Description, ExpenseId, NewExpense, NewPayment, PaymentId};
+    use crate::domain::members::DisplayName;
     use crate::domain::reminders::{ReminderId, ReminderText};
+
+    const JOSEF: MemberId = MemberId::from_stored(1);
+    const ONDRA: MemberId = MemberId::from_stored(2);
+    const SIMON: MemberId = MemberId::from_stored(3);
+
+    fn crew() -> Vec<MemberName> {
+        [(JOSEF, "Josef"), (ONDRA, "Ondra"), (SIMON, "Šimon")]
+            .into_iter()
+            .map(|(id, name)| MemberName {
+                id,
+                display_name: DisplayName::from_stored(name.to_owned()),
+            })
+            .collect()
+    }
 
     fn due(text: &str, late: bool) -> Event {
         Event::ReminderDue(ReminderDue {
             reminder: ReminderId::from_client(1),
             text: ReminderText::parse(text).unwrap(),
             late,
-            notify: vec![MemberId::from_stored(1), MemberId::from_stored(2)],
+            notify: vec![JOSEF, ONDRA],
         })
+    }
+
+    fn expense(payer: MemberId, crowns: i64, description: &str) -> ChangedEntry {
+        ChangedEntry::Expense(
+            ExpenseId::from_client(1),
+            NewExpense {
+                payer,
+                amount: Amount::new(crowns).unwrap(),
+                description: Description::parse(description).unwrap(),
+                expense_date: date(2026, 3, 20),
+            },
+        )
+    }
+
+    fn payment(
+        sender: MemberId,
+        recipient: MemberId,
+        crowns: i64,
+        description: &str,
+    ) -> ChangedEntry {
+        ChangedEntry::Payment(
+            PaymentId::from_client(1),
+            NewPayment {
+                sender,
+                recipient,
+                amount: Amount::new(crowns).unwrap(),
+                description: Description::parse_optional(description).unwrap(),
+            },
+        )
+    }
+
+    fn finance(
+        entry: ChangedEntry,
+        action: EntryAction,
+        actor: MemberId,
+        notify: &[MemberId],
+    ) -> Event {
+        Event::Finance(FinanceEvent {
+            entry,
+            action,
+            actor,
+            notify: notify.to_vec(),
+        })
+    }
+
+    /// Each reader of `event`, with the title and body they get.
+    fn told(event: &Event) -> Vec<(MemberId, String, String)> {
+        Delivery::for_event(event, &crew())
+            .into_iter()
+            .map(|delivery| {
+                let [reader] = delivery.to[..] else {
+                    panic!("a Finance notification is worded for one reader");
+                };
+                (
+                    reader,
+                    delivery.notification.title,
+                    delivery.notification.body,
+                )
+            })
+            .collect()
+    }
+
+    fn line(reader: MemberId, title: &str, body: &str) -> (MemberId, String, String) {
+        (reader, title.to_owned(), body.to_owned())
     }
 
     #[test]
     fn a_due_reminder_tells_everyone_its_text() {
         assert_eq!(
-            Delivery::for_event(&due("Bottle the stout", false)),
-            Some(Delivery {
+            Delivery::for_event(&due("Bottle the stout", false), &crew()),
+            [Delivery {
                 notification: Notification {
                     title: "Reminder".to_owned(),
                     body: "Bottle the stout".to_owned(),
                     opens: Opens::Reminders,
                     urgency: Urgency::High,
                 },
-                to: vec![MemberId::from_stored(1), MemberId::from_stored(2)],
-            })
+                to: vec![JOSEF, ONDRA],
+            }]
         );
     }
 
     #[test]
     fn a_late_reminder_says_so() {
-        let delivery = Delivery::for_event(&due("Bottle the stout", true)).unwrap();
+        let delivery = &Delivery::for_event(&due("Bottle the stout", true), &crew())[0];
 
         assert_eq!(delivery.notification.body, "(late) Bottle the stout");
     }
 
     #[test]
-    fn finance_makes_no_notification_yet() {
-        let event = Event::Finance(FinanceEvent {
-            entry: EntryId::Expense(ExpenseId::from_client(1)),
-            action: EntryAction::Added,
-            actor: MemberId::from_stored(1),
-            notify: vec![MemberId::from_stored(2)],
-        });
+    fn an_expense_says_who_did_what_how_much_and_what_for() {
+        let cases = [
+            (EntryAction::Added, "Ondra logged an Expense"),
+            (EntryAction::Edited, "Ondra edited an Expense"),
+            (EntryAction::Deleted, "Ondra deleted an Expense"),
+        ];
+        for (action, title) in cases {
+            let event = finance(expense(ONDRA, 1240, "Hops"), action, ONDRA, &[JOSEF, SIMON]);
 
-        assert_eq!(Delivery::for_event(&event), None);
+            assert_eq!(
+                told(&event),
+                [
+                    line(JOSEF, title, "1\u{a0}240\u{a0}Kč · Hops"),
+                    line(SIMON, title, "1\u{a0}240\u{a0}Kč · Hops"),
+                ],
+                "{action:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_expense_someone_else_paid_names_its_payer() {
+        let event = finance(
+            expense(ONDRA, 300, "Malt"),
+            EntryAction::Added,
+            JOSEF,
+            &[ONDRA, SIMON],
+        );
+
+        assert_eq!(
+            told(&event),
+            [
+                line(ONDRA, "Josef logged your Expense", "300\u{a0}Kč · Malt"),
+                line(SIMON, "Josef logged Ondra's Expense", "300\u{a0}Kč · Malt"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_payment_to_the_reader_says_they_were_sent_it() {
+        let event = finance(
+            payment(ONDRA, JOSEF, 500, ""),
+            EntryAction::Added,
+            ONDRA,
+            &[JOSEF],
+        );
+
+        assert_eq!(
+            told(&event),
+            [line(JOSEF, "Ondra sent you a Payment", "500\u{a0}Kč")]
+        );
+    }
+
+    #[test]
+    fn a_payment_is_worded_for_each_side() {
+        let cases = [
+            // Its Sender edits or deletes it.
+            (
+                payment(ONDRA, JOSEF, 500, "Beer money"),
+                EntryAction::Edited,
+                ONDRA,
+                vec![line(
+                    JOSEF,
+                    "Ondra edited a Payment to you",
+                    "500\u{a0}Kč · Beer money",
+                )],
+            ),
+            (
+                payment(ONDRA, JOSEF, 500, ""),
+                EntryAction::Deleted,
+                ONDRA,
+                vec![line(JOSEF, "Ondra deleted a Payment to you", "500\u{a0}Kč")],
+            ),
+            // Its Recipient logs that it came.
+            (
+                payment(ONDRA, JOSEF, 500, ""),
+                EntryAction::Added,
+                JOSEF,
+                vec![line(
+                    ONDRA,
+                    "Josef logged your Payment to them",
+                    "500\u{a0}Kč",
+                )],
+            ),
+            // The Admin logs it for two others.
+            (
+                payment(ONDRA, SIMON, 500, ""),
+                EntryAction::Added,
+                JOSEF,
+                vec![
+                    line(ONDRA, "Josef logged your Payment to Šimon", "500\u{a0}Kč"),
+                    line(SIMON, "Josef logged Ondra's Payment to you", "500\u{a0}Kč"),
+                ],
+            ),
+            // The Admin made Šimon's Payment to Ondra his own: Šimon is on neither side now.
+            (
+                payment(JOSEF, ONDRA, 500, ""),
+                EntryAction::Edited,
+                JOSEF,
+                vec![
+                    line(ONDRA, "Josef edited a Payment to you", "500\u{a0}Kč"),
+                    line(SIMON, "Josef edited a Payment to Ondra", "500\u{a0}Kč"),
+                ],
+            ),
+        ];
+        for (entry, action, actor, expected) in cases {
+            let notify: Vec<_> = expected.iter().map(|(reader, ..)| *reader).collect();
+
+            assert_eq!(
+                told(&finance(entry, action, actor, &notify)),
+                expected,
+                "{action:?} by {actor:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_finance_notification_opens_finance() {
+        let events = [
+            finance(
+                expense(ONDRA, 300, "Malt"),
+                EntryAction::Added,
+                ONDRA,
+                &[JOSEF],
+            ),
+            finance(
+                payment(ONDRA, JOSEF, 300, ""),
+                EntryAction::Deleted,
+                ONDRA,
+                &[JOSEF],
+            ),
+        ];
+        for event in &events {
+            for delivery in Delivery::for_event(event, &crew()) {
+                assert_eq!(delivery.notification.opens, Opens::Finance);
+                assert_eq!(delivery.notification.urgency, Urgency::Normal);
+            }
+        }
+    }
+
+    #[test]
+    fn a_member_the_crew_does_not_name_is_someone() {
+        let stranger = MemberId::from_stored(9);
+        let event = finance(
+            expense(stranger, 300, "Malt"),
+            EntryAction::Added,
+            stranger,
+            &[JOSEF],
+        );
+
+        assert_eq!(told(&event)[0].1, "Someone logged an Expense");
     }
 
     #[test]
     fn the_payload_names_the_tab_to_open() {
-        let notification = Delivery::for_event(&due("Bottle \"the\" stout", false))
-            .unwrap()
+        let notification = Delivery::for_event(&due("Bottle \"the\" stout", false), &crew())
+            .remove(0)
             .notification;
 
         let payload: serde_json::Value = serde_json::from_slice(&notification.payload()).unwrap();

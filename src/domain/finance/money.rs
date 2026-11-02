@@ -1,5 +1,7 @@
 //! Whole crowns: the only currency the Crew uses, and never a float.
 
+use std::fmt;
+
 /// The smallest amount an Expense or Payment can be for.
 pub const AMOUNT_MIN: i64 = 1;
 
@@ -39,6 +41,24 @@ impl Crowns {
         } else {
             Standing::Owes
         }
+    }
+}
+
+/// The way the Crew reads money: thousands grouped by a space that never breaks, and "Kč". A
+/// negative amount gets a true minus sign.
+impl fmt::Display for Crowns {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0 < 0 {
+            f.write_str("\u{2212}")?;
+        }
+        let digits = self.0.unsigned_abs().to_string();
+        for (index, digit) in digits.chars().enumerate() {
+            if index > 0 && (digits.len() - index).is_multiple_of(3) {
+                f.write_str("\u{a0}")?;
+            }
+            write!(f, "{digit}")?;
+        }
+        f.write_str("\u{a0}Kč")
     }
 }
 

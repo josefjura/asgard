@@ -614,7 +614,7 @@ mod tests {
 
     use crate::domain::events::Event;
     use crate::domain::finance::money::Crowns;
-    use crate::domain::finance::{DESCRIPTION_MAX, EntryAction, EntryId, ExpenseId, FinanceEvent};
+    use crate::domain::finance::{DESCRIPTION_MAX, EntryAction, EntryId, ExpenseId};
     use crate::domain::members::MemberId;
     use crate::views::finance::crowns;
     use crate::web::htmx::{HX_REDIRECT, HX_REQUEST};
@@ -786,14 +786,17 @@ mod tests {
 
         post_expense(&app, &ondra, &fields(1, &[]), true, PUBLIC_ORIGIN).await;
 
+        let Ok(Event::Finance(event)) = events.try_recv() else {
+            panic!("a Finance event is emitted");
+        };
         assert_eq!(
-            events.try_recv(),
-            Ok(Event::Finance(FinanceEvent {
-                entry: EntryId::Expense(ExpenseId::from_client(1)),
-                action: EntryAction::Added,
-                actor: MemberId::from_client(2),
-                notify: vec![MemberId::from_client(1)],
-            }))
+            (event.entry.id(), event.action, event.actor, event.notify),
+            (
+                EntryId::Expense(ExpenseId::from_client(1)),
+                EntryAction::Added,
+                MemberId::from_client(2),
+                vec![MemberId::from_client(1)],
+            )
         );
     }
 

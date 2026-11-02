@@ -193,6 +193,7 @@ mod tests {
         let (sender, mut pushes) = FakeSender::hanging();
         tokio::spawn(notifier::run(
             app.state.events.subscribe(),
+            app.state.members.clone(),
             app.state.push.clone(),
             sender,
         ));

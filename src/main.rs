@@ -91,6 +91,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     // Subscribed before anything can emit, so no event is missed.
     tokio::spawn(notifier::run(
         state.events.subscribe(),
+        state.members.clone(),
         state.push.clone(),
         sender,
     ));
