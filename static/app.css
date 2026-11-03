@@ -1027,8 +1027,29 @@ textarea {
 }
 
 .quote {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
   padding: var(--space-3) 0;
   border-bottom: 1px solid var(--line);
+}
+
+/* A zero minimum so a long word wraps inside the Quote instead of pushing Edit off the row. */
+.quote-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.quote.editing {
+  display: block;
+}
+
+.quote.editing .entry-form {
+  max-width: 28rem;
+}
+
+.quote.gone .empty {
+  margin: 0;
 }
 
 .quote-text {

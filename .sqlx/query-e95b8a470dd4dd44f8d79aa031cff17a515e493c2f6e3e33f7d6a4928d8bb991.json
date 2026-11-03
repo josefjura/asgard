@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO quotes (text, author, added_at, text_search, author_search)\n               VALUES ('Imported', 'A friend', ?, 'imported', 'a friend') RETURNING id AS \"id!\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e95b8a470dd4dd44f8d79aa031cff17a515e493c2f6e3e33f7d6a4928d8bb991"
+}

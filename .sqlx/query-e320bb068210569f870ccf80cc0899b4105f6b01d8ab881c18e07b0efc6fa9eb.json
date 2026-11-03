@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE quotes SET text = ?, author = ?, text_search = ?, author_search = ?\n             WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "e320bb068210569f870ccf80cc0899b4105f6b01d8ab881c18e07b0efc6fa9eb"
+}

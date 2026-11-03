@@ -45,7 +45,7 @@ expression: "page(Some(&remembered()), &add_button(),\n&collection()).into_strin
 <main class="shell-main">
 <h1>Quotes</h1>
 <section class="card random-quote" id="random-quote" aria-label="A random Quote">
-<figure>
+<figure id="random-quote-1">
 <blockquote class="random-quote-text">To pivo je spíš polévka.</blockquote>
 <figcaption class="random-quote-author">Pepa</figcaption>
 </figure>
@@ -62,31 +62,43 @@ expression: "page(Some(&remembered()), &add_button(),\n&collection()).into_strin
 <h2 id="collection">Collection</h2>
 <div id="quote-list">
 <ul class="quote-list">
-<li class="quote">
+<li class="quote" id="quote-1">
+<div class="quote-main">
 <p class="quote-text">To pivo je spíš polévka.</p>
 <p class="quote-author">Pepa</p>
 <p class="quote-meta">Added by Josef · <time datetime="2026-10-24T18:05">Saturday 24 October 2026, 18:05</time>
 </p>
+</div>
+<a class="button small secondary" href="/quotes/1/edit" hx-get="/quotes/1/edit" hx-target="#quote-1" hx-swap="outerHTML" aria-label="Edit the Quote by Pepa">Edit</a>
 </li>
-<li class="quote">
+<li class="quote" id="quote-2">
+<div class="quote-main">
 <p class="quote-text">Dej tam ještě jeden chmel.</p>
 <p class="quote-author">The brewer next door</p>
 <p class="quote-meta">
 <time datetime="2026-10-24T11:30">Saturday 24 October 2026, 11:30</time>
 </p>
+</div>
+<a class="button small secondary" href="/quotes/2/edit" hx-get="/quotes/2/edit" hx-target="#quote-2" hx-swap="outerHTML" aria-label="Edit the Quote by The brewer next door">Edit</a>
 </li>
-<li class="quote">
+<li class="quote" id="quote-3">
+<div class="quote-main">
 <p class="quote-text">He tasted it.
 Then he poured it back.</p>
 <p class="quote-author">Ondra</p>
 <p class="quote-meta">Added by Šimon · <time datetime="2026-10-23T21:15">Friday 23 October 2026, 21:15</time>
 </p>
+</div>
+<a class="button small secondary" href="/quotes/3/edit" hx-get="/quotes/3/edit" hx-target="#quote-3" hx-swap="outerHTML" aria-label="Edit the Quote by Ondra">Edit</a>
 </li>
-<li class="quote">
+<li class="quote" id="quote-4">
+<div class="quote-main">
 <p class="quote-text">He said the mash tasted like biscuits and then kept talking about the water until the kettle boiled over and nobody wrote down the temperature. Nejnezapomenutelnějšívěta which runs on without a break so a phone has to wrap it.</p>
 <p class="quote-author">Pepa</p>
 <p class="quote-meta">Added by Josef · <time datetime="2026-10-22T09:40">Thursday 22 October 2026, 09:40</time>
 </p>
+</div>
+<a class="button small secondary" href="/quotes/4/edit" hx-get="/quotes/4/edit" hx-target="#quote-4" hx-swap="outerHTML" aria-label="Edit the Quote by Pepa">Edit</a>
 </li>
 </ul>
 </div>

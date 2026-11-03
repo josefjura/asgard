@@ -1,10 +1,10 @@
-//! The Quotes tab: a random Quote, adding a Quote to the Crew's collection, and reading or
-//! searching it a page at a time.
+//! The Quotes tab: a random Quote, adding, editing and deleting Quotes, and reading or searching
+//! the collection a page at a time.
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Form, Router};
 use maud::Markup;
 use serde::Deserialize;
@@ -14,12 +14,13 @@ use super::htmx::{HX_PUSH_URL, Htmx};
 use super::pages::fresh;
 use super::{AppError, AppState};
 use crate::domain::quotes::{
-    AUTHOR_MAX, Author, AuthorError, NewQuote, QuoteText, Search, TEXT_MAX, TextError,
+    AUTHOR_MAX, Author, AuthorError, NewQuote, QuoteError, QuoteId, QuoteText, Search, TEXT_MAX,
+    TextError,
 };
 use crate::views;
 use crate::views::nav::Tab;
 use crate::views::quotes::paths;
-use crate::views::quotes::{QuoteProblems, QuoteValues};
+use crate::views::quotes::{Purpose, QuoteProblems, QuoteValues};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -27,6 +28,9 @@ pub fn routes() -> Router<AppState> {
         .route(paths::NEW, get(new_form))
         .route(paths::RANDOM, get(random))
         .route(paths::SEARCH, get(search))
+        .route("/quotes/{id}", get(row).post(save))
+        .route("/quotes/{id}/edit", get(edit))
+        .route("/quotes/{id}/delete", post(delete))
 }
 
 /// What to search the collection for, and which page of it to show. Missing means everything,
@@ -127,7 +131,7 @@ async fn add(
         Ok(quote) => quote,
         Err(problems) => {
             let authors = state.quotes.authors().await?;
-            let form = views::quotes::form(input.values(), &problems, &authors);
+            let form = views::quotes::form(Purpose::Add, input.values(), &problems, &authors);
             let body = if htmx {
                 form
             } else {
@@ -143,6 +147,130 @@ async fn add(
     }
     let list = state.quotes.page(&Search::everything(), 1).await?;
     Ok(fresh(views::quotes::added(&list)).into_response())
+}
+
+/// The Quote `id` in its edit form, for any Member to edit or delete: in its row for htmx, on a
+/// page of its own otherwise.
+async fn edit(
+    State(state): State<AppState>,
+    Member(_): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let id = QuoteId::from_client(id);
+    let quote = match state.quotes.get(id).await {
+        Err(QuoteError::NotFound) => return gone(htmx, id),
+        quote => quote?,
+    };
+    let authors = state.quotes.authors().await?;
+    let form = views::quotes::edit_form(&quote, &authors);
+    Ok(edit_form_in_place(htmx, StatusCode::OK, id, &form))
+}
+
+/// The Quote `id`'s row, put back by cancelling its edit. Only htmx asks for a row; a browser is
+/// sent to the tab.
+async fn row(
+    State(state): State<AppState>,
+    Member(_): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let id = QuoteId::from_client(id);
+    if !htmx {
+        return Ok(back_to_tab());
+    }
+    let quote = match state.quotes.get(id).await {
+        Err(QuoteError::NotFound) => return gone(htmx, id),
+        quote => quote?,
+    };
+    Ok(fresh(views::quotes::quote_row(&quote)).into_response())
+}
+
+/// Saves the edited Quote `id`; who added it, and when, stay as they were. htmx gets its row
+/// showing the new words; a plain form post goes back to the tab. A refused form shows what to
+/// fix: in the Quote's row for htmx, on its edit page otherwise.
+async fn save(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+    Form(input): Form<QuoteForm>,
+) -> Result<Response, AppError> {
+    let id = QuoteId::from_client(id);
+    let quote = match parse(&input) {
+        Ok(quote) => quote,
+        Err(problems) => {
+            // A Quote that is gone is reported as gone, not as a form to fix.
+            if matches!(state.quotes.get(id).await, Err(QuoteError::NotFound)) {
+                return gone(htmx, id);
+            }
+            let authors = state.quotes.authors().await?;
+            let form = views::quotes::form(Purpose::Edit(id), input.values(), &problems, &authors);
+            return Ok(edit_form_in_place(
+                htmx,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                id,
+                &form,
+            ));
+        }
+    };
+    match state.quotes.edit(id, &quote).await {
+        Err(QuoteError::NotFound) => return gone(htmx, id),
+        done => done?,
+    }
+    tracing::info!(member = member.id.get(), "a Member edited a Quote");
+    if !htmx {
+        return Ok(back_to_tab());
+    }
+    let quote = state.quotes.get(id).await?;
+    Ok(fresh(views::quotes::saved(&quote)).into_response())
+}
+
+/// Deletes the Quote `id` for good. htmx gets nothing in place of its row, and a fresh random
+/// Quote so the card can't keep showing it; a plain form post goes back to the tab.
+async fn delete(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let id = QuoteId::from_client(id);
+    match state.quotes.delete(id).await {
+        Err(QuoteError::NotFound) => return gone(htmx, id),
+        done => done?,
+    }
+    tracing::info!(member = member.id.get(), "a Member deleted a Quote");
+    if !htmx {
+        return Ok(back_to_tab());
+    }
+    let random = state.quotes.random().await?;
+    Ok(fresh(views::quotes::deleted(random.as_ref())).into_response())
+}
+
+/// The edit `form` of the Quote `id`, with `status`: in the Quote's row for htmx, or on the edit
+/// page otherwise.
+fn edit_form_in_place(htmx: bool, status: StatusCode, id: QuoteId, form: &Markup) -> Response {
+    let body = if htmx {
+        views::quotes::editing_row(id, form)
+    } else {
+        views::quotes::edit_page(form)
+    };
+    (status, fresh(body)).into_response()
+}
+
+/// What answers a request about the Quote `id` once someone has deleted it: for htmx, its row
+/// saying so, swapped in where the row was; otherwise the page saying so.
+fn gone(htmx: bool, id: QuoteId) -> Result<Response, AppError> {
+    if htmx {
+        Ok(fresh(views::quotes::gone_row(id)).into_response())
+    } else {
+        Err(AppError::NoSuchQuote)
+    }
+}
+
+/// The way back to the Quotes tab, after a plain form post or a browser's request for a row.
+fn back_to_tab() -> Response {
+    Redirect::to(Tab::Quotes.href()).into_response()
 }
 
 /// A fresh random-Quote card, for "Another one". Only htmx asks for it; a browser is sent to the
@@ -186,6 +314,7 @@ async fn page(
 async fn empty_form(state: &AppState) -> Result<Markup, AppError> {
     let authors = state.quotes.authors().await?;
     Ok(views::quotes::form(
+        Purpose::Add,
         QuoteValues::default(),
         &QuoteProblems::default(),
         &authors,
@@ -741,6 +870,428 @@ line two"
 
         assert_eq!(quote_texts(&fragment), ["Two", "One"]);
         assert!(!fragment.contains("No Quotes match"));
+    }
+
+    /// The id of the only Quote whose text is `text`.
+    async fn id_of(app: &TestApp, text: &str) -> i64 {
+        sqlx::query_scalar!(r#"SELECT id AS "id!" FROM quotes WHERE text = ?"#, text)
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap()
+    }
+
+    /// Posts the Quote `id`'s edit form with `fields`, as htmx does if `htmx`.
+    async fn save(
+        app: &TestApp,
+        cookie: &str,
+        id: i64,
+        fields: &[(&str, &str)],
+        htmx: bool,
+    ) -> Response<Body> {
+        let fields: Vec<(&str, String)> = fields
+            .iter()
+            .map(|&(name, value)| (name, value.to_owned()))
+            .collect();
+        post_form(
+            app,
+            &format!("/quotes/{id}"),
+            cookie,
+            &fields,
+            htmx,
+            PUBLIC_ORIGIN,
+        )
+        .await
+    }
+
+    /// Deletes the Quote `id`, as htmx does if `htmx`.
+    async fn delete(app: &TestApp, cookie: &str, id: i64, htmx: bool) -> Response<Body> {
+        post_form(
+            app,
+            &format!("/quotes/{id}/delete"),
+            cookie,
+            &[],
+            htmx,
+            PUBLIC_ORIGIN,
+        )
+        .await
+    }
+
+    #[sqlx::test]
+    async fn the_edit_form_opens_in_the_quotes_row_filled_in(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add_said_by(&app, "Pepa", &["line one\nline two"]).await;
+        let id = id_of(&app, "line one\nline two").await;
+
+        let response = app
+            .send(htmx_get(&format!("/quotes/{id}/edit"), &josef))
+            .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body_text(response).await;
+
+        assert!(!html.contains("<!DOCTYPE"), "{html}");
+        assert!(
+            html.starts_with(&format!(
+                r#"<li class="quote editing" id="quote-{id}"><form "#
+            )),
+            "{html}"
+        );
+        assert!(html.contains("line one\nline two</textarea>"), "{html}");
+        assert!(html.contains(r#"name="author" value="Pepa""#));
+        assert!(html.contains("Delete Quote"));
+    }
+
+    #[sqlx::test]
+    async fn without_htmx_the_edit_form_has_its_own_page(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add_said_by(&app, "Pepa", &["Hello"]).await;
+        let id = id_of(&app, "Hello").await;
+
+        let response = app.get_with(&format!("/quotes/{id}/edit"), &josef).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body_text(response).await;
+
+        assert!(html.contains("<!DOCTYPE"));
+        assert!(html.contains("<h1>Edit Quote</h1>"), "{html}");
+        assert!(html.contains(&format!(r#"action="/quotes/{id}""#)));
+    }
+
+    #[sqlx::test]
+    async fn a_member_edits_a_quote_another_added_keeping_who_and_when(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let ondra = app.sign_in_new_member("Ondra").await;
+        add(&app, &josef, "To pivo je spis polevka", "Pepa").await;
+        let id = id_of(&app, "To pivo je spis polevka").await;
+        app.clock.advance(std::time::Duration::from_hours(3));
+
+        let response = save(
+            &app,
+            &ondra,
+            id,
+            &[("text", " To pivo je spíš polévka. "), ("author", "Pepík")],
+            true,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body_text(response).await;
+
+        assert!(
+            html.starts_with(&format!(r#"<li class="quote" id="quote-{id}">"#)),
+            "{html}"
+        );
+        assert_eq!(quote_texts(&html), ["To pivo je spíš polévka."]);
+        assert!(html.contains(">Pepík</p>"), "{html}");
+        assert!(html.contains(
+            r#"Added by Josef · <time datetime="2026-01-01T01:00">Thursday 1 January 2026, 01:00</time>"#
+        ), "{html}");
+        assert!(
+            html.contains(&format!(
+                r#"<figure id="random-quote-{id}" hx-swap-oob="true">"#
+            )),
+            "{html}"
+        );
+    }
+
+    #[sqlx::test]
+    async fn an_edited_quote_is_found_by_its_new_words(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add_said_by(&app, "Pepa", &["Old words"]).await;
+        let id = id_of(&app, "Old words").await;
+
+        save(
+            &app,
+            &josef,
+            id,
+            &[("text", "Přišel nový"), ("author", "Šimon")],
+            true,
+        )
+        .await;
+
+        assert_eq!(
+            quote_texts(&search(&app, &josef, "prisel").await),
+            ["Přišel nový"]
+        );
+        assert_eq!(
+            quote_texts(&search(&app, &josef, "SIMON").await),
+            ["Přišel nový"]
+        );
+        assert_eq!(
+            quote_texts(&search(&app, &josef, "old").await),
+            Vec::<&str>::new()
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_plain_post_saves_and_goes_back_to_the_tab(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add_said_by(&app, "Pepa", &["Before"]).await;
+        let id = id_of(&app, "Before").await;
+
+        let response = save(
+            &app,
+            &josef,
+            id,
+            &[("text", "After"), ("author", "Pepa")],
+            false,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[LOCATION], "/quotes");
+        assert_eq!(quote_texts(&tab(&app, &josef).await), ["After"]);
+    }
+
+    #[sqlx::test]
+    async fn a_refused_edit_keeps_what_was_typed_and_changes_nothing(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add_said_by(&app, "Pepa", &["Unchanged"]).await;
+        let id = id_of(&app, "Unchanged").await;
+        let too_long = "ř".repeat(AUTHOR_MAX + 1);
+
+        let response = save(
+            &app,
+            &josef,
+            id,
+            &[("text", " \n "), ("author", "Pepík")],
+            true,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let html = body_text(response).await;
+        assert!(
+            html.starts_with(&format!(r#"<li class="quote editing" id="quote-{id}">"#)),
+            "{html}"
+        );
+        assert!(html.contains("Write the Quote."), "{html}");
+        assert!(html.contains(r#"value="Pepík""#));
+
+        let response = save(
+            &app,
+            &josef,
+            id,
+            &[("text", "New words"), ("author", &too_long)],
+            false,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let html = body_text(response).await;
+        assert!(html.contains("<h1>Edit Quote</h1>"), "{html}");
+        assert!(html.contains(&format!(
+            "Keep the Author to {AUTHOR_MAX} characters or fewer."
+        )));
+        assert!(html.contains("New words</textarea>"));
+
+        assert_eq!(quote_texts(&tab(&app, &josef).await), ["Unchanged"]);
+    }
+
+    #[sqlx::test]
+    async fn cancelling_an_edit_puts_the_row_back(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add_said_by(&app, "Pepa", &["Stay as I am"]).await;
+        let id = id_of(&app, "Stay as I am").await;
+
+        let response = app.send(htmx_get(&format!("/quotes/{id}"), &josef)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body_text(response).await;
+        assert!(
+            html.starts_with(&format!(r#"<li class="quote" id="quote-{id}">"#)),
+            "{html}"
+        );
+        assert_eq!(quote_texts(&html), ["Stay as I am"]);
+
+        let plain = app.get_with(&format!("/quotes/{id}"), &josef).await;
+        assert_eq!(plain.status(), StatusCode::SEE_OTHER);
+        assert_eq!(plain.headers()[LOCATION], "/quotes");
+    }
+
+    #[sqlx::test]
+    async fn a_member_deletes_a_quote_another_added_and_it_is_gone_everywhere(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let ondra = app.sign_in_new_member("Ondra").await;
+        add(&app, &josef, "Kept", "Pepa").await;
+        add(&app, &josef, "Deleted", "Pepa").await;
+        let id = id_of(&app, "Deleted").await;
+
+        let response = delete(&app, &ondra, id, true).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body_text(response).await;
+
+        assert!(
+            html.starts_with(r#"<section class="card random-quote" id="random-quote" aria-label="A random Quote" hx-swap-oob="true">"#),
+            "nothing but the card, out of band: {html}"
+        );
+        assert_eq!(random_text(&html), Some("Kept"));
+        assert!(!html.contains("quote-list"), "{html}");
+        let page = tab(&app, &josef).await;
+        assert_eq!(quote_texts(&page), ["Kept"]);
+        assert_eq!(random_text(&page), Some("Kept"));
+        assert_eq!(
+            quote_texts(&search(&app, &josef, "deleted").await),
+            Vec::<&str>::new()
+        );
+    }
+
+    #[sqlx::test]
+    async fn deleting_the_last_quote_shows_the_empty_state(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add(&app, &josef, "The only one", "Pepa").await;
+        let id = id_of(&app, "The only one").await;
+
+        let html = body_text(delete(&app, &josef, id, true).await).await;
+
+        assert!(html.contains("No Quotes to pick from yet."), "{html}");
+        assert!(
+            html.contains(r#"<div id="quote-list" hx-swap-oob="true">"#),
+            "{html}"
+        );
+        assert!(html.contains("No Quotes yet."));
+        assert!(tab(&app, &josef).await.contains("No Quotes yet."));
+    }
+
+    #[sqlx::test]
+    async fn a_plain_delete_goes_back_to_the_tab(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add_said_by(&app, "Pepa", &["Bye"]).await;
+        let id = id_of(&app, "Bye").await;
+
+        let response = delete(&app, &josef, id, false).await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[LOCATION], "/quotes");
+        assert!(tab(&app, &josef).await.contains("No Quotes yet."));
+    }
+
+    #[sqlx::test]
+    async fn an_imported_quote_can_be_edited_and_deleted(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let id = sqlx::query_scalar!(
+            r#"INSERT INTO quotes (text, author, added_at, text_search, author_search)
+               VALUES ('Imported', 'A friend', 1767225600, 'imported', 'a friend')
+               RETURNING id AS "id!""#
+        )
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+
+        let saved = save(
+            &app,
+            &josef,
+            id,
+            &[("text", "Imported, fixed"), ("author", "A friend")],
+            true,
+        )
+        .await;
+        assert_eq!(saved.status(), StatusCode::OK);
+        assert!(!body_text(saved).await.contains("Added by"));
+
+        let deleted = delete(&app, &josef, id, true).await;
+        assert_eq!(deleted.status(), StatusCode::OK);
+        assert!(tab(&app, &josef).await.contains("No Quotes yet."));
+    }
+
+    #[sqlx::test]
+    async fn a_quote_thats_gone_says_so_instead_of_failing(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add_said_by(&app, "Pepa", &["Soon gone"]).await;
+        let id = id_of(&app, "Soon gone").await;
+        delete(&app, &josef, id, true).await;
+        let gone_row = format!(r#"<li class="quote gone" id="quote-{id}" role="status">"#);
+
+        let responses = [
+            app.send(htmx_get(&format!("/quotes/{id}/edit"), &josef))
+                .await,
+            app.send(htmx_get(&format!("/quotes/{id}"), &josef)).await,
+            save(
+                &app,
+                &josef,
+                id,
+                &[("text", "New"), ("author", "Pepa")],
+                true,
+            )
+            .await,
+            // Gone is reported as gone, not as a form to fix.
+            save(&app, &josef, id, &[("text", ""), ("author", "")], true).await,
+            delete(&app, &josef, id, true).await,
+        ];
+        for response in responses {
+            assert_eq!(response.status(), StatusCode::OK);
+            let html = body_text(response).await;
+            assert!(html.starts_with(&gone_row), "{html}");
+            assert!(html.contains("This Quote is gone: someone deleted it."));
+        }
+
+        for response in [
+            app.get_with(&format!("/quotes/{id}/edit"), &josef).await,
+            save(
+                &app,
+                &josef,
+                id,
+                &[("text", "New"), ("author", "Pepa")],
+                false,
+            )
+            .await,
+            delete(&app, &josef, id, false).await,
+        ] {
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            assert!(
+                body_text(response)
+                    .await
+                    .contains("That Quote no longer exists")
+            );
+        }
+    }
+
+    #[sqlx::test]
+    async fn editing_and_deleting_need_a_member_and_our_origin(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add_said_by(&app, "Pepa", &["Guarded"]).await;
+        let id = id_of(&app, "Guarded").await;
+        let fields = [("text", "Hacked".to_owned()), ("author", "Pepa".to_owned())];
+
+        for response in [
+            app.get(&format!("/quotes/{id}/edit")).await,
+            app.get(&format!("/quotes/{id}")).await,
+            save(&app, "", id, &[("text", "x"), ("author", "y")], false).await,
+            delete(&app, "", id, false).await,
+        ] {
+            assert_eq!(response.status(), StatusCode::SEE_OTHER);
+            assert_eq!(response.headers()[LOCATION], "/sign-in");
+        }
+
+        let foreign = "https://evil.example";
+        let save_elsewhere = post_form(
+            &app,
+            &format!("/quotes/{id}"),
+            &josef,
+            &fields,
+            true,
+            foreign,
+        )
+        .await;
+        let delete_elsewhere = post_form(
+            &app,
+            &format!("/quotes/{id}/delete"),
+            &josef,
+            &[],
+            true,
+            foreign,
+        )
+        .await;
+        assert_eq!(save_elsewhere.status(), StatusCode::FORBIDDEN);
+        assert_eq!(delete_elsewhere.status(), StatusCode::FORBIDDEN);
+        assert_eq!(quote_texts(&tab(&app, &josef).await), ["Guarded"]);
     }
 
     #[sqlx::test]
