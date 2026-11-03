@@ -126,12 +126,14 @@ mod tests {
     use crate::domain::notifications::{Notification, Opens, Urgency};
     use crate::domain::push::fixtures::subscription;
     use crate::domain::reminders::{ReminderDue, ReminderId, ReminderText};
+    use crate::domain::shopping::{ItemName, NewItem, Shopping, Urgency as ItemUrgency};
 
     /// A Crew whose devices the notifier pushes to.
     struct Crew {
         members: Members,
         subscriptions: PushSubscriptions,
         finance: Finance,
+        shopping: Shopping,
         due: Emitter<ReminderDue>,
         channel: Channel<Event>,
     }
@@ -152,6 +154,11 @@ mod tests {
             Self {
                 members: Members::new(db.clone()),
                 finance: Finance::new(db.clone(), april.clock(), channel.emitter(Event::Finance)),
+                shopping: Shopping::new(
+                    db.clone(),
+                    april.clock(),
+                    channel.emitter(Event::AsapItemAdded),
+                ),
                 subscriptions: PushSubscriptions::new(db, clock.clock()),
                 due: channel.emitter(Event::ReminderDue),
                 channel,
@@ -400,5 +407,67 @@ mod tests {
                 sent("josef-phone", &expected)
             ]
         );
+    }
+
+    /// Adds an Item called `name` with `urgency`, on behalf of `adder`.
+    async fn add_item(crew: &Crew, adder: MemberId, name: &str, urgency: ItemUrgency) {
+        crew.shopping
+            .add(
+                adder,
+                &NewItem {
+                    name: ItemName::parse(name).unwrap(),
+                    note: None,
+                    urgency,
+                },
+            )
+            .await
+            .unwrap();
+    }
+
+    #[sqlx::test]
+    async fn an_asap_item_reaches_everyone_but_whoever_added_it(db: SqlitePool) {
+        let crew = Crew::new(db.clone());
+        let josef = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let simon = add_member(&db, "Šimon", false).await;
+        crew.subscribe(&db, josef, "josef-laptop").await;
+        crew.subscribe(&db, josef, "josef-phone").await;
+        crew.subscribe(&db, ondra, "ondra").await;
+        crew.subscribe(&db, simon, "simon").await;
+        let (sender, mut pushes) = FakeSender::delivering();
+        crew.notify_with(sender);
+
+        add_item(&crew, ondra, "Star San", ItemUrgency::Asap).await;
+
+        let expected = Notification {
+            title: "ASAP".to_owned(),
+            body: "Star San · added by Ondra".to_owned(),
+            opens: Opens::Shopping,
+            urgency: Urgency::High,
+        };
+        assert_eq!(
+            drain(&mut pushes).await,
+            [
+                sent("josef-laptop", &expected),
+                sent("josef-phone", &expected),
+                sent("simon", &expected),
+            ]
+        );
+    }
+
+    #[sqlx::test]
+    async fn an_item_that_isnt_asap_reaches_nobody(db: SqlitePool) {
+        let crew = Crew::new(db.clone());
+        let josef = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        crew.subscribe(&db, josef, "josef").await;
+        crew.subscribe(&db, ondra, "ondra").await;
+        let (sender, mut pushes) = FakeSender::delivering();
+        crew.notify_with(sender);
+
+        add_item(&crew, ondra, "Saaz", ItemUrgency::NextBrewday).await;
+        add_item(&crew, ondra, "Caps", ItemUrgency::NiceToHave).await;
+
+        assert_eq!(drain(&mut pushes).await, []);
     }
 }
