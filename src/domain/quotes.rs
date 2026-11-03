@@ -168,9 +168,48 @@ impl From<QuoteRow> for Quote {
     }
 }
 
-/// One page of the collection, newest first.
+/// What a Member searches the collection for, trimmed and folded like the stored search form.
+///
+/// So "prisel" finds "přišel" and "PEPA" finds "Pepa". Nothing typed is the whole collection.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Search {
+    typed: String,
+    folded: String,
+}
+
+impl Search {
+    /// A search for `input`, trimmed.
+    #[must_use]
+    pub fn new(input: &str) -> Self {
+        let typed = input.trim().to_owned();
+        let folded = fold(&typed);
+        Self { typed, folded }
+    }
+
+    /// The whole collection, unfiltered.
+    #[must_use]
+    pub fn everything() -> Self {
+        Self::default()
+    }
+
+    /// The words as typed, trimmed: what the search box shows and links carry.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.typed
+    }
+
+    /// Whether this is the whole collection, with nothing typed.
+    #[must_use]
+    pub const fn is_everything(&self) -> bool {
+        self.folded.is_empty()
+    }
+}
+
+/// One page of the collection, or of the Quotes a search found, newest first.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuotePage {
+    /// What the page was searched for; [`Search::everything`] for the whole collection.
+    pub search: Search,
     pub quotes: Vec<Quote>,
     /// Which page this is, from 1.
     pub page: usize,
@@ -257,16 +296,23 @@ impl Quotes {
         Ok(QuoteId(id))
     }
 
-    /// The `page`th page of the collection, newest first. A page past the last is the last, and
-    /// a page below 1 is the first.
+    /// The `page`th page of the Quotes `search` finds, newest first: those whose text or Author
+    /// contains it, ignoring case and diacritics. A page past the last is the last, and a page
+    /// below 1 is the first.
     ///
     /// # Errors
     ///
     /// Returns a database error.
-    pub async fn page(&self, page: usize) -> Result<QuotePage, sqlx::Error> {
-        let count = sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!: i64" FROM quotes"#)
-            .fetch_one(&self.db)
-            .await?;
+    pub async fn page(&self, search: &Search, page: usize) -> Result<QuotePage, sqlx::Error> {
+        // instr, not LIKE, so a % or _ the Member types is just a character to find.
+        let words = search.folded.as_str();
+        let count = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) AS "count!: i64" FROM quotes
+               WHERE ?1 = '' OR instr(text_search, ?1) > 0 OR instr(author_search, ?1) > 0"#,
+            words,
+        )
+        .fetch_one(&self.db)
+        .await?;
         let total = usize::try_from(count).unwrap_or(0);
         let pages = total.div_ceil(PAGE_SIZE).max(1);
         let page = page.clamp(1, pages);
@@ -280,8 +326,11 @@ impl Quotes {
                       members.display_name AS "added_by?"
                FROM quotes
                LEFT JOIN members ON members.id = quotes.added_by
+               WHERE ?1 = '' OR instr(quotes.text_search, ?1) > 0
+                     OR instr(quotes.author_search, ?1) > 0
                ORDER BY quotes.added_at DESC, quotes.id DESC
-               LIMIT ? OFFSET ?"#,
+               LIMIT ?2 OFFSET ?3"#,
+            words,
             limit,
             offset,
         )
@@ -291,6 +340,7 @@ impl Quotes {
         .map(Quote::from)
         .collect();
         Ok(QuotePage {
+            search: search.clone(),
             quotes,
             page,
             pages,
@@ -370,7 +420,8 @@ mod tests {
     use sqlx::SqlitePool;
 
     use super::{
-        AUTHOR_MAX, Author, AuthorError, NewQuote, PAGE_SIZE, QuoteText, TEXT_MAX, TextError, fold,
+        AUTHOR_MAX, Author, AuthorError, NewQuote, PAGE_SIZE, QuoteText, Search, TEXT_MAX,
+        TextError, fold,
     };
     use crate::domain::clock::{ManualClock, unix_seconds};
     use crate::domain::members::DisplayName;
@@ -468,7 +519,7 @@ mod tests {
             .await
             .unwrap();
 
-        let page = quotes.page(1).await.unwrap();
+        let page = quotes.page(&Search::everything(), 1).await.unwrap();
         assert_eq!(page.page, 1);
         assert_eq!(page.pages, 1);
         assert_eq!(page.quotes.len(), 1);
@@ -515,7 +566,7 @@ mod tests {
 
         quotes.add(josef, &new_quote(&text, &author)).await.unwrap();
 
-        let quote = &quotes.page(1).await.unwrap().quotes[0];
+        let quote = &quotes.page(&Search::everything(), 1).await.unwrap().quotes[0];
         assert_eq!(quote.text.as_str(), text);
         assert_eq!(quote.author.as_str(), author);
     }
@@ -532,23 +583,23 @@ mod tests {
             clock.advance(Duration::from_secs(1));
         }
 
-        let first = quotes.page(1).await.unwrap();
+        let first = quotes.page(&Search::everything(), 1).await.unwrap();
         assert_eq!(first.quotes.len(), PAGE_SIZE);
         assert_eq!(first.page, 1);
         assert_eq!(first.pages, 2);
         assert_eq!(first.quotes[0].text.as_str(), "Quote 26");
         assert_eq!(first.quotes.last().unwrap().text.as_str(), "Quote 02");
 
-        let last = quotes.page(2).await.unwrap();
+        let last = quotes.page(&Search::everything(), 2).await.unwrap();
         assert_eq!(last.page, 2);
         assert_eq!(last.quotes.len(), 1);
         assert_eq!(last.quotes[0].text.as_str(), "Quote 01");
 
-        let past = quotes.page(99).await.unwrap();
+        let past = quotes.page(&Search::everything(), 99).await.unwrap();
         assert_eq!(past.page, 2);
         assert_eq!(past.quotes[0].text.as_str(), "Quote 01");
 
-        let before = quotes.page(0).await.unwrap();
+        let before = quotes.page(&Search::everything(), 0).await.unwrap();
         assert_eq!(before.page, 1);
         assert_eq!(before.quotes[0].text.as_str(), "Quote 26");
     }
@@ -561,7 +612,7 @@ mod tests {
             quotes.add(josef, &new_quote(name, "Pepa")).await.unwrap();
         }
 
-        let page = quotes.page(1).await.unwrap();
+        let page = quotes.page(&Search::everything(), 1).await.unwrap();
         let texts: Vec<&str> = page
             .quotes
             .iter()
@@ -574,7 +625,7 @@ mod tests {
     async fn an_empty_collection_is_one_empty_page(db: SqlitePool) {
         let (quotes, _) = service(db);
 
-        let page = quotes.page(3).await.unwrap();
+        let page = quotes.page(&Search::everything(), 3).await.unwrap();
 
         assert_eq!(page.quotes.len(), 0);
         assert_eq!(page.page, 1);
@@ -602,10 +653,102 @@ mod tests {
         .await
         .unwrap();
 
-        let quote = &quotes.page(1).await.unwrap().quotes[0];
+        let quote = &quotes.page(&Search::everything(), 1).await.unwrap().quotes[0];
         assert_eq!(quote.text.as_str(), text);
         assert_eq!(quote.author.as_str(), author);
         assert_eq!(quote.added_by, None);
+    }
+
+    /// The texts of the Quotes on `page`, in order.
+    fn texts(page: &super::QuotePage) -> Vec<&str> {
+        page.quotes
+            .iter()
+            .map(|quote| quote.text.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn a_search_is_trimmed_and_nothing_typed_is_everything() {
+        assert_eq!(Search::new("  Pepa \n").as_str(), "Pepa");
+        assert!(Search::new(" \t").is_everything());
+        assert_eq!(Search::new(" "), Search::everything());
+        assert!(!Search::new("x").is_everything());
+    }
+
+    #[sqlx::test]
+    async fn search_finds_part_of_the_text_or_the_author_ignoring_case_and_diacritics(
+        db: SqlitePool,
+    ) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (quotes, clock) = service(db);
+        for (text, author) in [
+            ("Přišel jsem pozdě", "Ondra"),
+            ("Pivo je hotové", "Pepa"),
+            ("Chmel došel", "Šimon"),
+            ("Ještě jedno", "Pepa"),
+        ] {
+            quotes.add(josef, &new_quote(text, author)).await.unwrap();
+            clock.advance(Duration::from_secs(1));
+        }
+        let found = async |words: &str| quotes.page(&Search::new(words), 1).await.unwrap();
+
+        assert_eq!(texts(&found("prisel").await), ["Přišel jsem pozdě"]);
+        assert_eq!(texts(&found("PŘIŠEL").await), ["Přišel jsem pozdě"]);
+        assert_eq!(texts(&found("hotov").await), ["Pivo je hotové"]);
+        assert_eq!(
+            texts(&found("PEPA").await),
+            ["Ještě jedno", "Pivo je hotové"]
+        );
+        assert_eq!(texts(&found("simon").await), ["Chmel došel"]);
+        assert_eq!(texts(&found("  pepa ").await).len(), 2);
+        assert_eq!(texts(&found("nothing like it").await), Vec::<&str>::new());
+        assert_eq!(found("").await.quotes.len(), 4);
+        assert_eq!(found("pepa").await.search, Search::new("pepa"));
+    }
+
+    #[sqlx::test]
+    async fn search_treats_like_wildcards_as_plain_characters(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (quotes, _) = service(db);
+        quotes
+            .add(josef, &new_quote("100% malt", "Pepa"))
+            .await
+            .unwrap();
+        quotes
+            .add(josef, &new_quote("Plain words", "Pepa"))
+            .await
+            .unwrap();
+
+        let percent = quotes.page(&Search::new("%"), 1).await.unwrap();
+        assert_eq!(texts(&percent), ["100% malt"]);
+        let underscore = quotes.page(&Search::new("_"), 1).await.unwrap();
+        assert_eq!(texts(&underscore), Vec::<&str>::new());
+    }
+
+    #[sqlx::test]
+    async fn search_results_are_paginated_newest_first(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (quotes, clock) = service(db);
+        for n in 1..=PAGE_SIZE + 1 {
+            quotes
+                .add(josef, &new_quote(&format!("Pivo {n:02}"), "Pepa"))
+                .await
+                .unwrap();
+            quotes
+                .add(josef, &new_quote(&format!("Other {n:02}"), "Ondra"))
+                .await
+                .unwrap();
+            clock.advance(Duration::from_secs(1));
+        }
+        let search = Search::new("pivo");
+
+        let first = quotes.page(&search, 1).await.unwrap();
+        assert_eq!(first.pages, 2);
+        assert_eq!(first.quotes.len(), PAGE_SIZE);
+        assert_eq!(first.quotes[0].text.as_str(), "Pivo 26");
+        let second = quotes.page(&search, 2).await.unwrap();
+        assert_eq!(texts(&second), ["Pivo 01"]);
+        assert_eq!(second.search, search);
     }
 
     #[sqlx::test]

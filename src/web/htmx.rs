@@ -21,6 +21,10 @@ pub const HX_REDIRECT: HeaderName = HeaderName::from_static("hx-redirect");
 /// request's own target.
 pub const HX_RETARGET: HeaderName = HeaderName::from_static("hx-retarget");
 
+/// Tells htmx to put this URL in the browser's address bar and history, as if the page were
+/// loaded there.
+pub const HX_PUSH_URL: HeaderName = HeaderName::from_static("hx-push-url");
+
 /// Whether htmx sent the request, so a handler can answer with a fragment instead of a page.
 pub struct Htmx(pub bool);
 

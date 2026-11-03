@@ -1007,6 +1007,12 @@ textarea {
   margin: 0;
 }
 
+/* The search box: as wide as "+ Quote" beneath it. */
+.quote-search {
+  max-width: 28rem;
+  margin-bottom: var(--space-3);
+}
+
 /* "+ Quote" stays a comfortable line long; the form that replaces it is the same width. */
 #quote-adder {
   max-width: 28rem;

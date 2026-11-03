@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COUNT(*) AS \"count!: i64\" FROM quotes\n               WHERE ?1 = '' OR instr(text_search, ?1) > 0 OR instr(author_search, ?1) > 0",
+  "describe": {
+    "columns": [
+      {
+        "name": "count!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cec1e909c038b356055d9aa23a8bc6c7d8a1fa00ed14a782579a84db3b54bcbf"
+}
