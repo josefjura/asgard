@@ -1,0 +1,24 @@
+---
+source: src/domain/heimdall/report.rs
+expression: report.to_string()
+---
+Counts              Heimdall        Asgard
+Expenses                   2             2
+Payments                   2             2
+Reminders                  2             2
+Quotes                     2             2
+
+Totals (Kč)         Heimdall        Asgard
+Expenses              180000        180000
+Payments                5000          5000
+
+Balances (Kč)       Heimdall        Asgard    Difference
+Josef                  66.67            66         -0.67
+Ondra                 -33.33           -33          0.33
+Pepa                  -33.34           -40         -6.66
+
+Rounded to whole crowns
+  Payment 4: 99.5 -> 100
+
+Verdict: FAIL. Nothing was committed:
+  - Pepa's Balance differs by -6.66 Kč, more than 1 Kč

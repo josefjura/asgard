@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use jiff::civil::DateTime;
 use jiff::{ToSpan, Zoned};
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 use tokio::sync::Notify;
 
 use crate::domain::channel::Emitter;
@@ -521,6 +521,51 @@ impl From<PendingRow> for PendingReminder {
             created_by: DisplayName::from_stored(row.created_by),
         }
     }
+}
+
+/// A Reminder brought over from Heimdall, with its creator and the instants Heimdall stored.
+pub(in crate::domain) struct ImportedReminder {
+    pub text: ReminderText,
+    pub created_by: MemberId,
+    /// Unix seconds.
+    pub due_at: i64,
+    /// Unix seconds.
+    pub created_at: i64,
+}
+
+/// Adds `reminder` as part of the Heimdall import's transaction, and answers whether it is
+/// pending.
+///
+/// Heimdall deletes a Reminder once it's sent, so one still there is either to come or failed
+/// to go out. One due after `now` (Unix seconds) is pending and the ticker sends it. One already
+/// due is stored as sent at its due time, so the ticker never pushes it late.
+pub(in crate::domain) async fn import(
+    conn: &mut SqliteConnection,
+    reminder: &ImportedReminder,
+    now: i64,
+) -> Result<bool, sqlx::Error> {
+    let pending = reminder.due_at > now;
+    let sent_at = (!pending).then_some(reminder.due_at);
+    let created_by = reminder.created_by.get();
+    sqlx::query!(
+        "INSERT INTO reminders (text, due_at, created_by, created_at, sent_at)
+         VALUES (?, ?, ?, ?, ?)",
+        reminder.text.0,
+        reminder.due_at,
+        created_by,
+        reminder.created_at,
+        sent_at,
+    )
+    .execute(conn)
+    .await?;
+    Ok(pending)
+}
+
+/// How many Reminders there are, pending and sent.
+pub(in crate::domain) async fn count(conn: &mut SqliteConnection) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!: i64" FROM reminders"#)
+        .fetch_one(conn)
+        .await
 }
 
 /// Pending and sent Reminders for the gallery and the snapshots.

@@ -65,7 +65,7 @@ impl DisplayName {
     }
 
     /// The form two names share when they differ only in case.
-    fn key(&self) -> String {
+    pub(in crate::domain) fn key(&self) -> String {
         self.0.to_lowercase()
     }
 }

@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n             (SELECT COUNT(*) FROM expenses WHERE deleted_at IS NULL) AS \"expense_count!: i64\",\n             (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE deleted_at IS NULL)\n                 AS \"expense_total!: i64\",\n             (SELECT COUNT(*) FROM payments WHERE deleted_at IS NULL) AS \"payment_count!: i64\",\n             (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE deleted_at IS NULL)\n                 AS \"payment_total!: i64\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "expense_count!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "expense_total!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "payment_count!: i64",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "payment_total!: i64",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "75cd0c2780543ae364cf3e89304d734123c62fdbe8310ad639da083800654f42"
+}

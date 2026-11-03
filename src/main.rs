@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::ExitCode;
 
 use asgard::cli::{self, Command};
@@ -5,6 +6,7 @@ use asgard::config::Config;
 use asgard::db;
 use asgard::domain::auth::{Auth, LINK_LIFETIME_HOURS};
 use asgard::domain::clock::Clock;
+use asgard::domain::heimdall::ImportOptions;
 use asgard::domain::members::Members;
 use asgard::domain::web_push::WebPushSender;
 use asgard::tasks::{notifier, ticker};
@@ -37,6 +39,9 @@ async fn main() -> ExitCode {
     let result = match command {
         Command::Serve => run(config).await,
         Command::BootstrapAdmin { display_name } => bootstrap_admin(config, &display_name).await,
+        Command::ImportHeimdall { heimdall, options } => {
+            import_heimdall(config, &heimdall, &options).await
+        }
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -71,6 +76,37 @@ async fn bootstrap_admin(
     eprintln!("Open this link within {LINK_LIFETIME_HOURS} hours to join the Crew as its Admin:");
     println!("{link}");
     Ok(())
+}
+
+async fn import_heimdall(
+    config: Config,
+    heimdall: &Path,
+    options: &ImportOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = open_database(&config).await?;
+    let clock = Clock::system();
+    let members = Members::new(pool.clone());
+    let auth = Auth::new(pool.clone(), clock.clone(), members, &config.public_url)?;
+    let run =
+        cli::import_heimdall(&pool, &clock, &auth, &config.public_url, heimdall, options).await;
+    pool.close().await;
+
+    let run = run?;
+    print!("{}", run.imported.report);
+    if !run.device_links.is_empty() {
+        println!();
+        println!(
+            "Device links: send each Member theirs. Each works once, within {LINK_LIFETIME_HOURS} hours."
+        );
+        for (name, link) in &run.device_links {
+            println!("  {name}: {link}");
+        }
+    }
+    if run.imported.report.passed() {
+        Ok(())
+    } else {
+        Err("the import failed verification, so nothing was committed".into())
+    }
 }
 
 async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {

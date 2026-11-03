@@ -164,10 +164,71 @@ It prints a link that works once, for 24 hours. Opening it registers a passkey a
 
 ## Heimdall import
 
-A one-off subcommand: `asgard import-heimdall <path-to-heimdall.db>`.
+A one-off subcommand that brings Heimdall's data into a fresh Asgard on the cutover day:
 
-- Imports Expenses, Payments, Reminders and Quotes. Heimdall never stored todos.
-- Members are matched by name and Discord ids are dropped. All three imported Members are in the Crew from the start.
-- Amounts become whole crowns, and each Expense date is the Heimdall creation time. Imported entries have no Logger, and imported Quotes have no Added by.
-- It prints totals and per-Member Balances next to Heimdall's. The import is verified when the expense and payment totals match exactly and every Balance matches to within 1 Kč.
-- Cutover: the Crew stops entering data in Heimdall for the day of the switch. After verification, Heimdall and its bot are switched off.
+```sh
+asgard import-heimdall <heimdall.db> --admin <display name>   [--rename <Heimdall name>=<display name>]... [--dry-run]
+```
+
+- **What it reads:** Heimdall's database, opened read-only, so a failed run can't damage it.
+- **Members:** one per Heimdall user, named after its display name or its `--rename`. `--admin` names the Admin (after renames, ignoring case), so `bootstrap-admin` isn't needed. Every Member joins the Crew on the day of Heimdall's earliest entry, so every old Expense is split across all of them, as Heimdall split it. Discord ids are dropped.
+- **Entries:** Expenses, Payments, Reminders and Quotes. Amounts become whole crowns. An Expense's date is the Prague day Heimdall recorded it. Imported entries have no Logger and imported Quotes no Added by. A Reminder still to come is pending; one already due is stored as sent, so nothing fires late on the first day. Heimdall never stored its todos.
+- **Refusals:** it stops before writing anything if Asgard already has Members or entries, a Heimdall user is still an unassigned `emptyslot_*`, an entry refers to an unknown user, two Members would share a name, or `--admin` or a `--rename` matches nobody.
+- **One transaction:** everything is written, then checked, then committed only if the checks pass. A dry run, or a failed check, rolls everything back.
+- **Device links:** after a committed import it prints a Device link for every Member (one use, 24 hours). They are listed on the Admin page among the open links, where they can be revoked.
+
+### Reading the report
+
+The import prints four tables and a verdict:
+
+- **Counts:** Expenses, Payments, Reminders and Quotes in Heimdall and in Asgard. They must be equal.
+- **Totals (Kč):** what the Expenses and the Payments add up to, Heimdall's after each amount is rounded to whole crowns. They must be equal.
+- **Balances (Kč):** each Member's Balance as Heimdall computes it (float Shares of each payer's summed Expenses, rounded to hundredths), Asgard's, and the difference. Each difference must be within 1 Kč.
+- **Rounded to whole crowns:** every amount that wasn't whole crowns in Heimdall, with its original and rounded value. Usually `none`.
+
+The last line is the verdict: `PASS. The import is committed.`, `PASS. Dry run, so nothing was committed.`, or `FAIL. Nothing was committed:` followed by each failed check. A failed check also makes the command exit with a non-zero status.
+
+### Cutover
+
+Heimdall runs from its repository's `docker-compose.yml` (container `heimdall`, database at `/app/data/heimdall.db`). Asgard must be deployed and empty: don't run `bootstrap-admin`. The `kubectl` commands are `microk8s kubectl` on the VPS.
+
+1. **Tell the Crew** not to log anything in Heimdall for the day.
+2. **Stop Heimdall**, so its database file is consistent. On Heimdall's host, from its repository:
+
+   ```sh
+   docker compose stop heimdall
+   ```
+
+3. **Copy Heimdall's database into Asgard's volume.** `docker cp` works on a stopped container. Fold any write-ahead log into the main file first, so the one file holds everything:
+
+   ```sh
+   docker cp heimdall:/app/data ./heimdall-data
+   sqlite3 heimdall-data/heimdall.db 'PRAGMA wal_checkpoint(TRUNCATE);'
+   ```
+
+   Asgard's image has no shell or `tar`, so `kubectl cp` can't write into its pod. Copy the file through a short-lived pod that mounts the same volume instead:
+
+   ```sh
+   PVC=$(kubectl -n asgard get pvc -o jsonpath='{.items[0].metadata.name}')
+   kubectl -n asgard run heimdall-copy --image=busybox --restart=Never --overrides='{
+     "spec": {
+       "securityContext": {"runAsUser": 10001, "runAsGroup": 10001},
+       "containers": [{"name": "heimdall-copy", "image": "busybox", "command": ["sleep", "600"],
+                       "volumeMounts": [{"name": "data", "mountPath": "/data"}]}],
+       "volumes": [{"name": "data", "persistentVolumeClaim": {"claimName": "'"$PVC"'"}}]
+     }}'
+   kubectl -n asgard wait --for=condition=Ready pod/heimdall-copy
+   kubectl -n asgard cp heimdall-data/heimdall.db heimdall-copy:/data/heimdall.db
+   kubectl -n asgard delete pod heimdall-copy
+   ```
+
+4. **Rehearse with a dry run** and read the report (see [Reading the report](#reading-the-report)). Fix whatever it refuses, in Heimdall's copy or with `--rename`, and repeat until the verdict is `PASS`:
+
+   ```sh
+   kubectl -n asgard exec deploy/asgard -- /usr/local/bin/asgard import-heimdall      /data/heimdall.db --admin "Josef" --rename "josef_discord=Josef" --dry-run
+   ```
+
+5. **Run the real import:** the same command without `--dry-run`. Keep the output: it is the record of what Heimdall held.
+6. **Send the Device links** over chat, each to its Member. Each one registers a passkey on the device that opens it.
+7. **Check the Finance screen** against Heimdall's last known Balances, and against the report's Balances table.
+8. **Leave Heimdall and its bot off.** Remove the copy from Asgard's volume (another `heimdall-copy` pod, `rm /data/heimdall.db`), keep `heimdall-data/` somewhere safe, and archive the Heimdall repository.
