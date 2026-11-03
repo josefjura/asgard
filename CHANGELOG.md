@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.0](https://github.com/josefjura/asgard/compare/v0.7.0...v0.8.0) (2026-11-03)
+
+
+### Features
+
+* edit and delete any Quote ([#122](https://github.com/josefjura/asgard/issues/122)) ([ab663fc](https://github.com/josefjura/asgard/commit/ab663fcfd872ea8ba585f43d18f25caedc1cf910))
+* import Heimdall's data on the cutover day ([#124](https://github.com/josefjura/asgard/issues/124)) ([855c35b](https://github.com/josefjura/asgard/commit/855c35bd43c9c7545038fc90e4ac60ced8efe0bc))
+* push ASAP Items to the rest of the Crew ([#123](https://github.com/josefjura/asgard/issues/123)) ([4c7a099](https://github.com/josefjura/asgard/commit/4c7a099114632de99246ad9bafd9b3445c2cf266))
+* random Quote with Another one ([#119](https://github.com/josefjura/asgard/issues/119)) ([338c255](https://github.com/josefjura/asgard/commit/338c255cf717e863f3aef7f8aaea945ed29d1d15))
+* search Quotes as you type ([#120](https://github.com/josefjura/asgard/issues/120)) ([44204c5](https://github.com/josefjura/asgard/commit/44204c5bbea69ba08430eb556fa3b959307888f7))
+
 ## [0.7.0](https://github.com/josefjura/asgard/compare/v0.6.0...v0.7.0) (2026-11-02)
 
 
