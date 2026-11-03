@@ -5,7 +5,7 @@
 //! Quote; nothing here checks who added it.
 
 use jiff::civil::DateTime;
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::domain::clock::{Clock, crew_time_of_unix_seconds, unix_seconds};
@@ -454,6 +454,35 @@ impl Quotes {
         .await?;
         Ok(authors.into_iter().map(Author::from_stored).collect())
     }
+}
+
+/// Adds `quote` as part of the Heimdall import's transaction: with no Added by, added at
+/// `added_at` (Unix seconds), and with the same search form as a Quote a Member adds.
+pub(in crate::domain) async fn import(
+    conn: &mut SqliteConnection,
+    quote: &NewQuote,
+    added_at: i64,
+) -> Result<(), sqlx::Error> {
+    let search = SearchForm::of(quote);
+    sqlx::query!(
+        "INSERT INTO quotes (text, author, added_at, text_search, author_search)
+         VALUES (?, ?, ?, ?, ?)",
+        quote.text.0,
+        quote.author.0,
+        added_at,
+        search.text,
+        search.author,
+    )
+    .execute(conn)
+    .await?;
+    Ok(())
+}
+
+/// How many Quotes the collection holds.
+pub(in crate::domain) async fn count(conn: &mut SqliteConnection) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!: i64" FROM quotes"#)
+        .fetch_one(conn)
+        .await
 }
 
 /// Quotes for the gallery and the snapshots.

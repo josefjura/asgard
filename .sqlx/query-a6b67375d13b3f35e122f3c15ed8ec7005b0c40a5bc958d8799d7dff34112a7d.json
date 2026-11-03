@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT NOT EXISTS (SELECT 1 FROM members)\n              AND NOT EXISTS (SELECT 1 FROM expenses)\n              AND NOT EXISTS (SELECT 1 FROM payments)\n              AND NOT EXISTS (SELECT 1 FROM reminders)\n              AND NOT EXISTS (SELECT 1 FROM items)\n              AND NOT EXISTS (SELECT 1 FROM quotes) AS \"empty!: bool\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "empty!: bool",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a6b67375d13b3f35e122f3c15ed8ec7005b0c40a5bc958d8799d7dff34112a7d"
+}

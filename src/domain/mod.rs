@@ -7,6 +7,7 @@ pub mod channel;
 pub mod clock;
 pub mod events;
 pub mod finance;
+pub mod heimdall;
 pub mod members;
 pub mod notifications;
 pub mod push;

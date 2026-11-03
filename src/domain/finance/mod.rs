@@ -754,58 +754,9 @@ impl Finance {
     /// Fails if the database does.
     pub async fn overview(&self) -> Result<Overview, sqlx::Error> {
         let mut tx = self.db.begin().await?;
-        let members =
-            sqlx::query!(r#"SELECT id AS "id!", display_name, joined_on FROM members ORDER BY id"#)
-                .fetch_all(&mut *tx)
-                .await?;
-        let expenses = sqlx::query!(
-            "SELECT payer_id, amount, expense_date FROM expenses WHERE deleted_at IS NULL"
-        )
-        .fetch_all(&mut *tx)
-        .await?;
-        let payments = sqlx::query!(
-            "SELECT sender_id, recipient_id, amount FROM payments WHERE deleted_at IS NULL"
-        )
-        .fetch_all(&mut *tx)
-        .await?;
+        let balances = balances(&mut tx).await?;
         let recent = recent_entries(&mut tx).await?;
         tx.commit().await?;
-
-        let participants = members
-            .iter()
-            .map(|row| {
-                Ok(Participant {
-                    id: MemberId::from_stored(row.id),
-                    joined_on: parse_date(&row.joined_on)?,
-                })
-            })
-            .collect::<Result<_, sqlx::Error>>()?;
-        let mut ledger = Ledger::new(participants);
-        for row in &expenses {
-            ledger.add_expense(&LedgerExpense {
-                payer: MemberId::from_stored(row.payer_id),
-                amount: Amount::from_stored(row.amount),
-                expense_date: parse_date(&row.expense_date)?,
-            });
-        }
-        for row in &payments {
-            ledger.add_payment(&LedgerPayment {
-                sender: MemberId::from_stored(row.sender_id),
-                recipient: MemberId::from_stored(row.recipient_id),
-                amount: Amount::from_stored(row.amount),
-            });
-        }
-        let balances = members
-            .into_iter()
-            .zip(ledger.balances())
-            .map(|(row, balance)| MemberBalance {
-                member: MemberName {
-                    id: MemberId::from_stored(row.id),
-                    display_name: DisplayName::from_stored(row.display_name),
-                },
-                balance: balance.crowns,
-            })
-            .collect::<Vec<_>>();
         let settlements = settlement_plan(&balances);
         Ok(Overview {
             balances,
@@ -840,6 +791,159 @@ impl Finance {
         };
         Ok(History::of(listed, page, totals))
     }
+}
+
+/// Every Member's Balance from the ledger, in the order they joined.
+pub(in crate::domain) async fn balances(
+    conn: &mut SqliteConnection,
+) -> Result<Vec<MemberBalance>, sqlx::Error> {
+    let members =
+        sqlx::query!(r#"SELECT id AS "id!", display_name, joined_on FROM members ORDER BY id"#)
+            .fetch_all(&mut *conn)
+            .await?;
+    let expenses = sqlx::query!(
+        "SELECT payer_id, amount, expense_date FROM expenses WHERE deleted_at IS NULL"
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let payments = sqlx::query!(
+        "SELECT sender_id, recipient_id, amount FROM payments WHERE deleted_at IS NULL"
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+
+    let participants = members
+        .iter()
+        .map(|row| {
+            Ok(Participant {
+                id: MemberId::from_stored(row.id),
+                joined_on: parse_date(&row.joined_on)?,
+            })
+        })
+        .collect::<Result<_, sqlx::Error>>()?;
+    let mut ledger = Ledger::new(participants);
+    for row in &expenses {
+        ledger.add_expense(&LedgerExpense {
+            payer: MemberId::from_stored(row.payer_id),
+            amount: Amount::from_stored(row.amount),
+            expense_date: parse_date(&row.expense_date)?,
+        });
+    }
+    for row in &payments {
+        ledger.add_payment(&LedgerPayment {
+            sender: MemberId::from_stored(row.sender_id),
+            recipient: MemberId::from_stored(row.recipient_id),
+            amount: Amount::from_stored(row.amount),
+        });
+    }
+    Ok(members
+        .into_iter()
+        .zip(ledger.balances())
+        .map(|(row, balance)| MemberBalance {
+            member: MemberName {
+                id: MemberId::from_stored(row.id),
+                display_name: DisplayName::from_stored(row.display_name),
+            },
+            balance: balance.crowns,
+        })
+        .collect())
+}
+
+/// An Expense brought over from Heimdall: it has no Logger, and was logged when Heimdall
+/// recorded it.
+pub(in crate::domain) struct ImportedExpense {
+    pub payer: MemberId,
+    pub amount: Amount,
+    pub description: Description,
+    pub expense_date: Date,
+    /// Unix seconds.
+    pub logged_at: i64,
+}
+
+/// A Payment brought over from Heimdall: it has no Logger, and was logged when Heimdall
+/// recorded it.
+pub(in crate::domain) struct ImportedPayment {
+    pub sender: MemberId,
+    pub recipient: MemberId,
+    pub amount: Amount,
+    pub description: Option<Description>,
+    /// Unix seconds.
+    pub logged_at: i64,
+}
+
+/// Adds `expense` as part of the Heimdall import's transaction. Nobody is notified.
+pub(in crate::domain) async fn import_expense(
+    conn: &mut SqliteConnection,
+    expense: &ImportedExpense,
+) -> Result<(), sqlx::Error> {
+    let payer = expense.payer.get();
+    let amount = expense.amount.get();
+    let expense_date = expense.expense_date.to_string();
+    sqlx::query!(
+        "INSERT INTO expenses (payer_id, amount, description, expense_date, logged_at)
+         VALUES (?, ?, ?, ?, ?)",
+        payer,
+        amount,
+        expense.description.0,
+        expense_date,
+        expense.logged_at,
+    )
+    .execute(conn)
+    .await?;
+    Ok(())
+}
+
+/// Adds `payment` as part of the Heimdall import's transaction. Nobody is notified.
+pub(in crate::domain) async fn import_payment(
+    conn: &mut SqliteConnection,
+    payment: &ImportedPayment,
+) -> Result<(), sqlx::Error> {
+    let sender = payment.sender.get();
+    let recipient = payment.recipient.get();
+    let amount = payment.amount.get();
+    let description = payment.description.as_ref().map(Description::as_str);
+    sqlx::query!(
+        "INSERT INTO payments (sender_id, recipient_id, amount, description, logged_at)
+         VALUES (?, ?, ?, ?, ?)",
+        sender,
+        recipient,
+        amount,
+        description,
+        payment.logged_at,
+    )
+    .execute(conn)
+    .await?;
+    Ok(())
+}
+
+/// How many Expenses and Payments there are, and what each kind adds up to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::domain) struct Totals {
+    pub expense_count: i64,
+    pub expense_total: i64,
+    pub payment_count: i64,
+    pub payment_total: i64,
+}
+
+/// The [`Totals`] of every Expense and Payment that wasn't deleted.
+pub(in crate::domain) async fn totals(conn: &mut SqliteConnection) -> Result<Totals, sqlx::Error> {
+    let row = sqlx::query!(
+        r#"SELECT
+             (SELECT COUNT(*) FROM expenses WHERE deleted_at IS NULL) AS "expense_count!: i64",
+             (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE deleted_at IS NULL)
+                 AS "expense_total!: i64",
+             (SELECT COUNT(*) FROM payments WHERE deleted_at IS NULL) AS "payment_count!: i64",
+             (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE deleted_at IS NULL)
+                 AS "payment_total!: i64""#
+    )
+    .fetch_one(conn)
+    .await?;
+    Ok(Totals {
+        expense_count: row.expense_count,
+        expense_total: row.expense_total,
+        payment_count: row.payment_count,
+        payment_total: row.payment_total,
+    })
 }
 
 /// The [`RECENT_ENTRIES`] Expenses and Payments logged last, newest first.
