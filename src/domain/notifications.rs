@@ -10,6 +10,7 @@ use super::finance::{ChangedEntry, EntryAction, FinanceEvent};
 use super::members::{MemberId, MemberName};
 use super::push::Subscription;
 use super::reminders::ReminderDue;
+use super::shopping::AsapItemAdded;
 
 /// The tab a notification opens when tapped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,6 +120,21 @@ impl Notification {
         }
     }
 
+    /// An *ASAP* Item: what's needed and who added it, as `crew` names them now. It's urgent, so
+    /// someone can pick it up quickly.
+    fn asap(added: &AsapItemAdded, crew: &[MemberName]) -> Self {
+        Self {
+            title: "ASAP".to_owned(),
+            body: format!(
+                "{} · added by {}",
+                added.name.as_str(),
+                name_in(crew, added.added_by)
+            ),
+            opens: Opens::Shopping,
+            urgency: Urgency::High,
+        }
+    }
+
     fn reminder(due: &ReminderDue) -> Self {
         let text = due.text.as_str();
         Self {
@@ -168,8 +184,10 @@ impl Delivery {
                     to: vec![reader],
                 })
                 .collect(),
-            // Not pushed yet: delivering it is a ticket of its own (#69).
-            Event::AsapItemAdded(_) => Vec::new(),
+            Event::AsapItemAdded(added) => vec![Self {
+                notification: Notification::asap(added, crew),
+                to: added.notify.clone(),
+            }],
         }
     }
 }
@@ -185,10 +203,7 @@ struct Wording<'a> {
 impl Wording<'_> {
     /// `member`'s display name, as the Crew knows it now.
     fn name(&self, member: MemberId) -> &str {
-        self.crew
-            .iter()
-            .find(|named| named.id == member)
-            .map_or("Someone", |named| named.display_name.as_str())
+        name_in(self.crew, member)
     }
 
     /// Whose an Expense or Payment the actor changed is: `article` ("an"/"a") for the actor's
@@ -213,6 +228,13 @@ impl Wording<'_> {
             self.name(recipient).to_owned()
         }
     }
+}
+
+/// `member`'s display name, as `crew` knows it now, or "Someone" if it doesn't.
+fn name_in(crew: &[MemberName], member: MemberId) -> &str {
+    crew.iter()
+        .find(|named| named.id == member)
+        .map_or("Someone", |named| named.display_name.as_str())
 }
 
 /// What became of one push.
@@ -324,6 +346,7 @@ mod tests {
     use crate::domain::finance::{Description, ExpenseId, NewExpense, NewPayment, PaymentId};
     use crate::domain::members::DisplayName;
     use crate::domain::reminders::{ReminderId, ReminderText};
+    use crate::domain::shopping::{ItemId, ItemName};
 
     const JOSEF: MemberId = MemberId::from_stored(1);
     const ONDRA: MemberId = MemberId::from_stored(2);
@@ -587,6 +610,43 @@ mod tests {
         );
 
         assert_eq!(told(&event)[0].1, "Someone logged an Expense");
+    }
+
+    fn asap(name: &str, added_by: MemberId, notify: &[MemberId]) -> Event {
+        Event::AsapItemAdded(AsapItemAdded {
+            item: ItemId::from_client(1),
+            name: ItemName::parse(name).unwrap(),
+            added_by,
+            notify: notify.to_vec(),
+        })
+    }
+
+    #[test]
+    fn an_asap_item_tells_the_rest_of_the_crew_what_and_who_and_opens_shopping() {
+        assert_eq!(
+            Delivery::for_event(&asap("Star San", ONDRA, &[JOSEF, SIMON]), &crew()),
+            [Delivery {
+                notification: Notification {
+                    title: "ASAP".to_owned(),
+                    body: "Star San · added by Ondra".to_owned(),
+                    opens: Opens::Shopping,
+                    urgency: Urgency::High,
+                },
+                to: vec![JOSEF, SIMON],
+            }]
+        );
+    }
+
+    #[test]
+    fn an_asap_item_opens_the_shopping_tab() {
+        let notification = Delivery::for_event(&asap("CO₂", JOSEF, &[ONDRA]), &crew())
+            .remove(0)
+            .notification;
+
+        let payload: serde_json::Value = serde_json::from_slice(&notification.payload()).unwrap();
+
+        assert_eq!(payload["url"], "/shopping");
+        assert_eq!(payload["body"], "CO₂ · added by Josef");
     }
 
     #[test]
