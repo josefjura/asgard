@@ -83,6 +83,10 @@ const RECENTLY_BOUGHT_HEIGHT: u16 = 420;
 const ITEM_FORM_HEIGHT: u16 = 560;
 /// The Quotes tab with nothing in the collection yet.
 const QUOTES_HEIGHT: u16 = 900;
+/// The Quotes tab with a random Quote and four in the collection, one long, on a phone.
+const QUOTES_COLLECTION_HEIGHT: u16 = 1500;
+/// The random-Quote card with a Quote that breaks across lines.
+const RANDOM_CARD_HEIGHT: u16 = 260;
 /// A Quote row whose text wraps, or breaks across lines.
 const QUOTE_ROW_HEIGHT: u16 = 280;
 /// The add form with a problem under each field.
@@ -479,21 +483,46 @@ fn shopping_pages() -> Vec<Fixture> {
         .collect()
 }
 
-/// The Quotes tab with nothing in the collection; a Quote row with and without Added by, a long
-/// one and a multi-line one; and the add form empty and refused.
+/// The Quotes tab empty and with a collection; the random-Quote card with a Quote, a multi-line
+/// one and none; a Quote row with and without Added by, a long one and a multi-line one; and the
+/// add form empty and refused.
 fn quotes_pages() -> Vec<Fixture> {
-    use quotes::fixtures::{authors, empty, imported, long, multiline, refused, remembered};
+    use quotes::fixtures::{
+        authors, collection, empty, imported, long, multiline, refused, remembered,
+    };
 
     let authors = authors();
     let empty_form = quotes::form(QuoteValues::default(), &QuoteProblems::default(), &authors);
     let (values, problems) = refused();
     let refused_form = quotes::form(values, &problems, &authors);
-    let tab = Fixture {
-        component: "Quotes tab",
-        state: "No Quotes".to_owned(),
-        document: quotes::page(&quotes::add_button(), &empty()),
-        height: QUOTES_HEIGHT,
-    };
+    let tabs = [
+        Fixture {
+            component: "Quotes tab",
+            state: "No Quotes".to_owned(),
+            document: quotes::page(None, &quotes::add_button(), &empty()),
+            height: QUOTES_HEIGHT,
+        },
+        Fixture {
+            component: "Quotes tab",
+            state: "With a collection".to_owned(),
+            document: quotes::page(Some(&multiline()), &quotes::add_button(), &collection()),
+            height: QUOTES_COLLECTION_HEIGHT,
+        },
+    ];
+    let cards = [
+        ("A Quote", Some(remembered())),
+        ("Multi-line Quote", Some(multiline())),
+        ("Empty", None),
+    ]
+    .map(|(state, quote)| Fixture {
+        component: "Random-Quote card",
+        state: state.to_owned(),
+        document: document(
+            "Random-Quote card",
+            &html! { main.shell-main { (quotes::random_card(quote.as_ref(), false)) } },
+        ),
+        height: RANDOM_CARD_HEIGHT,
+    });
     let rows = [
         ("With Added by", quotes::quote_row(&remembered()), 200),
         ("Without Added by", quotes::quote_row(&imported()), 200),
@@ -520,7 +549,11 @@ fn quotes_pages() -> Vec<Fixture> {
             document: document("Quote form", &html! { main.shell-main { (form) } }),
             height: QUOTE_FORM_HEIGHT,
         });
-    std::iter::once(tab).chain(rows).chain(forms).collect()
+    tabs.into_iter()
+        .chain(cards)
+        .chain(rows)
+        .chain(forms)
+        .collect()
 }
 
 /// The page an entry form in `purpose` sits on, its delete button posting to `delete`.

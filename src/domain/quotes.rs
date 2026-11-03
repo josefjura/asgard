@@ -147,6 +147,27 @@ pub struct Quote {
     pub added_at: AddedAt,
 }
 
+/// A Quote as it is read back from the database, with the display name of who added it.
+struct QuoteRow {
+    id: i64,
+    text: String,
+    author: String,
+    added_at: i64,
+    added_by: Option<String>,
+}
+
+impl From<QuoteRow> for Quote {
+    fn from(row: QuoteRow) -> Self {
+        Self {
+            id: QuoteId(row.id),
+            text: QuoteText::from_stored(row.text),
+            author: Author::from_stored(row.author),
+            added_by: row.added_by.map(DisplayName::from_stored),
+            added_at: AddedAt(row.added_at),
+        }
+    }
+}
+
 /// One page of the collection, newest first.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuotePage {
@@ -252,7 +273,8 @@ impl Quotes {
         let limit = i64::try_from(PAGE_SIZE).unwrap_or(i64::MAX);
         let offset =
             i64::try_from(page.saturating_sub(1).saturating_mul(PAGE_SIZE)).unwrap_or(i64::MAX);
-        let rows = sqlx::query!(
+        let quotes = sqlx::query_as!(
+            QuoteRow,
             r#"SELECT quotes.id AS "id!", quotes.text, quotes.author,
                       quotes.added_at AS "added_at!",
                       members.display_name AS "added_by?"
@@ -264,22 +286,36 @@ impl Quotes {
             offset,
         )
         .fetch_all(&self.db)
-        .await?;
-        let quotes = rows
-            .into_iter()
-            .map(|row| Quote {
-                id: QuoteId(row.id),
-                text: QuoteText::from_stored(row.text),
-                author: Author::from_stored(row.author),
-                added_by: row.added_by.map(DisplayName::from_stored),
-                added_at: AddedAt(row.added_at),
-            })
-            .collect();
+        .await?
+        .into_iter()
+        .map(Quote::from)
+        .collect();
         Ok(QuotePage {
             quotes,
             page,
             pages,
         })
+    }
+
+    /// One Quote picked at random, each as likely as any other, or None when there are none.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error.
+    pub async fn random(&self) -> Result<Option<Quote>, sqlx::Error> {
+        let row = sqlx::query_as!(
+            QuoteRow,
+            r#"SELECT quotes.id AS "id!", quotes.text, quotes.author,
+                      quotes.added_at AS "added_at!",
+                      members.display_name AS "added_by?"
+               FROM quotes
+               LEFT JOIN members ON members.id = quotes.added_by
+               ORDER BY RANDOM()
+               LIMIT 1"#,
+        )
+        .fetch_optional(&self.db)
+        .await?;
+        Ok(row.map(Quote::from))
     }
 
     /// Each distinct Author once, in alphabetical order, for the add form to suggest.
@@ -570,6 +606,58 @@ mod tests {
         assert_eq!(quote.text.as_str(), text);
         assert_eq!(quote.author.as_str(), author);
         assert_eq!(quote.added_by, None);
+    }
+
+    #[sqlx::test]
+    async fn there_is_no_random_quote_without_quotes(db: SqlitePool) {
+        let (quotes, _) = service(db);
+
+        assert_eq!(quotes.random().await.unwrap(), None);
+    }
+
+    #[sqlx::test]
+    async fn the_only_quote_is_the_random_one(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (quotes, _) = service(db);
+        let id = quotes
+            .add(josef, &new_quote("Only this", "Pepa"))
+            .await
+            .unwrap();
+
+        for _ in 0..5 {
+            let quote = quotes.random().await.unwrap().unwrap();
+            assert_eq!(quote.id, id);
+            assert_eq!(quote.text.as_str(), "Only this");
+            assert_eq!(
+                quote.added_by.as_ref().map(DisplayName::as_str),
+                Some("Josef")
+            );
+        }
+    }
+
+    #[sqlx::test]
+    async fn a_random_quote_is_always_a_stored_one_and_any_can_come_up(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (quotes, _) = service(db);
+        let mut stored = std::collections::HashSet::new();
+        for n in 1..=3 {
+            stored.insert(
+                quotes
+                    .add(josef, &new_quote(&format!("Quote {n}"), "Pepa"))
+                    .await
+                    .unwrap(),
+            );
+        }
+
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..200 {
+            let quote = quotes.random().await.unwrap().unwrap();
+            assert!(stored.contains(&quote.id), "{quote:?}");
+            seen.insert(quote.id);
+        }
+        // Each of three comes up in 200 picks unless the choice isn't uniform; missing one by
+        // chance is (2/3)^200.
+        assert_eq!(seen, stored);
     }
 
     #[sqlx::test]

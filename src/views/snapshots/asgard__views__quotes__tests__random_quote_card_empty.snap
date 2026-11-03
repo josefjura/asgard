@@ -1,0 +1,7 @@
+---
+source: src/views/quotes.rs
+expression: "random_card(None, false).into_string().replace(\"><\", \">\\n<\")"
+---
+<section class="card random-quote" id="random-quote" aria-label="A random Quote">
+<p class="empty">No Quotes to pick from yet. The first one you add shows up here.</p>
+</section>
