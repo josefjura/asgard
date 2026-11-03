@@ -9,6 +9,7 @@ use crate::domain::finance::money::{AMOUNT_MAX, AMOUNT_MIN, AmountError, Crowns}
 use crate::domain::finance::{DESCRIPTION_MAX, DescriptionError, EntryError};
 use crate::domain::members::{DISPLAY_NAME_MAX, NameError};
 use crate::domain::push::SubscriptionError;
+use crate::domain::quotes::QuoteError;
 use crate::domain::reminders::ReminderError;
 use crate::domain::shopping::ItemError;
 use crate::views::finance::crowns;
@@ -44,6 +45,9 @@ pub enum AppError {
     /// The Item asked for doesn't exist, was deleted, or has already been marked bought or back.
     #[error("no such Item")]
     NoSuchItem,
+    /// The Quote asked for doesn't exist, or was deleted.
+    #[error("no such Quote")]
+    NoSuchQuote,
     /// A quick-time button named a quick time that doesn't exist.
     #[error("no such quick time")]
     NoSuchQuickTime,
@@ -83,6 +87,15 @@ impl From<ItemError> for AppError {
         match err {
             ItemError::NotFound => Self::NoSuchItem,
             ItemError::Database(err) => Self::Database(err),
+        }
+    }
+}
+
+impl From<QuoteError> for AppError {
+    fn from(err: QuoteError) -> Self {
+        match err {
+            QuoteError::NotFound => Self::NoSuchQuote,
+            QuoteError::Database(err) => Self::Database(err),
         }
     }
 }
@@ -132,6 +145,13 @@ impl AppError {
                 StatusCode::NOT_FOUND,
                 Some(
                     "That Item has changed since you loaded the list: someone may have bought, put back or deleted it. Reload the page to see the latest list."
+                        .to_owned(),
+                ),
+            ),
+            Self::NoSuchQuote => (
+                StatusCode::NOT_FOUND,
+                Some(
+                    "That Quote no longer exists: someone may have deleted it. Reload the page to see the latest Quotes."
                         .to_owned(),
                 ),
             ),

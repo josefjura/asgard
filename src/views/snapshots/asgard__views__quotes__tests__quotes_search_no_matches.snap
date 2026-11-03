@@ -45,7 +45,7 @@ expression: "page(Some(&remembered()), &add_button(),\n&not_found()).into_string
 <main class="shell-main">
 <h1>Quotes</h1>
 <section class="card random-quote" id="random-quote" aria-label="A random Quote">
-<figure>
+<figure id="random-quote-1">
 <blockquote class="random-quote-text">To pivo je spíš polévka.</blockquote>
 <figcaption class="random-quote-author">Pepa</figcaption>
 </figure>

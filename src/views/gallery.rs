@@ -19,7 +19,7 @@ use crate::views::nav::{ADMIN_HREF, Place, Tab, bottom_nav};
 use crate::views::passkey::CeremonyUrls;
 use crate::views::passkeys::{self, Outcome as PasskeyOutcome};
 use crate::views::push::{self, PushState, PushUrls};
-use crate::views::quotes::{self, QuoteProblems, QuoteValues};
+use crate::views::quotes::{self, Purpose as QuotePurpose, QuoteProblems, QuoteValues};
 use crate::views::reminders::{self, ReminderProblems, ReminderValues};
 use crate::views::shopping::{self, Fold, ItemProblems, ItemValues};
 use crate::views::{invite, offline, settings, sign_in, tabs, welcome};
@@ -493,9 +493,15 @@ fn quotes_pages() -> Vec<Fixture> {
     };
 
     let authors = authors();
-    let empty_form = quotes::form(QuoteValues::default(), &QuoteProblems::default(), &authors);
+    let empty_form = quotes::form(
+        QuotePurpose::Add,
+        QuoteValues::default(),
+        &QuoteProblems::default(),
+        &authors,
+    );
     let (values, problems) = refused();
-    let refused_form = quotes::form(values, &problems, &authors);
+    let refused_form = quotes::form(QuotePurpose::Add, values, &problems, &authors);
+
     let tabs = [
         Fixture {
             component: "Quotes tab",
@@ -566,7 +572,44 @@ fn quotes_pages() -> Vec<Fixture> {
         .chain(cards)
         .chain(rows)
         .chain(forms)
+        .chain(quote_edits())
         .collect()
+}
+
+/// A Quote's row while it's edited, filled in and refused, and once it's gone; and the page it's
+/// edited on without htmx.
+fn quote_edits() -> Vec<Fixture> {
+    use quotes::fixtures::{authors, multiline, refused_edit, remembered};
+
+    let authors = authors();
+    let editing = remembered();
+    let editing_form = quotes::editing_row(editing.id, &quotes::edit_form(&editing, &authors));
+    let (values, problems) = refused_edit();
+    let refused_edit_form = quotes::editing_row(
+        editing.id,
+        &quotes::form(QuotePurpose::Edit(editing.id), values, &problems, &authors),
+    );
+    let edits = [
+        ("Editing, filled in", editing_form),
+        ("Editing, with errors", refused_edit_form),
+        ("Gone", quotes::gone_row(editing.id)),
+    ]
+    .map(|(state, row)| Fixture {
+        component: "Quote form",
+        state: state.to_owned(),
+        document: document(
+            "Quote form",
+            &html! { main.shell-main { ul.quote-list { (row) } } },
+        ),
+        height: QUOTE_FORM_HEIGHT,
+    });
+    let edit_page = Fixture {
+        component: "Quote edit page",
+        state: "Without htmx".to_owned(),
+        document: quotes::edit_page(&quotes::edit_form(&multiline(), &authors)),
+        height: QUOTES_HEIGHT,
+    };
+    edits.into_iter().chain([edit_page]).collect()
 }
 
 /// The page an entry form in `purpose` sits on, its delete button posting to `delete`.

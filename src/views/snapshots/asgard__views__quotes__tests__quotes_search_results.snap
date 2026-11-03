@@ -45,7 +45,7 @@ expression: "page(Some(&remembered()), &add_button(),\n&found()).into_string().r
 <main class="shell-main">
 <h1>Quotes</h1>
 <section class="card random-quote" id="random-quote" aria-label="A random Quote">
-<figure>
+<figure id="random-quote-1">
 <blockquote class="random-quote-text">To pivo je spíš polévka.</blockquote>
 <figcaption class="random-quote-author">Pepa</figcaption>
 </figure>
@@ -62,17 +62,23 @@ expression: "page(Some(&remembered()), &add_button(),\n&found()).into_string().r
 <h2 id="collection">Collection</h2>
 <div id="quote-list">
 <ul class="quote-list">
-<li class="quote">
+<li class="quote" id="quote-1">
+<div class="quote-main">
 <p class="quote-text">To pivo je spíš polévka.</p>
 <p class="quote-author">Pepa</p>
 <p class="quote-meta">Added by Josef · <time datetime="2026-10-24T18:05">Saturday 24 October 2026, 18:05</time>
 </p>
+</div>
+<a class="button small secondary" href="/quotes/1/edit" hx-get="/quotes/1/edit" hx-target="#quote-1" hx-swap="outerHTML" aria-label="Edit the Quote by Pepa">Edit</a>
 </li>
-<li class="quote">
+<li class="quote" id="quote-4">
+<div class="quote-main">
 <p class="quote-text">He said the mash tasted like biscuits and then kept talking about the water until the kettle boiled over and nobody wrote down the temperature. Nejnezapomenutelnějšívěta which runs on without a break so a phone has to wrap it.</p>
 <p class="quote-author">Pepa</p>
 <p class="quote-meta">Added by Josef · <time datetime="2026-10-22T09:40">Thursday 22 October 2026, 09:40</time>
 </p>
+</div>
+<a class="button small secondary" href="/quotes/4/edit" hx-get="/quotes/4/edit" hx-target="#quote-4" hx-swap="outerHTML" aria-label="Edit the Quote by Pepa">Edit</a>
 </li>
 </ul>
 <nav class="pages" aria-label="Pages">

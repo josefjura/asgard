@@ -2,10 +2,13 @@
 source: src/views/quotes.rs
 expression: "quote_row(&multiline()).into_string().replace(\"><\", \">\\n<\")"
 ---
-<li class="quote">
+<li class="quote" id="quote-3">
+<div class="quote-main">
 <p class="quote-text">He tasted it.
 Then he poured it back.</p>
 <p class="quote-author">Ondra</p>
 <p class="quote-meta">Added by Šimon · <time datetime="2026-10-23T21:15">Friday 23 October 2026, 21:15</time>
 </p>
+</div>
+<a class="button small secondary" href="/quotes/3/edit" hx-get="/quotes/3/edit" hx-target="#quote-3" hx-swap="outerHTML" aria-label="Edit the Quote by Ondra">Edit</a>
 </li>

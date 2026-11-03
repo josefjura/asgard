@@ -2,9 +2,12 @@
 source: src/views/quotes.rs
 expression: "quote_row(&remembered()).into_string().replace(\"><\", \">\\n<\")"
 ---
-<li class="quote">
+<li class="quote" id="quote-1">
+<div class="quote-main">
 <p class="quote-text">To pivo je spíš polévka.</p>
 <p class="quote-author">Pepa</p>
 <p class="quote-meta">Added by Josef · <time datetime="2026-10-24T18:05">Saturday 24 October 2026, 18:05</time>
 </p>
+</div>
+<a class="button small secondary" href="/quotes/1/edit" hx-get="/quotes/1/edit" hx-target="#quote-1" hx-swap="outerHTML" aria-label="Edit the Quote by Pepa">Edit</a>
 </li>

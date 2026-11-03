@@ -1,0 +1,29 @@
+---
+source: src/views/quotes.rs
+expression: "editing_row(remembered().id,\n&edit_form(&remembered(), &authors())).into_string().replace(\"><\", \">\\n<\")"
+---
+<li class="quote editing" id="quote-1">
+<form class="entry-form" method="post" action="/quotes/1" hx-post="/quotes/1" hx-target="#quote-1" hx-swap="outerHTML">
+<div class="field">
+<label for="quote-1-edit-text">Quote</label>
+<textarea id="quote-1-edit-text" name="text" rows="4" required maxlength="2000">To pivo je spíš polévka.</textarea>
+</div>
+<div class="field">
+<label for="quote-1-edit-author">Author</label>
+<input id="quote-1-edit-author" type="text" name="author" value="Pepa" required maxlength="100" list="quote-1-edit-authors">
+<datalist id="quote-1-edit-authors">
+<option value="Josef">
+</option>
+<option value="Ondra">
+</option>
+<option value="Šimon">
+</option>
+</datalist>
+</div>
+<div class="edit-actions">
+<button class="button" type="submit">Save Quote</button>
+<a class="button secondary" href="/quotes" hx-get="/quotes/1" hx-target="#quote-1" hx-swap="outerHTML">Cancel</a>
+<button class="button danger" type="submit" formaction="/quotes/1/delete" formnovalidate hx-post="/quotes/1/delete" hx-confirm="Delete this Quote? It's gone for good.">Delete Quote</button>
+</div>
+</form>
+</li>

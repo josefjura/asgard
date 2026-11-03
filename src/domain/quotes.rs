@@ -1,8 +1,8 @@
 //! The Crew's Quotes: something memorable someone said, with who added it and a folded search
 //! form of its text and Author.
 //!
-//! Quotes emit no events and send no notifications. Any Member may add one; nothing here checks
-//! who added it.
+//! Quotes emit no events and send no notifications. Any Member may add, edit or delete any
+//! Quote; nothing here checks who added it.
 
 use jiff::civil::DateTime;
 use sqlx::SqlitePool;
@@ -117,7 +117,17 @@ pub enum AuthorError {
     TooLong,
 }
 
-/// A Quote as a Member adds it.
+/// Why a Quote couldn't be read, edited or deleted.
+#[derive(Debug, thiserror::Error)]
+pub enum QuoteError {
+    /// There's no such Quote: it never existed, or a Member deleted it.
+    #[error("no such Quote")]
+    NotFound,
+    #[error("database error")]
+    Database(#[from] sqlx::Error),
+}
+
+/// A Quote as a Member adds or edits it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewQuote {
     pub text: QuoteText,
@@ -258,7 +268,8 @@ impl SearchForm {
     }
 }
 
-/// Adds Quotes and lists the collection, a page at a time. Any Member may add any Quote.
+/// Adds, edits and deletes Quotes, and lists or searches the collection a page at a time. Any
+/// Member may change any Quote.
 #[derive(Debug, Clone)]
 pub struct Quotes {
     db: SqlitePool,
@@ -347,6 +358,68 @@ impl Quotes {
         })
     }
 
+    /// The Quote `id`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`QuoteError::NotFound`] if there's no Quote `id`, or a database error.
+    pub async fn get(&self, id: QuoteId) -> Result<Quote, QuoteError> {
+        let row = sqlx::query_as!(
+            QuoteRow,
+            r#"SELECT quotes.id AS "id!", quotes.text, quotes.author,
+                      quotes.added_at AS "added_at!",
+                      members.display_name AS "added_by?"
+               FROM quotes
+               LEFT JOIN members ON members.id = quotes.added_by
+               WHERE quotes.id = ?"#,
+            id.0,
+        )
+        .fetch_optional(&self.db)
+        .await?
+        .ok_or(QuoteError::NotFound)?;
+        Ok(Quote::from(row))
+    }
+
+    /// Changes the Quote `id` to say what `quote` does, and its search form to match. Who added
+    /// it, and when, stay as they were.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`QuoteError::NotFound`] if there's no Quote `id`, or a database error.
+    pub async fn edit(&self, id: QuoteId, quote: &NewQuote) -> Result<(), QuoteError> {
+        let search = SearchForm::of(quote);
+        let done = sqlx::query!(
+            "UPDATE quotes SET text = ?, author = ?, text_search = ?, author_search = ?
+             WHERE id = ?",
+            quote.text.0,
+            quote.author.0,
+            search.text,
+            search.author,
+            id.0,
+        )
+        .execute(&self.db)
+        .await?;
+        if done.rows_affected() == 0 {
+            return Err(QuoteError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Deletes the Quote `id` for good.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`QuoteError::NotFound`] if there's no Quote `id`, or a database error.
+    pub async fn delete(&self, id: QuoteId) -> Result<(), QuoteError> {
+        let done = sqlx::query!("DELETE FROM quotes WHERE id = ?", id.0)
+            .execute(&self.db)
+            .await?;
+        if done.rows_affected() == 0 {
+            return Err(QuoteError::NotFound);
+        }
+        Ok(())
+    }
+
     /// One Quote picked at random, each as likely as any other, or None when there are none.
     ///
     /// # Errors
@@ -420,8 +493,8 @@ mod tests {
     use sqlx::SqlitePool;
 
     use super::{
-        AUTHOR_MAX, Author, AuthorError, NewQuote, PAGE_SIZE, QuoteText, Search, TEXT_MAX,
-        TextError, fold,
+        AUTHOR_MAX, Author, AuthorError, NewQuote, PAGE_SIZE, QuoteError, QuoteId, QuoteText,
+        Search, TEXT_MAX, TextError, fold,
     };
     use crate::domain::clock::{ManualClock, unix_seconds};
     use crate::domain::members::DisplayName;
@@ -749,6 +822,123 @@ mod tests {
         let second = quotes.page(&search, 2).await.unwrap();
         assert_eq!(texts(&second), ["Pivo 01"]);
         assert_eq!(second.search, search);
+    }
+
+    #[sqlx::test]
+    async fn any_member_edits_a_quote_keeping_who_added_it_and_when(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (quotes, clock) = service(db.clone());
+        let id = quotes
+            .add(josef, &new_quote("To pivo je spis polevka", "Pepa"))
+            .await
+            .unwrap();
+        clock.advance(Duration::from_hours(5));
+
+        quotes
+            .edit(id, &new_quote("  To pivo je spíš polévka. ", " Pepík "))
+            .await
+            .unwrap();
+
+        let quote = quotes.get(id).await.unwrap();
+        assert_eq!(quote.text.as_str(), "To pivo je spíš polévka.");
+        assert_eq!(quote.author.as_str(), "Pepík");
+        assert_eq!(
+            quote.added_by.as_ref().map(DisplayName::as_str),
+            Some("Josef")
+        );
+        assert_eq!(
+            quote.added_at.crew_time(),
+            date(2026, 10, 24).at(10, 0, 0, 0)
+        );
+        let row = sqlx::query!("SELECT text_search, author_search FROM quotes")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        assert_eq!(row.text_search, fold("To pivo je spíš polévka."));
+        assert_eq!(row.author_search, "pepik");
+    }
+
+    #[sqlx::test]
+    async fn an_edited_quote_is_found_by_its_new_words_only(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (quotes, _) = service(db);
+        let id = quotes
+            .add(josef, &new_quote("Old words", "Pepa"))
+            .await
+            .unwrap();
+
+        quotes
+            .edit(id, &new_quote("Nová slova", "Ondra"))
+            .await
+            .unwrap();
+
+        let found = async |words: &str| quotes.page(&Search::new(words), 1).await.unwrap();
+        assert_eq!(texts(&found("nova").await), ["Nová slova"]);
+        assert_eq!(texts(&found("ONDRA").await), ["Nová slova"]);
+        assert_eq!(texts(&found("old").await), Vec::<&str>::new());
+        assert_eq!(texts(&found("pepa").await), Vec::<&str>::new());
+    }
+
+    #[sqlx::test]
+    async fn a_deleted_quote_is_gone_from_everywhere(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (quotes, _) = service(db);
+        let kept = quotes.add(josef, &new_quote("Kept", "Pepa")).await.unwrap();
+        let gone = quotes.add(josef, &new_quote("Gone", "Pepa")).await.unwrap();
+
+        quotes.delete(gone).await.unwrap();
+
+        assert!(matches!(quotes.get(gone).await, Err(QuoteError::NotFound)));
+        let all = quotes.page(&Search::everything(), 1).await.unwrap();
+        assert_eq!(texts(&all), ["Kept"]);
+        for _ in 0..10 {
+            assert_eq!(quotes.random().await.unwrap().unwrap().id, kept);
+        }
+    }
+
+    #[sqlx::test]
+    async fn a_quote_that_isnt_there_cant_be_read_edited_or_deleted(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (quotes, _) = service(db);
+        let id = quotes
+            .add(josef, &new_quote("Soon gone", "Pepa"))
+            .await
+            .unwrap();
+        quotes.delete(id).await.unwrap();
+        let never = QuoteId::from_client(999);
+
+        for id in [id, never] {
+            assert!(matches!(quotes.get(id).await, Err(QuoteError::NotFound)));
+            assert!(matches!(
+                quotes.edit(id, &new_quote("New", "Pepa")).await,
+                Err(QuoteError::NotFound)
+            ));
+            assert!(matches!(quotes.delete(id).await, Err(QuoteError::NotFound)));
+        }
+    }
+
+    #[sqlx::test]
+    async fn an_imported_quote_without_added_by_can_be_edited(db: SqlitePool) {
+        let (quotes, _) = service(db.clone());
+        let added_at = unix_seconds(saturday_morning());
+        let id = sqlx::query_scalar!(
+            r#"INSERT INTO quotes (text, author, added_at, text_search, author_search)
+               VALUES ('Imported', 'A friend', ?, 'imported', 'a friend') RETURNING id AS "id!""#,
+            added_at,
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        let id = QuoteId::from_client(id);
+
+        quotes
+            .edit(id, &new_quote("Imported, fixed", "A friend"))
+            .await
+            .unwrap();
+
+        let quote = quotes.get(id).await.unwrap();
+        assert_eq!(quote.text.as_str(), "Imported, fixed");
+        assert_eq!(quote.added_by, None);
     }
 
     #[sqlx::test]
