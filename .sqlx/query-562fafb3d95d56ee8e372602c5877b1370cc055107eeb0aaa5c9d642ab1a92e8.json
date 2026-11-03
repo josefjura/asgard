@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT quotes.id AS \"id!\", quotes.text, quotes.author,\n                      quotes.added_at AS \"added_at!\",\n                      members.display_name AS \"added_by?\"\n               FROM quotes\n               LEFT JOIN members ON members.id = quotes.added_by\n               ORDER BY quotes.added_at DESC, quotes.id DESC\n               LIMIT ? OFFSET ?",
+  "query": "SELECT quotes.id AS \"id!\", quotes.text, quotes.author,\n                      quotes.added_at AS \"added_at!\",\n                      members.display_name AS \"added_by?\"\n               FROM quotes\n               LEFT JOIN members ON members.id = quotes.added_by\n               WHERE ?1 = '' OR instr(quotes.text_search, ?1) > 0\n                     OR instr(quotes.author_search, ?1) > 0\n               ORDER BY quotes.added_at DESC, quotes.id DESC\n               LIMIT ?2 OFFSET ?3",
   "describe": {
     "columns": [
       {
@@ -30,7 +30,7 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 3
     },
     "nullable": [
       false,
@@ -40,5 +40,5 @@
       true
     ]
   },
-  "hash": "39e95a34a57825d0812fb7ac55779899f8745dd953e2dc2bd5902c30c9bfeafa"
+  "hash": "562fafb3d95d56ee8e372602c5877b1370cc055107eeb0aaa5c9d642ab1a92e8"
 }

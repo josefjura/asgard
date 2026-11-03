@@ -1,9 +1,10 @@
-//! The Quotes tab: a random Quote on top, "+ Quote" to open the form, and the collection
-//! beneath, newest first.
+//! The Quotes tab: a random Quote on top, a search box, "+ Quote" to open the form, and the
+//! collection beneath, newest first.
 
 use maud::{Markup, html};
+use url::form_urlencoded;
 
-use crate::domain::quotes::{AUTHOR_MAX, Author, Quote, QuotePage, TEXT_MAX};
+use crate::domain::quotes::{AUTHOR_MAX, Author, Quote, QuotePage, Search, TEXT_MAX};
 use crate::views::finance::problem;
 use crate::views::layout::shell;
 use crate::views::nav::{Place, Tab};
@@ -18,6 +19,9 @@ const LIST_ID: &str = "quote-list";
 /// The id of the random-Quote card, which "Another one" swaps for a fresh one.
 const RANDOM_ID: &str = "random-quote";
 
+/// The id of the search box, which adding a Quote empties again.
+const SEARCH_ID: &str = "quote-search";
+
 /// Where the Quotes tab's form posts and where "+ Quote" asks for the form. Routes match on the
 /// same paths.
 pub mod paths {
@@ -25,6 +29,8 @@ pub mod paths {
     pub const NEW: &str = "/quotes/new";
     /// A fresh random-Quote card.
     pub const RANDOM: &str = "/quotes/random";
+    /// The collection filtered by a search, alone, for the search box to swap in.
+    pub const SEARCH: &str = "/quotes/search";
 }
 
 /// What the add form shows in its fields: what was typed, or nothing yet.
@@ -41,17 +47,27 @@ pub struct QuoteProblems {
     pub author: Option<String>,
 }
 
-/// The page of the collection at `page`, or the first page when `page` is the first.
-fn href(page: usize) -> String {
-    if page <= 1 {
+/// The tab showing what `search` finds at `page`: no query for the whole collection, and no page
+/// for the first.
+#[must_use]
+pub fn href(search: &Search, page: usize) -> String {
+    let mut query = form_urlencoded::Serializer::new(String::new());
+    if !search.is_everything() {
+        query.append_pair("q", search.as_str());
+    }
+    if page > 1 {
+        query.append_pair("page", &page.to_string());
+    }
+    let query = query.finish();
+    if query.is_empty() {
         Tab::Quotes.href().to_owned()
     } else {
-        format!("{}?page={page}", Tab::Quotes.href())
+        format!("{}?{query}", Tab::Quotes.href())
     }
 }
 
-/// The Quotes tab: the card showing `random`, then `adder`, which is "+ Quote" or the add form,
-/// above one page of the collection.
+/// The Quotes tab: the card showing `random`, the search box, then `adder`, which is "+ Quote" or
+/// the add form, above one page of the collection or of what the search found.
 #[must_use]
 pub fn page(random: Option<&Quote>, adder: &Markup, list: &QuotePage) -> Markup {
     shell(
@@ -59,6 +75,7 @@ pub fn page(random: Option<&Quote>, adder: &Markup, list: &QuotePage) -> Markup 
         &html! {
             h1 { "Quotes" }
             (random_card(random, false))
+            (search_box(&list.search, false))
             div #(ADDER_ID) { (adder) }
             section.section aria-labelledby="collection" {
                 h2 #collection { "Collection" }
@@ -68,8 +85,8 @@ pub fn page(random: Option<&Quote>, adder: &Markup, list: &QuotePage) -> Markup 
     )
 }
 
-/// What htmx swaps in once a Quote is added: "+ Quote" again, and the first page of the
-/// collection out of band, with the new Quote at the top.
+/// What htmx swaps in once a Quote is added: "+ Quote" again, and out of band the first page of
+/// the whole collection, with the new Quote at the top, and an empty search box to match.
 ///
 /// If it's the first Quote, the random-Quote card leaves its empty state to show it, out of band
 /// too.
@@ -82,6 +99,7 @@ pub fn added(list: &QuotePage) -> Markup {
     html! {
         (add_button())
         (quote_list(list, true))
+        (search_box(&list.search, true))
         @if let Some(quote) = first {
             (random_card(Some(quote), true))
         }
@@ -112,6 +130,30 @@ pub fn random_card(quote: Option<&Quote>, out_of_band: bool) -> Markup {
     }
 }
 
+/// What the search box swaps in as the Member types: one page of what `list`'s search found, or of
+/// the whole collection when nothing is typed.
+#[must_use]
+pub fn results(list: &QuotePage) -> Markup {
+    quote_list(list, false)
+}
+
+/// The search box, showing `search`. With htmx it swaps in what it finds a moment after the
+/// Member stops typing; without, it loads the tab with the search. Swapped in out of band if
+/// `out_of_band`.
+#[must_use]
+pub fn search_box(search: &Search, out_of_band: bool) -> Markup {
+    html! {
+        form.quote-search #(SEARCH_ID) role="search" method="get" action=(Tab::Quotes.href())
+            hx-get=(paths::SEARCH) hx-trigger="input delay:300ms, submit" hx-sync="this:replace"
+            hx-target={ "#" (LIST_ID) } hx-swap="outerHTML"
+            hx-swap-oob=[out_of_band.then_some("true")] {
+            label for="quote-search-words" { "Search Quotes" }
+            input #quote-search-words type="search" name="q" value=(search.as_str())
+                autocomplete="off" placeholder="A few words or a name";
+        }
+    }
+}
+
 /// "+ Quote", which opens the add form in its place.
 #[must_use]
 pub fn add_button() -> Markup {
@@ -121,13 +163,21 @@ pub fn add_button() -> Markup {
     }
 }
 
-/// One page of the collection, newest first, or a message when there are no Quotes yet. Swapped
-/// in out of band if `out_of_band`.
+/// One page of the collection or of what a search found, newest first. Without any, a message
+/// says there are no Quotes yet, or that nothing matched the search. Swapped in out of band if
+/// `out_of_band`.
 fn quote_list(list: &QuotePage, out_of_band: bool) -> Markup {
     html! {
         div #(LIST_ID) hx-swap-oob=[out_of_band.then_some("true")] {
             @if list.quotes.is_empty() {
-                p.empty { "No Quotes yet. Add one and the Crew sees it here." }
+                @if list.search.is_everything() {
+                    p.empty { "No Quotes yet. Add one and the Crew sees it here." }
+                } @else {
+                    p.empty {
+                        "No Quotes match “" (list.search.as_str()) "”. Try other words, or clear "
+                        "the search to see them all."
+                    }
+                }
             } @else {
                 ul.quote-list {
                     @for quote in &list.quotes {
@@ -138,11 +188,11 @@ fn quote_list(list: &QuotePage, out_of_band: bool) -> Markup {
             @if list.pages > 1 {
                 nav.pages aria-label="Pages" {
                     @if list.page > 1 {
-                        a.button.secondary.small rel="prev" href=(href(list.page - 1)) { "Newer" }
+                        a.button.secondary.small rel="prev" href=(href(&list.search, list.page - 1)) { "Newer" }
                     }
                     span.pages-at { "Page " (list.page) " of " (list.pages) }
                     @if list.page < list.pages {
-                        a.button.secondary.small rel="next" href=(href(list.page + 1)) { "Older" }
+                        a.button.secondary.small rel="next" href=(href(&list.search, list.page + 1)) { "Older" }
                     }
                 }
             }
@@ -214,7 +264,7 @@ pub fn form(values: QuoteValues<'_>, problems: &QuoteProblems, authors: &[Author
 pub mod fixtures {
     use super::{QuoteProblems, QuoteValues};
     use crate::domain::quotes::fixtures::quote;
-    use crate::domain::quotes::{Author, Quote, QuotePage, TEXT_MAX};
+    use crate::domain::quotes::{Author, Quote, QuotePage, Search, TEXT_MAX};
 
     /// Authors the fixture form suggests.
     ///
@@ -299,8 +349,9 @@ pub mod fixtures {
 
     /// Nothing listed.
     #[must_use]
-    pub const fn empty() -> QuotePage {
+    pub fn empty() -> QuotePage {
         QuotePage {
+            search: Search::everything(),
             quotes: Vec::new(),
             page: 1,
             pages: 1,
@@ -311,6 +362,7 @@ pub mod fixtures {
     #[must_use]
     pub fn collection() -> QuotePage {
         QuotePage {
+            search: Search::everything(),
             quotes: vec![remembered(), imported(), multiline(), long()],
             page: 1,
             pages: 1,
@@ -321,9 +373,32 @@ pub mod fixtures {
     #[must_use]
     pub fn later_page() -> QuotePage {
         QuotePage {
+            search: Search::everything(),
             quotes: vec![long()],
             page: 2,
             pages: 3,
+        }
+    }
+
+    /// What searching for "pepa" found: the first of two pages.
+    #[must_use]
+    pub fn found() -> QuotePage {
+        QuotePage {
+            search: Search::new("pepa"),
+            quotes: vec![remembered(), long()],
+            page: 1,
+            pages: 2,
+        }
+    }
+
+    /// A search that found nothing.
+    #[must_use]
+    pub fn not_found() -> QuotePage {
+        QuotePage {
+            search: Search::new("polévka s knedlíkem"),
+            quotes: Vec::new(),
+            page: 1,
+            pages: 1,
         }
     }
 }
@@ -331,7 +406,8 @@ pub mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::fixtures::{
-        authors, collection, empty, imported, later_page, long, multiline, refused, remembered,
+        authors, collection, empty, found, imported, later_page, long, multiline, not_found,
+        refused, remembered,
     };
     use super::*;
     use crate::views::assert_html_snapshot;
@@ -357,6 +433,66 @@ mod tests {
     #[test]
     fn quotes_later_page() {
         assert_html_snapshot!(page(Some(&long()), &add_button(), &later_page()));
+    }
+
+    #[test]
+    fn quotes_search_results() {
+        assert_html_snapshot!(page(Some(&remembered()), &add_button(), &found()));
+    }
+
+    #[test]
+    fn quotes_search_no_matches() {
+        assert_html_snapshot!(page(Some(&remembered()), &add_button(), &not_found()));
+    }
+
+    #[test]
+    fn the_search_box_sits_between_the_card_and_the_adder_and_keeps_the_query() {
+        let html = page(Some(&remembered()), &add_button(), &found()).into_string();
+
+        let card = html.find(r#"id="random-quote""#).unwrap();
+        let search = html.find(r#"id="quote-search""#).unwrap();
+        let adder = html.find(r#"id="quote-adder""#).unwrap();
+        assert!(card < search && search < adder, "{html}");
+        assert!(html.contains(r#"name="q" value="pepa""#), "{html}");
+        assert!(html.contains(r##"hx-get="/quotes/search" hx-trigger="input delay:300ms, submit" hx-sync="this:replace" hx-target="#quote-list" hx-swap="outerHTML""##), "{html}");
+    }
+
+    #[test]
+    fn pages_of_a_search_keep_its_query() {
+        let html = results(&found()).into_string();
+
+        assert!(
+            html.contains(r#"rel="next" href="/quotes?q=pepa&amp;page=2""#),
+            "{html}"
+        );
+        assert_eq!(href(&Search::new("pepa"), 1), "/quotes?q=pepa");
+        assert_eq!(
+            href(&Search::new("přišel sem"), 3),
+            "/quotes?q=p%C5%99i%C5%A1el+sem&page=3"
+        );
+        assert_eq!(href(&Search::everything(), 1), "/quotes");
+    }
+
+    #[test]
+    fn a_search_that_finds_nothing_says_so() {
+        let html = results(&not_found()).into_string();
+
+        assert!(
+            html.contains("No Quotes match “polévka s knedlíkem”. Try other words"),
+            "{html}"
+        );
+        assert!(!html.contains("No Quotes yet."));
+    }
+
+    #[test]
+    fn adding_empties_the_search_box_out_of_band() {
+        let html = added(&collection()).into_string();
+
+        assert!(
+            html.contains(r#"id="quote-search" role="search""#),
+            "{html}"
+        );
+        assert!(html.contains(r#"name="q" value="""#), "{html}");
     }
 
     #[test]
@@ -402,6 +538,7 @@ Then he poured it back."
     #[test]
     fn adding_the_first_quote_fills_the_random_card_and_later_ones_leave_it() {
         let first = QuotePage {
+            search: Search::everything(),
             quotes: vec![remembered()],
             page: 1,
             pages: 1,
@@ -412,7 +549,11 @@ Then he poured it back."
             "{html}"
         );
 
-        assert!(!added(&collection()).into_string().contains("random-quote"));
+        assert!(
+            !added(&collection())
+                .into_string()
+                .contains(r#"id="random-quote""#)
+        );
     }
 
     #[test]

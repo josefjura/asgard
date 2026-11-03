@@ -51,6 +51,10 @@ expression: "page(Some(&remembered()), &add_button(),\n&collection()).into_strin
 </figure>
 <a class="button secondary small" href="/quotes" hx-get="/quotes/random" hx-target="#random-quote" hx-swap="outerHTML">Another one</a>
 </section>
+<form class="quote-search" id="quote-search" role="search" method="get" action="/quotes" hx-get="/quotes/search" hx-trigger="input delay:300ms, submit" hx-sync="this:replace" hx-target="#quote-list" hx-swap="outerHTML">
+<label for="quote-search-words">Search Quotes</label>
+<input id="quote-search-words" type="search" name="q" value="" autocomplete="off" placeholder="A few words or a name">
+</form>
 <div id="quote-adder">
 <a class="button large" href="/quotes/new" hx-get="/quotes/new" hx-target="#quote-adder" hx-swap="innerHTML">+ Quote</a>
 </div>

@@ -1,5 +1,5 @@
-//! The Quotes tab: a random Quote, adding a Quote to the Crew's collection, and reading it a
-//! page at a time.
+//! The Quotes tab: a random Quote, adding a Quote to the Crew's collection, and reading or
+//! searching it a page at a time.
 
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
@@ -10,11 +10,11 @@ use maud::Markup;
 use serde::Deserialize;
 
 use super::access::Member;
-use super::htmx::Htmx;
+use super::htmx::{HX_PUSH_URL, Htmx};
 use super::pages::fresh;
 use super::{AppError, AppState};
 use crate::domain::quotes::{
-    AUTHOR_MAX, Author, AuthorError, NewQuote, QuoteText, TEXT_MAX, TextError,
+    AUTHOR_MAX, Author, AuthorError, NewQuote, QuoteText, Search, TEXT_MAX, TextError,
 };
 use crate::views;
 use crate::views::nav::Tab;
@@ -26,15 +26,26 @@ pub fn routes() -> Router<AppState> {
         .route(Tab::Quotes.href(), get(show).post(add))
         .route(paths::NEW, get(new_form))
         .route(paths::RANDOM, get(random))
+        .route(paths::SEARCH, get(search))
 }
 
-/// Which page of the collection to show. Missing means the first.
+/// What to search the collection for, and which page of it to show. Missing means everything,
+/// and the first page.
 #[derive(Deserialize)]
 struct PageQuery {
+    #[serde(default)]
+    q: String,
     page: Option<usize>,
 }
 
-/// The Quotes tab: a random Quote, "+ Quote" and one page of the collection. A page past the last shows the last.
+impl PageQuery {
+    fn search(&self) -> Search {
+        Search::new(&self.q)
+    }
+}
+
+/// The Quotes tab: a random Quote, the search box, "+ Quote" and one page of the collection or
+/// of what the search found. A page past the last shows the last.
 async fn show(
     State(state): State<AppState>,
     Member(_): Member,
@@ -44,10 +55,33 @@ async fn show(
         page(
             &state,
             &views::quotes::add_button(),
+            &query.search(),
             query.page.unwrap_or(1),
         )
         .await?,
     ))
+}
+
+/// The first page of what the search box found, alone, for htmx to swap in place of the list.
+/// The browser's address follows, so reloading or going back shows the same search. A browser
+/// without htmx is sent to the tab with the search.
+async fn search(
+    State(state): State<AppState>,
+    Member(_): Member,
+    Htmx(htmx): Htmx,
+    Query(query): Query<PageQuery>,
+) -> Result<Response, AppError> {
+    let search = query.search();
+    let address = views::quotes::href(&search, 1);
+    if !htmx {
+        return Ok(Redirect::to(&address).into_response());
+    }
+    let list = state.quotes.page(&search, 1).await?;
+    Ok((
+        [(HX_PUSH_URL, address)],
+        fresh(views::quotes::results(&list)),
+    )
+        .into_response())
 }
 
 #[derive(Deserialize)]
@@ -97,7 +131,7 @@ async fn add(
             let body = if htmx {
                 form
             } else {
-                page(&state, &form, 1).await?
+                page(&state, &form, &Search::everything(), 1).await?
             };
             return Ok((StatusCode::UNPROCESSABLE_ENTITY, fresh(body)).into_response());
         }
@@ -107,7 +141,7 @@ async fn add(
     if !htmx {
         return Ok(Redirect::to(Tab::Quotes.href()).into_response());
     }
-    let list = state.quotes.page(1).await?;
+    let list = state.quotes.page(&Search::everything(), 1).await?;
     Ok(fresh(views::quotes::added(&list)).into_response())
 }
 
@@ -136,10 +170,16 @@ fn parse(input: &QuoteForm) -> Result<NewQuote, QuoteProblems> {
     }
 }
 
-/// The Quotes tab around `adder`, showing a random Quote and the collection's `page`.
-async fn page(state: &AppState, adder: &Markup, page_number: usize) -> Result<Markup, AppError> {
+/// The Quotes tab around `adder`, showing a random Quote and the `page`th page of what `search`
+/// finds.
+async fn page(
+    state: &AppState,
+    adder: &Markup,
+    search: &Search,
+    page_number: usize,
+) -> Result<Markup, AppError> {
     let random = state.quotes.random().await?;
-    let list = state.quotes.page(page_number).await?;
+    let list = state.quotes.page(search, page_number).await?;
     Ok(views::quotes::page(random.as_ref(), adder, &list))
 }
 
@@ -177,7 +217,7 @@ mod tests {
         AUTHOR_MAX, Author, NewQuote, PAGE_SIZE, QuoteText, TEXT_MAX, fold,
     };
     use crate::views::quotes::paths;
-    use crate::web::htmx::{HX_REDIRECT, HX_REQUEST};
+    use crate::web::htmx::{HX_PUSH_URL, HX_REDIRECT, HX_REQUEST};
     use crate::web::test_support::{PUBLIC_ORIGIN, TestApp, body_text, post_form, request};
 
     /// Posts the Quote form with `fields`, as htmx does if `htmx`.
@@ -255,6 +295,7 @@ mod tests {
             app.get("/quotes").await,
             app.get(paths::NEW).await,
             app.get(paths::RANDOM).await,
+            app.get("/quotes/search?q=pepa").await,
             post_quote(&app, "", &[("text", "Hello"), ("author", "Pepa")], false).await,
         ] {
             assert_eq!(response.status(), StatusCode::SEE_OTHER);
@@ -554,6 +595,152 @@ line two"
 
         let second = add(&app, &cookie, "Another", "Pepa").await;
         assert_eq!(random_text(&second), None, "{second}");
+    }
+
+    /// Adds Quotes said by `author`, one a second apart, oldest first.
+    async fn add_said_by(app: &TestApp, author: &str, texts: &[&str]) {
+        let member = app.state.members.all().await.unwrap()[0].id;
+        for text in texts {
+            let quote = NewQuote {
+                text: QuoteText::parse(text).unwrap(),
+                author: Author::parse(author).unwrap(),
+            };
+            app.state.quotes.add(member, &quote).await.unwrap();
+            app.clock.advance(std::time::Duration::from_secs(1));
+        }
+    }
+
+    /// What the search box swaps in for `words`, expecting it found.
+    async fn search(app: &TestApp, cookie: &str, words: &str) -> String {
+        let uri = format!("{}?q={}", paths::SEARCH, urlencode(words));
+        let response = app.send(htmx_get(&uri, cookie)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        body_text(response).await
+    }
+
+    fn urlencode(words: &str) -> String {
+        url::form_urlencoded::byte_serialize(words.as_bytes()).collect()
+    }
+
+    #[sqlx::test]
+    async fn search_finds_part_of_the_text_ignoring_case_and_diacritics(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add_said_by(&app, "Ondra", &["Přišel jsem pozdě", "Pivo je hotové"]).await;
+
+        let fragment = search(&app, &cookie, "prisel").await;
+
+        assert!(!fragment.contains("<!DOCTYPE"), "a fragment, not the page");
+        assert!(
+            fragment.starts_with(r#"<div id="quote-list">"#),
+            "{fragment}"
+        );
+        assert!(!fragment.contains("random-quote"), "just the list");
+        assert_eq!(quote_texts(&fragment), ["Přišel jsem pozdě"]);
+        assert_eq!(
+            quote_texts(&search(&app, &cookie, "HOTOVÉ").await),
+            ["Pivo je hotové"]
+        );
+    }
+
+    #[sqlx::test]
+    async fn search_by_author_finds_every_quote_by_them_newest_first(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add_said_by(&app, "Pepa", &["First from Pepa"]).await;
+        add_said_by(&app, "Ondra", &["From Ondra"]).await;
+        add_said_by(&app, "Pepa", &["Second from Pepa"]).await;
+
+        let fragment = search(&app, &cookie, "PEPA").await;
+
+        assert_eq!(
+            quote_texts(&fragment),
+            ["Second from Pepa", "First from Pepa"]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_search_moves_the_address_and_without_htmx_loads_the_tab(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add_said_by(&app, "Pepa", &["Přišel jsem"]).await;
+
+        let response = app
+            .send(htmx_get("/quotes/search?q=+p%C5%99i%C5%A1el+", &cookie))
+            .await;
+        assert_eq!(
+            response.headers()[HX_PUSH_URL],
+            "/quotes?q=p%C5%99i%C5%A1el"
+        );
+
+        let plain = app
+            .get_with("/quotes/search?q=p%C5%99i%C5%A1el", &cookie)
+            .await;
+        assert_eq!(plain.status(), StatusCode::SEE_OTHER);
+        assert_eq!(plain.headers()[LOCATION], "/quotes?q=p%C5%99i%C5%A1el");
+
+        let tab = app.get_with("/quotes?q=p%C5%99i%C5%A1el", &cookie).await;
+        let html = body_text(tab).await;
+        assert!(html.contains(r#"name="q" value="přišel""#), "{html}");
+        assert_eq!(quote_texts(&html), ["Přišel jsem"]);
+    }
+
+    #[sqlx::test]
+    async fn search_results_are_paginated_and_pages_keep_the_query(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        let pivo: Vec<String> = (1..=PAGE_SIZE + 1)
+            .map(|n| format!("Pivo {n:02}"))
+            .collect();
+        let pivo: Vec<&str> = pivo.iter().map(String::as_str).collect();
+        add_said_by(&app, "Pepa", &pivo).await;
+        add_said_by(&app, "Pepa", &["Something else"]).await;
+
+        let first = search(&app, &cookie, "pivo").await;
+        assert_eq!(quote_texts(&first).len(), PAGE_SIZE);
+        assert_eq!(quote_texts(&first)[0], "Pivo 26");
+        assert!(
+            first.contains(r#"rel="next" href="/quotes?q=pivo&amp;page=2""#),
+            "{first}"
+        );
+
+        let second = app.get_with("/quotes?q=pivo&page=2", &cookie).await;
+        let second = body_text(second).await;
+        assert_eq!(quote_texts(&second), ["Pivo 01"]);
+        assert!(second.contains("Page 2 of 2"));
+        assert!(
+            second.contains(r#"rel="prev" href="/quotes?q=pivo""#),
+            "{second}"
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_search_with_no_matches_says_so(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add_said_by(&app, "Pepa", &["Pivo"]).await;
+
+        let fragment = search(&app, &cookie, "knedlík").await;
+
+        assert_eq!(quote_texts(&fragment), Vec::<&str>::new());
+        assert!(
+            fragment.contains("No Quotes match “knedlík”. Try other words"),
+            "{fragment}"
+        );
+    }
+
+    #[sqlx::test]
+    async fn an_empty_search_shows_the_whole_collection(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add_said_by(&app, "Pepa", &["One", "Two"]).await;
+
+        let response = app.send(htmx_get("/quotes/search?q=+", &cookie)).await;
+        assert_eq!(response.headers()[HX_PUSH_URL], "/quotes");
+        let fragment = body_text(response).await;
+
+        assert_eq!(quote_texts(&fragment), ["Two", "One"]);
+        assert!(!fragment.contains("No Quotes match"));
     }
 
     #[sqlx::test]

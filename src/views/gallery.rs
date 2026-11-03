@@ -483,12 +483,13 @@ fn shopping_pages() -> Vec<Fixture> {
         .collect()
 }
 
-/// The Quotes tab empty and with a collection; the random-Quote card with a Quote, a multi-line
+/// The Quotes tab empty, with a collection, and searched with and without matches; the random-Quote card with a Quote, a multi-line
 /// one and none; a Quote row with and without Added by, a long one and a multi-line one; and the
 /// add form empty and refused.
 fn quotes_pages() -> Vec<Fixture> {
     use quotes::fixtures::{
-        authors, collection, empty, imported, long, multiline, refused, remembered,
+        authors, collection, empty, found, imported, long, multiline, not_found, refused,
+        remembered,
     };
 
     let authors = authors();
@@ -507,6 +508,18 @@ fn quotes_pages() -> Vec<Fixture> {
             state: "With a collection".to_owned(),
             document: quotes::page(Some(&multiline()), &quotes::add_button(), &collection()),
             height: QUOTES_COLLECTION_HEIGHT,
+        },
+        Fixture {
+            component: "Quotes tab",
+            state: "Search results".to_owned(),
+            document: quotes::page(Some(&remembered()), &quotes::add_button(), &found()),
+            height: QUOTES_COLLECTION_HEIGHT,
+        },
+        Fixture {
+            component: "Quotes tab",
+            state: "Search with no matches".to_owned(),
+            document: quotes::page(Some(&remembered()), &quotes::add_button(), &not_found()),
+            height: QUOTES_HEIGHT,
         },
     ];
     let cards = [
