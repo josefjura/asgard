@@ -1,4 +1,5 @@
-//! The Quotes tab: "+ Quote" opens the form, and the collection follows, newest first.
+//! The Quotes tab: a random Quote on top, "+ Quote" to open the form, and the collection
+//! beneath, newest first.
 
 use maud::{Markup, html};
 
@@ -14,11 +15,16 @@ const ADDER_ID: &str = "quote-adder";
 /// The id of the collection, which adding a Quote swaps in afresh.
 const LIST_ID: &str = "quote-list";
 
+/// The id of the random-Quote card, which "Another one" swaps for a fresh one.
+const RANDOM_ID: &str = "random-quote";
+
 /// Where the Quotes tab's form posts and where "+ Quote" asks for the form. Routes match on the
 /// same paths.
 pub mod paths {
     /// The add form.
     pub const NEW: &str = "/quotes/new";
+    /// A fresh random-Quote card.
+    pub const RANDOM: &str = "/quotes/random";
 }
 
 /// What the add form shows in its fields: what was typed, or nothing yet.
@@ -44,13 +50,15 @@ fn href(page: usize) -> String {
     }
 }
 
-/// The Quotes tab: `adder` is "+ Quote" or the add form, above one page of the collection.
+/// The Quotes tab: the card showing `random`, then `adder`, which is "+ Quote" or the add form,
+/// above one page of the collection.
 #[must_use]
-pub fn page(adder: &Markup, list: &QuotePage) -> Markup {
+pub fn page(random: Option<&Quote>, adder: &Markup, list: &QuotePage) -> Markup {
     shell(
         Place::Tab(Tab::Quotes),
         &html! {
             h1 { "Quotes" }
+            (random_card(random, false))
             div #(ADDER_ID) { (adder) }
             section.section aria-labelledby="collection" {
                 h2 #collection { "Collection" }
@@ -62,11 +70,45 @@ pub fn page(adder: &Markup, list: &QuotePage) -> Markup {
 
 /// What htmx swaps in once a Quote is added: "+ Quote" again, and the first page of the
 /// collection out of band, with the new Quote at the top.
+///
+/// If it's the first Quote, the random-Quote card leaves its empty state to show it, out of band
+/// too.
 #[must_use]
 pub fn added(list: &QuotePage) -> Markup {
+    let first = match list.quotes.as_slice() {
+        [only] if list.pages == 1 => Some(only),
+        _ => None,
+    };
     html! {
         (add_button())
         (quote_list(list, true))
+        @if let Some(quote) = first {
+            (random_card(Some(quote), true))
+        }
+    }
+}
+
+/// The random-Quote card: `quote`'s text with its line breaks and its Author, and "Another one".
+///
+/// "Another one" swaps in a fresh card with htmx and reloads the tab without it. Without a Quote,
+/// the card says there's nothing to pick from and offers no other. Swapped in out of band if
+/// `out_of_band`.
+#[must_use]
+pub fn random_card(quote: Option<&Quote>, out_of_band: bool) -> Markup {
+    html! {
+        section.card.random-quote #(RANDOM_ID) aria-label="A random Quote"
+            hx-swap-oob=[out_of_band.then_some("true")] {
+            @if let Some(quote) = quote {
+                figure {
+                    blockquote.random-quote-text { (quote.text.as_str()) }
+                    figcaption.random-quote-author { (quote.author.as_str()) }
+                }
+                a.button.secondary.small href=(Tab::Quotes.href()) hx-get=(paths::RANDOM)
+                    hx-target={ "#" (RANDOM_ID) } hx-swap="outerHTML" { "Another one" }
+            } @else {
+                p.empty { "No Quotes to pick from yet. The first one you add shows up here." }
+            }
+        }
     }
 }
 
@@ -304,17 +346,73 @@ mod tests {
 
     #[test]
     fn quotes_empty() {
-        assert_html_snapshot!(page(&add_button(), &empty()));
+        assert_html_snapshot!(page(None, &add_button(), &empty()));
     }
 
     #[test]
     fn quotes_collection() {
-        assert_html_snapshot!(page(&add_button(), &collection()));
+        assert_html_snapshot!(page(Some(&remembered()), &add_button(), &collection()));
     }
 
     #[test]
     fn quotes_later_page() {
-        assert_html_snapshot!(page(&add_button(), &later_page()));
+        assert_html_snapshot!(page(Some(&long()), &add_button(), &later_page()));
+    }
+
+    #[test]
+    fn random_quote_card() {
+        assert_html_snapshot!(random_card(Some(&remembered()), false));
+    }
+
+    #[test]
+    fn random_quote_card_multiline() {
+        assert_html_snapshot!(random_card(Some(&multiline()), false));
+    }
+
+    #[test]
+    fn random_quote_card_empty() {
+        assert_html_snapshot!(random_card(None, false));
+    }
+
+    #[test]
+    fn the_random_card_offers_another_one_swapping_only_itself() {
+        let html = random_card(Some(&multiline()), false).into_string();
+
+        assert!(
+            html.contains(
+                "He tasted it.
+Then he poured it back."
+            ),
+            "{html}"
+        );
+        assert!(html.contains("Ondra"));
+        assert!(html.contains(
+            r##"<a class="button secondary small" href="/quotes" hx-get="/quotes/random" hx-target="#random-quote" hx-swap="outerHTML">Another one</a>"##
+        ), "{html}");
+    }
+
+    #[test]
+    fn the_empty_random_card_offers_no_other() {
+        let html = random_card(None, false).into_string();
+
+        assert!(html.contains("No Quotes to pick from yet."), "{html}");
+        assert!(!html.contains("Another one"), "{html}");
+    }
+
+    #[test]
+    fn adding_the_first_quote_fills_the_random_card_and_later_ones_leave_it() {
+        let first = QuotePage {
+            quotes: vec![remembered()],
+            page: 1,
+            pages: 1,
+        };
+        let html = added(&first).into_string();
+        assert!(
+            html.contains(r#"id="random-quote" aria-label="A random Quote" hx-swap-oob="true""#),
+            "{html}"
+        );
+
+        assert!(!added(&collection()).into_string().contains("random-quote"));
     }
 
     #[test]
@@ -386,7 +484,7 @@ mod tests {
 
     #[test]
     fn the_empty_collection_says_so_and_offers_to_add_one() {
-        let html = page(&add_button(), &empty()).into_string();
+        let html = page(None, &add_button(), &empty()).into_string();
 
         assert!(html.contains(">+ Quote</a>"));
         assert!(html.contains("No Quotes yet."));
@@ -396,7 +494,7 @@ mod tests {
 
     #[test]
     fn pages_link_newer_and_older() {
-        let html = page(&add_button(), &later_page()).into_string();
+        let html = page(Some(&long()), &add_button(), &later_page()).into_string();
 
         assert!(html.contains(r#"rel="prev" href="/quotes""#), "{html}");
         assert!(

@@ -1,6 +1,6 @@
 ---
 source: src/views/quotes.rs
-expression: "page(&add_button(), &later_page()).into_string().replace(\"><\", \">\\n<\")"
+expression: "page(Some(&long()), &add_button(),\n&later_page()).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -44,6 +44,13 @@ expression: "page(&add_button(), &later_page()).into_string().replace(\"><\", \"
 </header>
 <main class="shell-main">
 <h1>Quotes</h1>
+<section class="card random-quote" id="random-quote" aria-label="A random Quote">
+<figure>
+<blockquote class="random-quote-text">He said the mash tasted like biscuits and then kept talking about the water until the kettle boiled over and nobody wrote down the temperature. Nejnezapomenutelnějšívěta which runs on without a break so a phone has to wrap it.</blockquote>
+<figcaption class="random-quote-author">Pepa</figcaption>
+</figure>
+<a class="button secondary small" href="/quotes" hx-get="/quotes/random" hx-target="#random-quote" hx-swap="outerHTML">Another one</a>
+</section>
 <div id="quote-adder">
 <a class="button large" href="/quotes/new" hx-get="/quotes/new" hx-target="#quote-adder" hx-swap="innerHTML">+ Quote</a>
 </div>

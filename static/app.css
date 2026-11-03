@@ -977,6 +977,36 @@ textarea {
   margin-bottom: var(--space-1);
 }
 
+/* The random Quote heads the tab: larger than a row, the Author beneath it, "Another one" last. */
+.random-quote {
+  max-width: var(--measure);
+  margin-bottom: var(--space-4);
+}
+
+.random-quote figure {
+  margin: 0 0 var(--space-3);
+}
+
+.random-quote-text {
+  margin: 0;
+  font-size: var(--text-lead);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.random-quote-author {
+  margin-top: var(--space-2);
+  font-weight: 600;
+}
+
+.random-quote-author::before {
+  content: "— ";
+}
+
+.random-quote .empty {
+  margin: 0;
+}
+
 /* "+ Quote" stays a comfortable line long; the form that replaces it is the same width. */
 #quote-adder {
   max-width: 28rem;

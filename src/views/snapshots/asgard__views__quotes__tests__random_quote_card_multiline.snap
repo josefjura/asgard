@@ -1,0 +1,12 @@
+---
+source: src/views/quotes.rs
+expression: "random_card(Some(&multiline()), false).into_string().replace(\"><\", \">\\n<\")"
+---
+<section class="card random-quote" id="random-quote" aria-label="A random Quote">
+<figure>
+<blockquote class="random-quote-text">He tasted it.
+Then he poured it back.</blockquote>
+<figcaption class="random-quote-author">Ondra</figcaption>
+</figure>
+<a class="button secondary small" href="/quotes" hx-get="/quotes/random" hx-target="#random-quote" hx-swap="outerHTML">Another one</a>
+</section>

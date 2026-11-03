@@ -1,4 +1,5 @@
-//! The Quotes tab: adding a Quote to the Crew's collection, and reading it a page at a time.
+//! The Quotes tab: a random Quote, adding a Quote to the Crew's collection, and reading it a
+//! page at a time.
 
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
@@ -24,6 +25,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route(Tab::Quotes.href(), get(show).post(add))
         .route(paths::NEW, get(new_form))
+        .route(paths::RANDOM, get(random))
 }
 
 /// Which page of the collection to show. Missing means the first.
@@ -32,7 +34,7 @@ struct PageQuery {
     page: Option<usize>,
 }
 
-/// The Quotes tab: "+ Quote" and one page of the collection. A page past the last shows the last.
+/// The Quotes tab: a random Quote, "+ Quote" and one page of the collection. A page past the last shows the last.
 async fn show(
     State(state): State<AppState>,
     Member(_): Member,
@@ -109,6 +111,20 @@ async fn add(
     Ok(fresh(views::quotes::added(&list)).into_response())
 }
 
+/// A fresh random-Quote card, for "Another one". Only htmx asks for it; a browser is sent to the
+/// tab, which picks one too.
+async fn random(
+    State(state): State<AppState>,
+    Member(_): Member,
+    Htmx(htmx): Htmx,
+) -> Result<Response, AppError> {
+    if !htmx {
+        return Ok(Redirect::to(Tab::Quotes.href()).into_response());
+    }
+    let quote = state.quotes.random().await?;
+    Ok(fresh(views::quotes::random_card(quote.as_ref(), false)).into_response())
+}
+
 /// The Quote as typed, or what is wrong with each field.
 fn parse(input: &QuoteForm) -> Result<NewQuote, QuoteProblems> {
     match (QuoteText::parse(&input.text), Author::parse(&input.author)) {
@@ -120,10 +136,11 @@ fn parse(input: &QuoteForm) -> Result<NewQuote, QuoteProblems> {
     }
 }
 
-/// The Quotes tab around `adder`, showing the collection's `page`.
+/// The Quotes tab around `adder`, showing a random Quote and the collection's `page`.
 async fn page(state: &AppState, adder: &Markup, page_number: usize) -> Result<Markup, AppError> {
+    let random = state.quotes.random().await?;
     let list = state.quotes.page(page_number).await?;
-    Ok(views::quotes::page(adder, &list))
+    Ok(views::quotes::page(random.as_ref(), adder, &list))
 }
 
 async fn empty_form(state: &AppState) -> Result<Markup, AppError> {
@@ -237,6 +254,7 @@ mod tests {
         for response in [
             app.get("/quotes").await,
             app.get(paths::NEW).await,
+            app.get(paths::RANDOM).await,
             post_quote(&app, "", &[("text", "Hello"), ("author", "Pepa")], false).await,
         ] {
             assert_eq!(response.status(), StatusCode::SEE_OTHER);
@@ -443,6 +461,99 @@ mod tests {
         let past = tab_at(&app, &cookie, 99).await;
         assert_eq!(quote_texts(&past), ["Quote 01"]);
         assert!(past.contains("Page 2 of 2"));
+    }
+
+    /// The text of the random-Quote card in `html`, if it shows one.
+    fn random_text(html: &str) -> Option<&str> {
+        let rest = html
+            .split("<blockquote class=\"random-quote-text\">")
+            .nth(1)?;
+        rest.split("</blockquote>").next()
+    }
+
+    #[sqlx::test]
+    async fn the_tab_shows_a_random_quote_above_the_adder(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add(
+            &app,
+            &cookie,
+            "line one
+line two",
+            "Pepa",
+        )
+        .await;
+
+        let html = tab(&app, &cookie).await;
+
+        assert_eq!(
+            random_text(&html),
+            Some(
+                "line one
+line two"
+            ),
+            "{html}"
+        );
+        let card = html.find(r#"id="random-quote""#).unwrap();
+        let adder = html.find(r#"id="quote-adder""#).unwrap();
+        assert!(card < adder, "{html}");
+        assert!(html.contains(">Another one</a>"));
+    }
+
+    #[sqlx::test]
+    async fn without_quotes_the_card_is_empty_and_offers_no_other(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+
+        let html = tab(&app, &cookie).await;
+
+        assert!(html.contains("No Quotes to pick from yet."), "{html}");
+        assert_eq!(random_text(&html), None);
+        assert!(!html.contains("Another one"));
+    }
+
+    #[sqlx::test]
+    async fn another_one_is_just_a_card_of_a_stored_quote(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        let stored = ["First", "Second", "Third"];
+        for text in stored {
+            add(&app, &cookie, text, "Pepa").await;
+        }
+
+        for _ in 0..10 {
+            let response = app.send(htmx_get(paths::RANDOM, &cookie)).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let html = body_text(response).await;
+            assert!(!html.contains("<!DOCTYPE"), "a fragment, not the page");
+            assert!(html.starts_with(r#"<section class="card random-quote" id="random-quote""#));
+            assert!(!html.contains("quote-list"), "{html}");
+            let text = random_text(&html).unwrap();
+            assert!(stored.contains(&text), "{html}");
+        }
+    }
+
+    #[sqlx::test]
+    async fn another_one_without_htmx_reloads_the_tab(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+
+        let response = app.get_with(paths::RANDOM, &cookie).await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[LOCATION], "/quotes");
+    }
+
+    #[sqlx::test]
+    async fn adding_the_first_quote_puts_it_on_the_card(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+
+        let first = add(&app, &cookie, "The very first", "Pepa").await;
+        assert_eq!(random_text(&first), Some("The very first"), "{first}");
+
+        let second = add(&app, &cookie, "Another", "Pepa").await;
+        assert_eq!(random_text(&second), None, "{second}");
     }
 
     #[sqlx::test]
