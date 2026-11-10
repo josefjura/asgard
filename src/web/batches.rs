@@ -1,11 +1,12 @@
 //! The Batches tab, the Crew's brewery log: adding a Batch, reading the log a page at a time,
-//! each Batch's own page, and editing or deleting any Batch.
+//! each Batch's own page, recording its Brew day and Bottling, and editing or deleting any Batch.
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Form, Router};
+use jiff::civil::Date;
 use maud::Markup;
 use serde::Deserialize;
 
@@ -13,12 +14,17 @@ use super::access::Member;
 use super::htmx::{Htmx, fragment_or_page, go_to};
 use super::pages::fresh;
 use super::{AppError, AppState};
+
 use crate::domain::batches::{
-    Batch, BatchError, BatchName, BatchNumber, NAME_MAX, NOTES_MAX, NameError, NewBatch, Notes,
-    NotesError,
+    Batch, BatchError, BatchName, BatchNumber, Bottling, BrewDay, FG_MAX, FG_MIN, Gravity,
+    GravityError, NAME_MAX, NOTES_MAX, NameError, NewBatch, Notes, NotesError, OG_MAX, OG_MIN,
+    RecordError, RuleError, VOLUME_MAX, Volume, VolumeError,
 };
 use crate::views;
-use crate::views::batches::{BatchProblems, BatchValues, Purpose, paths};
+use crate::views::batches::{
+    BatchProblems, BatchValues, BottlingProblems, BottlingValues, BrewDayProblems, BrewDayValues,
+    Purpose, paths,
+};
 use crate::views::nav::Tab;
 
 pub fn routes() -> Router<AppState> {
@@ -27,6 +33,14 @@ pub fn routes() -> Router<AppState> {
         .route("/batches/{number}", get(batch).post(save))
         .route("/batches/{number}/edit", get(edit))
         .route("/batches/{number}/delete", post(delete))
+        .route(
+            "/batches/{number}/brew-day",
+            get(brew_day_form).post(record_brew_day),
+        )
+        .route(
+            "/batches/{number}/bottling",
+            get(bottling_form).post(record_bottling),
+        )
 }
 
 /// Which page of the log to show. Missing means the first.
@@ -184,6 +198,295 @@ async fn delete(
         "a Member deleted a Batch"
     );
     Ok(go_to(htmx, Tab::Batches.href()))
+}
+
+/// The Batch `number`'s Brew day form, filled in with what it has and today as the brew date
+/// until it has one: in place of its Brew day section for htmx, on a page of its own otherwise.
+async fn brew_day_form(
+    State(state): State<AppState>,
+    Member(_): Member,
+    Htmx(htmx): Htmx,
+    Path(number): Path<i64>,
+) -> Result<Response, AppError> {
+    let number = BatchNumber::from_client(number);
+    Ok(match found(&state, htmx, number).await? {
+        Ok(batch) => {
+            let values = BrewDayValues::of(&batch, state.batches.today());
+            let form = views::batches::brew_day_form(number, &values, &BrewDayProblems::default());
+            numbers_form(htmx, StatusCode::OK, number, form)
+        }
+        Err(gone) => gone,
+    })
+}
+
+/// The Batch `number`'s Bottling form, filled in with what it has and today as the bottling
+/// date until it has one: in place of its Bottling section for htmx, on a page of its own
+/// otherwise.
+async fn bottling_form(
+    State(state): State<AppState>,
+    Member(_): Member,
+    Htmx(htmx): Htmx,
+    Path(number): Path<i64>,
+) -> Result<Response, AppError> {
+    let number = BatchNumber::from_client(number);
+    Ok(match found(&state, htmx, number).await? {
+        Ok(batch) => {
+            let values = BottlingValues::of(&batch, state.batches.today());
+            let form = views::batches::bottling_form(number, &values, &BottlingProblems::default());
+            numbers_form(htmx, StatusCode::OK, number, form)
+        }
+        Err(gone) => gone,
+    })
+}
+
+#[derive(Deserialize)]
+struct BrewDayForm {
+    #[serde(default)]
+    brew_date: String,
+    #[serde(default)]
+    og: String,
+    #[serde(default)]
+    volume: String,
+}
+
+impl BrewDayForm {
+    fn values(self) -> BrewDayValues {
+        BrewDayValues {
+            brew_date: self.brew_date,
+            og: self.og,
+            volume: self.volume,
+        }
+    }
+}
+
+/// Records the Batch `number`'s Brew day, and goes to its page, whose Stage and numbers follow.
+/// An empty field clears its value. A refused form shows what to fix: in place for htmx, on a
+/// page of its own otherwise.
+async fn record_brew_day(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(number): Path<i64>,
+    Form(input): Form<BrewDayForm>,
+) -> Result<Response, AppError> {
+    let number = BatchNumber::from_client(number);
+    let problems = match parse_brew_day(&input) {
+        Ok(brew_day) => match state
+            .batches
+            .record_brew_day(number, member.id, &brew_day)
+            .await
+        {
+            Ok(()) => {
+                tracing::info!(
+                    member = member.id.get(),
+                    batch = number.get(),
+                    "a Member recorded a Brew day"
+                );
+                return Ok(go_to(htmx, &paths::batch(number)));
+            }
+            Err(RecordError::NotFound) => return Ok(gone(htmx, number)),
+            Err(RecordError::Rule(rule)) => brew_day_rule(rule),
+            Err(RecordError::Database(err)) => return Err(err.into()),
+        },
+        Err(problems) => {
+            // A Batch that is gone is reported as gone, not as a form to fix.
+            if matches!(state.batches.get(number).await, Err(BatchError::NotFound)) {
+                return Ok(gone(htmx, number));
+            }
+            problems
+        }
+    };
+    let form = views::batches::brew_day_form(number, &input.values(), &problems);
+    Ok(numbers_form(
+        htmx,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        number,
+        form,
+    ))
+}
+
+#[derive(Deserialize)]
+struct BottlingForm {
+    #[serde(default)]
+    bottling_date: String,
+    #[serde(default)]
+    fg: String,
+}
+
+impl BottlingForm {
+    fn values(self) -> BottlingValues {
+        BottlingValues {
+            bottling_date: self.bottling_date,
+            fg: self.fg,
+        }
+    }
+}
+
+/// Records the Batch `number`'s Bottling, and goes to its page, whose Stage and numbers follow.
+/// An empty field clears its value. A refused form shows what to fix: in place for htmx, on a
+/// page of its own otherwise.
+async fn record_bottling(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(number): Path<i64>,
+    Form(input): Form<BottlingForm>,
+) -> Result<Response, AppError> {
+    let number = BatchNumber::from_client(number);
+    let problems = match parse_bottling(&input) {
+        Ok(bottling) => match state
+            .batches
+            .record_bottling(number, member.id, &bottling)
+            .await
+        {
+            Ok(()) => {
+                tracing::info!(
+                    member = member.id.get(),
+                    batch = number.get(),
+                    "a Member recorded a Bottling"
+                );
+                return Ok(go_to(htmx, &paths::batch(number)));
+            }
+            Err(RecordError::NotFound) => return Ok(gone(htmx, number)),
+            Err(RecordError::Rule(rule)) => bottling_rule(rule),
+            Err(RecordError::Database(err)) => return Err(err.into()),
+        },
+        Err(problems) => {
+            // A Batch that is gone is reported as gone, not as a form to fix.
+            if matches!(state.batches.get(number).await, Err(BatchError::NotFound)) {
+                return Ok(gone(htmx, number));
+            }
+            problems
+        }
+    };
+    let form = views::batches::bottling_form(number, &input.values(), &problems);
+    Ok(numbers_form(
+        htmx,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        number,
+        form,
+    ))
+}
+
+/// A Brew day or Bottling `form` of the Batch `number` with `status`: alone for htmx to swap in
+/// place of its section, or on a page of its own otherwise.
+fn numbers_form(htmx: bool, status: StatusCode, number: BatchNumber, form: Markup) -> Response {
+    fragment_or_page(htmx, status, form, |form| {
+        views::batches::numbers_page(number, form)
+    })
+}
+
+/// The Brew day as typed, or what is wrong with each field. An empty field is a value cleared.
+fn parse_brew_day(input: &BrewDayForm) -> Result<BrewDay, BrewDayProblems> {
+    let date = optional(&input.brew_date, str::parse::<Date>);
+    let og = optional(&input.og, Gravity::og);
+    let volume = optional(&input.volume, Volume::parse);
+    match (date, og, volume) {
+        (Ok(date), Ok(og), Ok(volume)) => Ok(BrewDay { date, og, volume }),
+        (date, og, volume) => Err(BrewDayProblems {
+            brew_date: date
+                .err()
+                .map(|_| "Enter the brew date, or leave it empty.".to_owned()),
+            og: og.err().map(og_message),
+            volume: volume.err().map(volume_message),
+        }),
+    }
+}
+
+/// The Bottling as typed, or what is wrong with each field. An empty field is a value cleared.
+fn parse_bottling(input: &BottlingForm) -> Result<Bottling, BottlingProblems> {
+    let date = optional(&input.bottling_date, str::parse::<Date>);
+    let fg = optional(&input.fg, Gravity::fg);
+    match (date, fg) {
+        (Ok(date), Ok(fg)) => Ok(Bottling { date, fg }),
+        (date, fg) => Err(BottlingProblems {
+            bottling_date: date
+                .err()
+                .map(|_| "Enter the bottling date, or leave it empty.".to_owned()),
+            fg: fg.err().map(fg_message),
+        }),
+    }
+}
+
+/// `input` parsed by `parse`, or None if it's blank.
+fn optional<T, E>(input: &str, parse: impl FnOnce(&str) -> Result<T, E>) -> Result<Option<T>, E> {
+    let input = input.trim();
+    if input.is_empty() {
+        Ok(None)
+    } else {
+        parse(input).map(Some)
+    }
+}
+
+/// A gravity in thousandths as a hydrometer reads it: `1.052`.
+fn gravity(thousandths: i64) -> String {
+    format!("{}.{:03}", thousandths / 1000, thousandths % 1000)
+}
+
+fn og_message(_: GravityError) -> String {
+    format!(
+        "Enter an OG from {} to {}, like 1.052.",
+        gravity(OG_MIN),
+        gravity(OG_MAX)
+    )
+}
+
+fn fg_message(_: GravityError) -> String {
+    format!(
+        "Enter an FG from {} to {}, like 1.010.",
+        gravity(FG_MIN),
+        gravity(FG_MAX)
+    )
+}
+
+fn volume_message(err: VolumeError) -> String {
+    match err {
+        VolumeError::Malformed => "Enter the Volume in litres, like 23.5.".to_owned(),
+        VolumeError::NotPositive => "The Volume has to be more than 0 L.".to_owned(),
+        VolumeError::TooBig => format!("Keep the Volume to {} L or less.", VOLUME_MAX / 10),
+    }
+}
+
+/// What the Brew day form says beside the field that breaks `rule` against the Bottling.
+fn brew_day_rule(rule: RuleError) -> BrewDayProblems {
+    match rule {
+        RuleError::FgNotBelowOg => BrewDayProblems {
+            og: Some("The OG has to be above the FG recorded at Bottling.".to_owned()),
+            ..BrewDayProblems::default()
+        },
+        RuleError::BottlingBeforeBrewing => BrewDayProblems {
+            brew_date: Some("The brew date can't be after the bottling date.".to_owned()),
+            ..BrewDayProblems::default()
+        },
+        RuleError::BottlingWithoutBrewing => BrewDayProblems {
+            brew_date: Some(
+                "Clear the bottling date first: a Batch can't be bottled without a brew date."
+                    .to_owned(),
+            ),
+            ..BrewDayProblems::default()
+        },
+    }
+}
+
+/// What the Bottling form says beside the field that breaks `rule` against the Brew day.
+fn bottling_rule(rule: RuleError) -> BottlingProblems {
+    match rule {
+        RuleError::FgNotBelowOg => BottlingProblems {
+            fg: Some("The FG has to be below the OG.".to_owned()),
+            ..BottlingProblems::default()
+        },
+        RuleError::BottlingBeforeBrewing => BottlingProblems {
+            bottling_date: Some("The bottling date can't be before the brew date.".to_owned()),
+            ..BottlingProblems::default()
+        },
+        RuleError::BottlingWithoutBrewing => BottlingProblems {
+            bottling_date: Some(
+                "Record the Brew day first: a Batch can't be bottled before it's brewed."
+                    .to_owned(),
+            ),
+            ..BottlingProblems::default()
+        },
+    }
 }
 
 /// The Batch `number`, or the answer saying it's gone.
@@ -707,12 +1010,449 @@ mod tests {
         }
     }
 
+    /// Posts the Batch `number`'s form at `/batches/{number}/{form}` with `pairs`, as htmx does if
+    /// `htmx`.
+    async fn record(
+        app: &TestApp,
+        cookie: &str,
+        number: i64,
+        form: &str,
+        pairs: &[(&str, &str)],
+        htmx: bool,
+    ) -> Response<Body> {
+        post_form(
+            app,
+            &format!("/batches/{number}/{form}"),
+            cookie,
+            &fields(pairs),
+            htmx,
+            PUBLIC_ORIGIN,
+        )
+        .await
+    }
+
+    /// Records the Batch `number`'s form with htmx, expecting it saved.
+    async fn recorded(
+        app: &TestApp,
+        cookie: &str,
+        number: i64,
+        form: &str,
+        pairs: &[(&str, &str)],
+    ) {
+        let response = record(app, cookie, number, form, pairs, true).await;
+        let status = response.status();
+        let redirect = response.headers().get(HX_REDIRECT).cloned();
+        assert_eq!(status, StatusCode::OK, "{}", body_text(response).await);
+        assert_eq!(redirect.unwrap(), format!("/batches/{number}").as_str());
+    }
+
+    /// The Stage badge on the Batch `number`'s page.
+    async fn stage(app: &TestApp, cookie: &str, number: i64) -> String {
+        let html = page(app, cookie, &format!("/batches/{number}")).await;
+        html.split(r#"<span class="stage "#)
+            .nth(1)
+            .and_then(|rest| rest.split("</span>").next())
+            .and_then(|badge| badge.split("\">").nth(1))
+            .unwrap_or_default()
+            .to_owned()
+    }
+
+    #[sqlx::test]
+    async fn brew_day_and_bottling_move_a_batch_through_its_stages_and_back(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add(&app, &josef, "Pilsner", "").await;
+        assert_eq!(stage(&app, &josef, 1).await, "Planned");
+
+        let brew_day = [
+            ("brew_date", "2026-10-03"),
+            ("og", "1.050"),
+            ("volume", "23.5"),
+        ];
+        recorded(&app, &josef, 1, "brew-day", &brew_day).await;
+        assert_eq!(stage(&app, &josef, 1).await, "In the fermenter");
+        let log = page(&app, &josef, "/batches").await;
+        assert!(
+            log.contains(r#"<span class="stage brewed">In the fermenter</span>"#),
+            "{log}"
+        );
+        assert!(log.contains(r#"Brewed <time datetime="2026-10-03">3 October 2026</time>"#));
+
+        let bottling = [("bottling_date", "2026-10-17"), ("fg", "1.010")];
+        recorded(&app, &josef, 1, "bottling", &bottling).await;
+        assert_eq!(stage(&app, &josef, 1).await, "Bottled");
+        assert!(
+            page(&app, &josef, "/batches")
+                .await
+                .contains(r#" · Bottled <time datetime="2026-10-17">17 October 2026</time>"#)
+        );
+
+        // Clearing the bottling date moves it back, keeping the FG.
+        recorded(
+            &app,
+            &josef,
+            1,
+            "bottling",
+            &[("bottling_date", ""), ("fg", "1.010")],
+        )
+        .await;
+        assert_eq!(stage(&app, &josef, 1).await, "In the fermenter");
+
+        recorded(
+            &app,
+            &josef,
+            1,
+            "brew-day",
+            &[("brew_date", " "), ("og", "1.050")],
+        )
+        .await;
+        assert_eq!(stage(&app, &josef, 1).await, "Planned");
+        let html = page(&app, &josef, "/batches/1").await;
+        assert!(!html.contains("Volume"), "cleared: {html}");
+        assert!(html.contains("5.3 %"), "OG and FG are kept: {html}");
+    }
+
+    #[sqlx::test]
+    async fn the_batch_page_shows_the_numbers_with_abv_and_attenuation(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add(&app, &josef, "Pilsner", "").await;
+
+        let before = page(&app, &josef, "/batches/1").await;
+        assert!(before.contains("Not brewed yet."), "{before}");
+        assert!(before.contains("Not bottled yet."));
+        assert!(before.contains("Record Brew day"));
+
+        recorded(
+            &app,
+            &josef,
+            1,
+            "brew-day",
+            &[
+                ("brew_date", "2026-10-03"),
+                ("og", "1,050"),
+                ("volume", "23,5"),
+            ],
+        )
+        .await;
+        let brewed = page(&app, &josef, "/batches/1").await;
+        assert!(
+            brewed.contains(r#"<span class="measured">1.050</span>"#),
+            "{brewed}"
+        );
+        assert!(brewed.contains("23.5 L"));
+        assert!(!brewed.contains("ABV"), "not until the FG is in");
+
+        recorded(
+            &app,
+            &josef,
+            1,
+            "bottling",
+            &[("bottling_date", "2026-10-17"), ("fg", "1010")],
+        )
+        .await;
+        let html = page(&app, &josef, "/batches/1").await;
+        assert!(
+            html.contains(r#"<dt>ABV</dt><dd><span class="measured">5.3 %</span></dd>"#),
+            "{html}"
+        );
+        assert!(
+            html.contains(r#"<dt>Attenuation</dt><dd><span class="measured">80.0 %</span></dd>"#)
+        );
+        assert!(html.contains(r#"<span class="measured">1.010</span>"#));
+        assert!(
+            html.contains(
+                r#"Bottled on</dt><dd><time datetime="2026-10-17">17 October 2026</time>"#
+            )
+        );
+        assert!(html.contains("Edit Bottling"));
+    }
+
+    #[sqlx::test]
+    async fn both_forms_start_at_today_and_swap_in_place(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add(&app, &josef, "Pilsner", "").await;
+
+        let brew_day = body_text(app.send(htmx_get("/batches/1/brew-day", &josef)).await).await;
+        assert!(
+            brew_day.starts_with(r#"<section class="section narrow" id="brew-day""#),
+            "{brew_day}"
+        );
+        assert!(
+            brew_day.contains(r#"name="brew_date" value="2026-01-01""#),
+            "{brew_day}"
+        );
+        assert!(brew_day.contains(r##"hx-target="#brew-day" hx-swap="outerHTML""##));
+
+        let bottling = body_text(app.send(htmx_get("/batches/1/bottling", &josef)).await).await;
+        assert!(
+            bottling.starts_with(r#"<section class="section narrow" id="bottling""#),
+            "{bottling}"
+        );
+        assert!(
+            bottling.contains(r#"name="bottling_date" value="2026-01-01""#),
+            "{bottling}"
+        );
+
+        let plain = page(&app, &josef, "/batches/1/brew-day").await;
+        assert!(plain.contains("<!DOCTYPE"), "a page without htmx");
+        assert!(plain.contains("<h1>Batch #1</h1>"));
+
+        // A recorded date is shown, not today.
+        recorded(
+            &app,
+            &josef,
+            1,
+            "brew-day",
+            &[("brew_date", "2025-12-20"), ("og", "1.048")],
+        )
+        .await;
+        let again = page(&app, &josef, "/batches/1/brew-day").await;
+        assert!(again.contains(r#"value="2025-12-20""#), "{again}");
+        assert!(again.contains(r#"value="1.048""#));
+    }
+
+    /// Which Batch, which form, what's typed, and what the form says.
+    type Case<'a> = (i64, &'a str, &'a [(&'a str, &'a str)], &'a str);
+
+    #[sqlx::test]
+    async fn a_refused_brew_day_or_bottling_keeps_what_was_typed_and_changes_nothing(
+        db: SqlitePool,
+    ) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add(&app, &josef, "Pilsner", "").await;
+        add(&app, &josef, "Unbrewed", "").await;
+        recorded(
+            &app,
+            &josef,
+            1,
+            "brew-day",
+            &[("brew_date", "2026-10-03"), ("og", "1.050")],
+        )
+        .await;
+        recorded(
+            &app,
+            &josef,
+            1,
+            "bottling",
+            &[("bottling_date", "2026-10-17"), ("fg", "1.010")],
+        )
+        .await;
+        let before = page(&app, &josef, "/batches/1").await;
+
+        let cases: &[Case] = &[
+            (
+                1,
+                "brew-day",
+                &[("og", "1.250")],
+                "Enter an OG from 1.000 to 1.200, like 1.052.",
+            ),
+            (
+                1,
+                "brew-day",
+                &[("og", "0.999")],
+                "Enter an OG from 1.000 to 1.200, like 1.052.",
+            ),
+            (
+                1,
+                "brew-day",
+                &[("og", "strong")],
+                "Enter an OG from 1.000 to 1.200, like 1.052.",
+            ),
+            (
+                1,
+                "brew-day",
+                &[("brew_date", "2026-10-03"), ("og", "1.009")],
+                "The OG has to be above the FG recorded at Bottling.",
+            ),
+            (
+                1,
+                "brew-day",
+                &[("volume", "0")],
+                "The Volume has to be more than 0 L.",
+            ),
+            (
+                1,
+                "brew-day",
+                &[("volume", "-5")],
+                "The Volume has to be more than 0 L.",
+            ),
+            (
+                1,
+                "brew-day",
+                &[("volume", "lots")],
+                "Enter the Volume in litres, like 23.5.",
+            ),
+            (
+                1,
+                "brew-day",
+                &[("brew_date", "2026-10-18"), ("og", "1.050")],
+                "The brew date can't be after the bottling date.",
+            ),
+            (
+                1,
+                "brew-day",
+                &[("brew_date", ""), ("og", "1.050")],
+                "Clear the bottling date first",
+            ),
+            (
+                1,
+                "brew-day",
+                &[("brew_date", "3 October")],
+                "Enter the brew date, or leave it empty.",
+            ),
+            (
+                1,
+                "bottling",
+                &[("bottling_date", "2026-10-17"), ("fg", "1.050")],
+                "The FG has to be below the OG.",
+            ),
+            (
+                1,
+                "bottling",
+                &[("fg", "1.101")],
+                "Enter an FG from 0.990 to 1.100, like 1.010.",
+            ),
+            (
+                1,
+                "bottling",
+                &[("bottling_date", "2026-10-02")],
+                "The bottling date can't be before the brew date.",
+            ),
+            (
+                2,
+                "bottling",
+                &[("bottling_date", "2026-10-17")],
+                "Record the Brew day first",
+            ),
+        ];
+        for &(number, form, pairs, message) in cases {
+            let response = record(&app, &josef, number, form, pairs, true).await;
+            assert_eq!(
+                response.status(),
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "{pairs:?}"
+            );
+            let html = body_text(response).await;
+            assert!(html.starts_with("<section "), "a fragment: {html}");
+            assert!(html.contains(message), "{pairs:?}: {html}");
+            for (_, typed) in pairs.iter().filter(|(_, typed)| !typed.is_empty()) {
+                assert!(
+                    html.contains(&format!(r#"value="{typed}""#)),
+                    "{typed} kept: {html}"
+                );
+            }
+        }
+
+        let plain = record(&app, &josef, 1, "bottling", &[("fg", "1.200")], false).await;
+        assert_eq!(plain.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let html = body_text(plain).await;
+        assert!(
+            html.contains("<h1>Batch #1</h1>"),
+            "a page without htmx: {html}"
+        );
+        assert!(html.contains(r#"value="1.200""#));
+
+        assert_eq!(page(&app, &josef, "/batches/1").await, before);
+        assert_eq!(stage(&app, &josef, 2).await, "Planned");
+    }
+
+    #[sqlx::test]
+    async fn a_plain_brew_day_post_goes_to_the_batch_page(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add(&app, &josef, "Pilsner", "").await;
+
+        let response = record(
+            &app,
+            &josef,
+            1,
+            "brew-day",
+            &[("brew_date", "2026-10-03")],
+            false,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[LOCATION], "/batches/1");
+        assert_eq!(stage(&app, &josef, 1).await, "In the fermenter");
+    }
+
+    #[sqlx::test]
+    async fn brew_day_and_bottling_of_a_batch_thats_gone_say_so(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add(&app, &josef, "Soon gone", "").await;
+        delete(&app, &josef, 1, true).await;
+
+        for response in [
+            app.get_with("/batches/1/brew-day", &josef).await,
+            app.get_with("/batches/1/bottling", &josef).await,
+            record(&app, &josef, 1, "brew-day", &[("og", "1.050")], false).await,
+            record(&app, &josef, 1, "brew-day", &[("og", "bad")], false).await,
+            record(&app, &josef, 1, "bottling", &[("fg", "1.010")], false).await,
+            record(&app, &josef, 1, "bottling", &[("fg", "bad")], false).await,
+        ] {
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            assert!(body_text(response).await.contains("This Batch is gone"));
+        }
+        for response in [
+            record(&app, &josef, 1, "brew-day", &[("og", "1.050")], true).await,
+            record(&app, &josef, 1, "bottling", &[("fg", "bad")], true).await,
+        ] {
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()[HX_REDIRECT], "/batches/1");
+        }
+    }
+
+    #[sqlx::test]
+    async fn signed_out_brew_day_and_bottling_redirect_to_sign_in(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add(&app, &josef, "Pilsner", "").await;
+
+        for response in [
+            app.get("/batches/1/brew-day").await,
+            app.get("/batches/1/bottling").await,
+            record(
+                &app,
+                "",
+                1,
+                "brew-day",
+                &[("brew_date", "2026-10-03")],
+                false,
+            )
+            .await,
+            record(&app, "", 1, "bottling", &[("fg", "1.010")], false).await,
+        ] {
+            assert_eq!(response.status(), StatusCode::SEE_OTHER);
+            assert_eq!(response.headers()[LOCATION], "/sign-in");
+        }
+        assert_eq!(stage(&app, &josef, 1).await, "Planned");
+    }
+
     #[sqlx::test]
     async fn posts_from_another_origin_are_refused(db: SqlitePool) {
         let app = TestApp::new(db);
         let josef = app.sign_in_new_admin("Josef").await;
         add(&app, &josef, "Guarded", "").await;
         let foreign = "https://evil.example";
+
+        for uri in ["/batches/1/brew-day", "/batches/1/bottling"] {
+            let response = post_form(
+                &app,
+                uri,
+                &josef,
+                &fields(&[("brew_date", "2026-10-03"), ("bottling_date", "2026-10-03")]),
+                true,
+                foreign,
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{uri}");
+        }
+        assert_eq!(stage(&app, &josef, 1).await, "Planned");
 
         for uri in ["/batches", "/batches/1", "/batches/1/delete"] {
             let response = post_form(

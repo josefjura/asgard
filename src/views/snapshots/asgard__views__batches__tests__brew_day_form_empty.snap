@@ -1,0 +1,30 @@
+---
+source: src/views/batches.rs
+assertion_line: 1018
+expression: "brew_day_form(bare().number, &values,\n&BrewDayProblems::default()).into_string().replace(\"><\", \">\\n<\")"
+---
+<section class="section narrow" id="brew-day" aria-labelledby="brew-day-heading">
+<h2 id="brew-day-heading">Brew day</h2>
+<form class="entry-form" method="post" action="/batches/11/brew-day" hx-post="/batches/11/brew-day" hx-target="#brew-day" hx-swap="outerHTML">
+<div class="field">
+<label for="brew-date">Brew date <span class="optional">(optional)</span>
+</label>
+<input id="brew-date" type="date" name="brew_date" value="2026-11-10">
+</div>
+<div class="field">
+<label for="brew-og">OG <span class="optional">(optional)</span>
+</label>
+<input id="brew-og" type="text" inputmode="decimal" name="og" value="" placeholder="1.052" autocomplete="off">
+</div>
+<div class="field">
+<label for="brew-volume">Volume in litres <span class="optional">(optional)</span>
+</label>
+<input id="brew-volume" type="text" inputmode="decimal" name="volume" value="" placeholder="23.5" autocomplete="off">
+</div>
+<p class="note">Leave a field empty to clear it.</p>
+<div class="edit-actions">
+<button class="button" type="submit">Save Brew day</button>
+<a class="button secondary" href="/batches/11">Cancel</a>
+</div>
+</form>
+</section>

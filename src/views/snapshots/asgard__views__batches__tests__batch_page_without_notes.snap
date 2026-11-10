@@ -1,5 +1,6 @@
 ---
 source: src/views/batches.rs
+assertion_line: 817
 expression: "batch_page(&bare()).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
@@ -46,6 +47,16 @@ expression: "batch_page(&bare()).into_string().replace(\"><\", \">\\n<\")"
 <p class="batch-eyebrow">Batch #11</p>
 <h1 class="batch-title">Stout</h1>
 <span class="stage planned">Planned</span>
+<section class="section narrow" id="brew-day" aria-labelledby="brew-day-heading">
+<h2 id="brew-day-heading">Brew day</h2>
+<p class="muted">Not brewed yet.</p>
+<a class="button secondary small" href="/batches/11/brew-day" hx-get="/batches/11/brew-day" hx-target="#brew-day" hx-swap="outerHTML">Record Brew day</a>
+</section>
+<section class="section narrow" id="bottling" aria-labelledby="bottling-heading">
+<h2 id="bottling-heading">Bottling</h2>
+<p class="muted">Not bottled yet.</p>
+<a class="button secondary small" href="/batches/11/bottling" hx-get="/batches/11/bottling" hx-target="#bottling" hx-swap="outerHTML">Record Bottling</a>
+</section>
 <section class="section narrow" aria-labelledby="notes">
 <h2 id="notes">Notes</h2>
 <p class="muted">No Notes yet.</p>

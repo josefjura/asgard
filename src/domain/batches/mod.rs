@@ -1,5 +1,5 @@
 //! The Crew's Batches: the brewery log. Each Batch is one brew, with an automatic Batch number, a
-//! name, free-text Notes and who added it.
+//! name, free-text Notes, its Brew day and Bottling, and who added it.
 //!
 //! Batches emit no events and send no notifications. Any Member may add, edit or delete any
 //! Batch; nothing here checks who added it.
@@ -8,7 +8,14 @@ use jiff::civil::{Date, DateTime};
 use sqlx::SqlitePool;
 
 use crate::domain::clock::{Clock, crew_time_of_unix_seconds, unix_seconds};
-use crate::domain::members::{DisplayName, MemberId};
+use crate::domain::members::{DisplayName, MemberId, parse_date};
+
+mod numbers;
+
+pub use numbers::{
+    Bottling, BrewDay, FG_MAX, FG_MIN, Gravity, GravityError, OG_MAX, OG_MIN, Percent, RuleError,
+    VOLUME_MAX, Volume, VolumeError, abv, attenuation, check,
+};
 
 /// The longest Batch name, in characters.
 pub const NAME_MAX: usize = 100;
@@ -143,6 +150,19 @@ pub enum BatchError {
     Database(#[from] sqlx::Error),
 }
 
+/// Why a Batch's Brew day or Bottling couldn't be recorded.
+#[derive(Debug, thiserror::Error)]
+pub enum RecordError {
+    /// There's no such Batch: it never existed, or a Member deleted it.
+    #[error("no such Batch")]
+    NotFound,
+    /// The new values don't agree with what the Batch already has.
+    #[error(transparent)]
+    Rule(#[from] RuleError),
+    #[error("database error")]
+    Database(#[from] sqlx::Error),
+}
+
 /// A Batch's name and Notes, as a Member adds or edits them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewBatch {
@@ -179,13 +199,27 @@ pub struct Batch {
     pub added_at: Moment,
     /// None until a Member edits it.
     pub edited: Option<Edited>,
+    pub brew_day: BrewDay,
+    pub bottling: Bottling,
 }
 
 impl Batch {
-    /// Where the Batch is. Until Brew day and Bottling can be recorded, every Batch is Planned.
+    /// Where the Batch is, from its brew and bottling dates.
     #[must_use]
     pub const fn stage(&self) -> Stage {
-        Stage::of(None, None)
+        Stage::of(self.brew_day.date, self.bottling.date)
+    }
+
+    /// The ABV worked out from the OG and FG, once both are in.
+    #[must_use]
+    pub fn abv(&self) -> Option<Percent> {
+        abv(self.brew_day.og?, self.bottling.fg?)
+    }
+
+    /// The apparent attenuation worked out from the OG and FG, once both are in.
+    #[must_use]
+    pub fn attenuation(&self) -> Option<Percent> {
+        attenuation(self.brew_day.og?, self.bottling.fg?)
     }
 }
 
@@ -199,11 +233,18 @@ struct BatchRow {
     added_at: i64,
     edited_by: Option<String>,
     edited_at: Option<i64>,
+    brew_date: Option<String>,
+    og: Option<i64>,
+    volume: Option<i64>,
+    bottling_date: Option<String>,
+    fg: Option<i64>,
 }
 
-impl From<BatchRow> for Batch {
-    fn from(row: BatchRow) -> Self {
-        Self {
+impl TryFrom<BatchRow> for Batch {
+    type Error = sqlx::Error;
+
+    fn try_from(row: BatchRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
             number: BatchNumber(row.number),
             // Checked when it was stored.
             name: BatchName(row.name),
@@ -214,8 +255,31 @@ impl From<BatchRow> for Batch {
                 by: DisplayName::from_stored(by),
                 at: Moment(at),
             }),
-        }
+            brew_day: brew_day(row.brew_date.as_deref(), row.og, row.volume)?,
+            bottling: bottling(row.bottling_date.as_deref(), row.fg)?,
+        })
     }
+}
+
+/// A Brew day as it is stored. Each range was checked when it was stored.
+fn brew_day(
+    date: Option<&str>,
+    og: Option<i64>,
+    volume: Option<i64>,
+) -> Result<BrewDay, sqlx::Error> {
+    Ok(BrewDay {
+        date: date.map(parse_date).transpose()?,
+        og: og.map(Gravity::from_stored),
+        volume: volume.map(Volume::from_stored),
+    })
+}
+
+/// A Bottling as it is stored. The FG's range was checked when it was stored.
+fn bottling(date: Option<&str>, fg: Option<i64>) -> Result<Bottling, sqlx::Error> {
+    Ok(Bottling {
+        date: date.map(parse_date).transpose()?,
+        fg: fg.map(Gravity::from_stored),
+    })
 }
 
 /// One page of the log, newest first by Batch number.
@@ -288,7 +352,9 @@ impl Batches {
             BatchRow,
             r#"SELECT batches.number AS "number!", batches.name, batches.notes,
                       added.display_name AS added_by, batches.added_at,
-                      edited.display_name AS "edited_by?", batches.edited_at
+                      edited.display_name AS "edited_by?", batches.edited_at,
+                      batches.brew_date, batches.og, batches.volume, batches.bottling_date,
+                      batches.fg
                FROM batches
                JOIN members AS added ON added.id = batches.added_by
                LEFT JOIN members AS edited ON edited.id = batches.edited_by
@@ -300,8 +366,8 @@ impl Batches {
         .fetch_all(&self.db)
         .await?
         .into_iter()
-        .map(Batch::from)
-        .collect();
+        .map(Batch::try_from)
+        .collect::<Result<_, _>>()?;
         Ok(BatchPage {
             batches,
             page,
@@ -319,7 +385,9 @@ impl Batches {
             BatchRow,
             r#"SELECT batches.number AS "number!", batches.name, batches.notes,
                       added.display_name AS added_by, batches.added_at,
-                      edited.display_name AS "edited_by?", batches.edited_at
+                      edited.display_name AS "edited_by?", batches.edited_at,
+                      batches.brew_date, batches.og, batches.volume, batches.bottling_date,
+                      batches.fg
                FROM batches
                JOIN members AS added ON added.id = batches.added_by
                LEFT JOIN members AS edited ON edited.id = batches.edited_by
@@ -329,7 +397,100 @@ impl Batches {
         .fetch_optional(&self.db)
         .await?
         .ok_or(BatchError::NotFound)?;
-        Ok(Batch::from(row))
+        Ok(Batch::try_from(row)?)
+    }
+
+    /// Today in the Crew's time zone, which the Brew day and Bottling forms start at.
+    #[must_use]
+    pub fn today(&self) -> Date {
+        self.clock.today()
+    }
+
+    /// Records `new` as the Batch `number`'s Brew day in place of what it had, edited by
+    /// `edited_by` now. A missing value clears the one recorded.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RecordError::NotFound`] if there's no Batch `number`, [`RecordError::Rule`] if
+    /// `new` disagrees with the Batch's Bottling, or a database error.
+    pub async fn record_brew_day(
+        &self,
+        number: BatchNumber,
+        edited_by: MemberId,
+        new: &BrewDay,
+    ) -> Result<(), RecordError> {
+        let mut tx = self.db.begin().await?;
+        let row = sqlx::query!(
+            "SELECT bottling_date, fg FROM batches WHERE number = ?",
+            number.0,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(RecordError::NotFound)?;
+        check(new, &bottling(row.bottling_date.as_deref(), row.fg)?)?;
+        let edited_at = unix_seconds(self.clock.now());
+        let member = edited_by.get();
+        let brew_date = new.date.map(|date| date.to_string());
+        let og = new.og.map(Gravity::thousandths);
+        let volume = new.volume.map(Volume::decilitres);
+        sqlx::query!(
+            "UPDATE batches SET brew_date = ?, og = ?, volume = ?, edited_by = ?, edited_at = ?
+             WHERE number = ?",
+            brew_date,
+            og,
+            volume,
+            member,
+            edited_at,
+            number.0,
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Records `new` as the Batch `number`'s Bottling in place of what it had, edited by
+    /// `edited_by` now. A missing value clears the one recorded.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RecordError::NotFound`] if there's no Batch `number`, [`RecordError::Rule`] if
+    /// `new` disagrees with the Batch's Brew day, or a database error.
+    pub async fn record_bottling(
+        &self,
+        number: BatchNumber,
+        edited_by: MemberId,
+        new: &Bottling,
+    ) -> Result<(), RecordError> {
+        let mut tx = self.db.begin().await?;
+        let row = sqlx::query!(
+            "SELECT brew_date, og, volume FROM batches WHERE number = ?",
+            number.0,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(RecordError::NotFound)?;
+        check(
+            &brew_day(row.brew_date.as_deref(), row.og, row.volume)?,
+            new,
+        )?;
+        let edited_at = unix_seconds(self.clock.now());
+        let member = edited_by.get();
+        let bottling_date = new.date.map(|date| date.to_string());
+        let fg = new.fg.map(Gravity::thousandths);
+        sqlx::query!(
+            "UPDATE batches SET bottling_date = ?, fg = ?, edited_by = ?, edited_at = ?
+             WHERE number = ?",
+            bottling_date,
+            fg,
+            member,
+            edited_at,
+            number.0,
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     /// Gives the Batch `number` the name and Notes of `batch`, edited by `edited_by` now. Its
@@ -384,7 +545,9 @@ impl Batches {
 pub mod fixtures {
     use jiff::civil::DateTime;
 
-    use super::{Batch, BatchName, BatchNumber, Edited, Moment, Notes};
+    use super::{
+        Batch, BatchName, BatchNumber, Bottling, BrewDay, Edited, Gravity, Moment, Notes, Volume,
+    };
     use crate::domain::clock::unix_seconds_at_crew_time;
     use crate::domain::members::DisplayName;
 
@@ -412,6 +575,42 @@ pub mod fixtures {
             added_by: name(added_by),
             added_at: instant(added),
             edited: None,
+            brew_day: BrewDay::default(),
+            bottling: Bottling::default(),
+        }
+    }
+
+    /// `batch`, brewed on `on` (`2026-10-03`) with `og` (`1.050`) and `volume` (`23.5`).
+    ///
+    /// # Panics
+    ///
+    /// If the fixture's date, OG or Volume is invalid, which is a bug in the fixtures.
+    #[must_use]
+    pub fn brewed(batch: Batch, on: &str, og: Option<&str>, volume: Option<&str>) -> Batch {
+        Batch {
+            brew_day: BrewDay {
+                date: Some(on.parse().expect("fixture dates are valid")),
+                og: og.map(|og| Gravity::og(og).expect("fixture OGs are valid")),
+                volume: volume
+                    .map(|volume| Volume::parse(volume).expect("fixture Volumes are valid")),
+            },
+            ..batch
+        }
+    }
+
+    /// `batch`, bottled on `on` (`2026-10-17`) with `fg` (`1.010`).
+    ///
+    /// # Panics
+    ///
+    /// If the fixture's date or FG is invalid, which is a bug in the fixtures.
+    #[must_use]
+    pub fn bottled(batch: Batch, on: &str, fg: Option<&str>) -> Batch {
+        Batch {
+            bottling: Bottling {
+                date: Some(on.parse().expect("fixture dates are valid")),
+                fg: fg.map(|fg| Gravity::fg(fg).expect("fixture FGs are valid")),
+            },
+            ..batch
         }
     }
 
@@ -436,12 +635,12 @@ pub mod fixtures {
 mod tests {
     use std::time::{Duration, SystemTime};
 
-    use jiff::civil::date;
+    use jiff::civil::{Date, date};
     use sqlx::SqlitePool;
 
     use super::{
-        BatchError, BatchName, BatchNumber, NAME_MAX, NOTES_MAX, NameError, NewBatch, Notes,
-        NotesError, PAGE_SIZE, Stage,
+        BatchError, BatchName, BatchNumber, Bottling, BrewDay, Gravity, NAME_MAX, NOTES_MAX,
+        NameError, NewBatch, Notes, NotesError, PAGE_SIZE, RecordError, RuleError, Stage, Volume,
     };
     use crate::domain::clock::ManualClock;
     use crate::domain::members::DisplayName;
@@ -657,6 +856,135 @@ mod tests {
         let page = batches.page(1).await.unwrap();
         let numbers: Vec<BatchNumber> = page.batches.iter().map(|batch| batch.number).collect();
         assert_eq!(numbers, [kept]);
+    }
+
+    fn brew_day(on: Option<Date>, og: Option<&str>, volume: Option<&str>) -> BrewDay {
+        BrewDay {
+            date: on,
+            og: og.map(|og| Gravity::og(og).unwrap()),
+            volume: volume.map(|volume| Volume::parse(volume).unwrap()),
+        }
+    }
+
+    fn bottling(on: Option<Date>, fg: Option<&str>) -> Bottling {
+        Bottling {
+            date: on,
+            fg: fg.map(|fg| Gravity::fg(fg).unwrap()),
+        }
+    }
+
+    #[sqlx::test]
+    async fn brew_day_and_bottling_move_a_batch_through_its_stages_and_back(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let (batches, clock) = service(db);
+        let number = batches.add(josef, &new_batch("Pilsner", "")).await.unwrap();
+        clock.advance(Duration::from_hours(1));
+
+        let brewed = brew_day(Some(date(2026, 10, 3)), Some("1.050"), Some("23.5"));
+        batches
+            .record_brew_day(number, ondra, &brewed)
+            .await
+            .unwrap();
+        let batch = batches.get(number).await.unwrap();
+        assert_eq!(batch.stage(), Stage::Brewed);
+        assert_eq!(batch.brew_day, brewed);
+        assert_eq!(batch.edited.as_ref().unwrap().by.as_str(), "Ondra");
+        assert_eq!(batch.abv(), None);
+
+        let bottled = bottling(Some(date(2026, 10, 17)), Some("1.010"));
+        batches
+            .record_bottling(number, josef, &bottled)
+            .await
+            .unwrap();
+        let batch = batches.get(number).await.unwrap();
+        assert_eq!(batch.stage(), Stage::Bottled);
+        assert_eq!(batch.bottling, bottled);
+        assert_eq!(batch.abv().unwrap().to_string(), "5.3 %");
+        assert_eq!(batch.attenuation().unwrap().to_string(), "80.0 %");
+
+        let fg_only = bottling(None, Some("1.010"));
+        batches
+            .record_bottling(number, josef, &fg_only)
+            .await
+            .unwrap();
+        assert_eq!(batches.get(number).await.unwrap().stage(), Stage::Brewed);
+
+        batches
+            .record_brew_day(number, josef, &brew_day(None, Some("1.050"), None))
+            .await
+            .unwrap();
+        let batch = batches.get(number).await.unwrap();
+        assert_eq!(batch.stage(), Stage::Planned);
+        assert_eq!(batch.brew_day.volume, None);
+        assert_eq!(batch.abv().unwrap().to_string(), "5.3 %");
+    }
+
+    #[sqlx::test]
+    async fn a_value_that_breaks_a_rule_against_the_other_form_changes_nothing(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db);
+        let number = batches.add(josef, &new_batch("Pilsner", "")).await.unwrap();
+        let brewed = brew_day(Some(date(2026, 10, 3)), Some("1.050"), None);
+        let bottled = bottling(Some(date(2026, 10, 17)), Some("1.010"));
+        batches
+            .record_brew_day(number, josef, &brewed)
+            .await
+            .unwrap();
+        batches
+            .record_bottling(number, josef, &bottled)
+            .await
+            .unwrap();
+
+        let refusals = [
+            (
+                batches
+                    .record_brew_day(
+                        number,
+                        josef,
+                        &brew_day(Some(date(2026, 10, 3)), Some("1.010"), None),
+                    )
+                    .await,
+                RuleError::FgNotBelowOg,
+            ),
+            (
+                batches
+                    .record_brew_day(
+                        number,
+                        josef,
+                        &brew_day(Some(date(2026, 10, 18)), None, None),
+                    )
+                    .await,
+                RuleError::BottlingBeforeBrewing,
+            ),
+            (
+                batches
+                    .record_brew_day(number, josef, &brew_day(None, Some("1.050"), None))
+                    .await,
+                RuleError::BottlingWithoutBrewing,
+            ),
+            (
+                batches
+                    .record_bottling(number, josef, &bottling(Some(date(2026, 10, 2)), None))
+                    .await,
+                RuleError::BottlingBeforeBrewing,
+            ),
+            (
+                batches
+                    .record_bottling(number, josef, &bottling(None, Some("1.051")))
+                    .await,
+                RuleError::FgNotBelowOg,
+            ),
+        ];
+        for (refused, rule) in refusals {
+            assert!(
+                matches!(refused, Err(RecordError::Rule(broken)) if broken == rule),
+                "{refused:?}"
+            );
+        }
+
+        let batch = batches.get(number).await.unwrap();
+        assert_eq!((batch.brew_day, batch.bottling), (brewed, bottled));
     }
 
     #[sqlx::test]

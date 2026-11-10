@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT brew_date, og, volume FROM batches WHERE number = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "brew_date",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "og",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "volume",
+        "ordinal": 2,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "b748c128dc90f055cbf901b6e26cd5a9375b2be8d656b8f568375e0bbc3e892b"
+}

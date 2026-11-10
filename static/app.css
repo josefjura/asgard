@@ -1114,6 +1114,11 @@ textarea {
   font-size: var(--text-small);
 }
 
+/* A date in the meta line wraps as a whole, never between its day and month. */
+.batch-meta time {
+  white-space: nowrap;
+}
+
 /* A Batch's Stage. A Brewed Batch is in the fermenter, which the Crew wants to spot: its badge
    is filled with the accent; the others are outlined. */
 .stage {
@@ -1164,6 +1169,44 @@ textarea {
 
 p.batch-meta {
   margin: 0 0 var(--space-4);
+}
+
+/* A Batch's Brew day and Bottling numbers: each name beside its value, the measured value in
+   the display face, and the Recipe's target, when there is one, quieter beside it. */
+.batch-numbers {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  align-items: baseline;
+  margin: 0 0 var(--space-3);
+}
+
+.batch-numbers dt {
+  color: var(--muted);
+}
+
+.batch-numbers dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.batch-numbers .measured {
+  font-family: var(--display);
+  font-size: var(--text-lead);
+  font-weight: 600;
+}
+
+.batch-numbers .measured.missing {
+  color: var(--muted);
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.batch-numbers .target {
+  color: var(--muted);
+  font-size: var(--text-small);
+  white-space: nowrap;
 }
 
 .batch-actions {

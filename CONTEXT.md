@@ -135,6 +135,9 @@ How many litres went into the fermenter on Brew day, to one decimal.
 **ABV**:
 Alcohol by volume, worked out from OG and FG and never entered by hand.
 
+**Attenuation**:
+Apparent attenuation: how much of the sugar the yeast ate, `(OG − FG) / (OG − 1)`, worked out alongside the ABV and never entered by hand.
+
 **Stage**:
 Where a Batch is: *Planned*, *Brewed* (shown as "In the fermenter") or *Bottled*. It follows from which dates are recorded, so no Member sets it.
 _Avoid_: status
