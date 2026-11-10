@@ -167,28 +167,25 @@ async fn attach_recipe(
     mut multipart: Multipart,
 ) -> Result<Response, AppError> {
     let number = BatchNumber::from_client(number);
-    let problem = match read_upload(&mut multipart).await?.recipe {
-        Upload::Missing => "Choose a BeerXML file to attach.".to_owned(),
-        Upload::TooBig => recipe_message(RecipeError::TooBig),
-        Upload::File(bytes) => match Recipe::parse(bytes) {
-            Ok(recipe) => {
-                match state
-                    .batches
-                    .attach_recipe(number, member.id, &recipe)
-                    .await
-                {
-                    Err(BatchError::NotFound) => return Ok(gone(htmx, number)),
-                    done => done?,
-                }
-                tracing::info!(
-                    member = member.id.get(),
-                    batch = number.get(),
-                    "a Member attached a Recipe"
-                );
-                return Ok(go_to(htmx, &paths::batch(number)));
+    let problem = match read_upload(&mut multipart).await?.recipe.into_recipe() {
+        Ok(None) => "Choose a BeerXML file to attach.".to_owned(),
+        Ok(Some(recipe)) => {
+            match state
+                .batches
+                .attach_recipe(number, member.id, &recipe)
+                .await
+            {
+                Err(BatchError::NotFound) => return Ok(gone(htmx, number)),
+                done => done?,
             }
-            Err(err) => recipe_message(err),
-        },
+            tracing::info!(
+                member = member.id.get(),
+                batch = number.get(),
+                "a Member attached a Recipe"
+            );
+            return Ok(go_to(htmx, &paths::batch(number)));
+        }
+        Err(err) => recipe_message(err),
     };
     // A Batch that is gone is reported as gone, not as a form to fix.
     let has = match state.batches.recipe(number).await {
@@ -232,6 +229,17 @@ enum Upload {
     File(Vec<u8>),
     /// Over [`RECIPE_MAX_BYTES`]. Reading stopped there.
     TooBig,
+}
+
+impl Upload {
+    /// The Recipe in the file, None if none was chosen, or why the file can't be one.
+    fn into_recipe(self) -> Result<Option<Recipe>, RecipeError> {
+        match self {
+            Self::Missing => Ok(None),
+            Self::TooBig => Err(RecipeError::TooBig),
+            Self::File(bytes) => Recipe::parse(bytes).map(Some),
+        }
+    }
 }
 
 /// What a multipart form brought: its text fields, and the file in its `recipe` field.
@@ -306,11 +314,7 @@ fn parse_new(
     input: &BatchForm,
     upload: Upload,
 ) -> Result<(NewBatch, Option<Recipe>), BatchProblems> {
-    let recipe = match upload {
-        Upload::Missing => Ok(None),
-        Upload::TooBig => Err(RecipeError::TooBig),
-        Upload::File(bytes) => Recipe::parse(bytes).map(Some),
-    };
+    let recipe = upload.into_recipe();
     let name = match &recipe {
         Ok(Some(recipe)) if input.name.trim().is_empty() => {
             BatchName::of_recipe(recipe).ok_or(NameError::Blank)

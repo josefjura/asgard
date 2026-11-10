@@ -291,7 +291,7 @@ pub fn batch_page(batch: &Batch, recipe: Option<&AttachedRecipe>) -> Markup {
             (stage_badge(batch.stage()))
             (brew_day_section(batch, targets))
             (bottling_section(batch, targets))
-            (recipe_section(batch.number, recipe, None))
+            (recipe_section(batch.number, recipe))
             section.section.narrow aria-labelledby="notes" {
                 h2 #notes { "Notes" }
                 @if batch.notes.is_empty() {
@@ -632,7 +632,7 @@ pub fn form(purpose: Purpose, values: BatchValues<'_>, problems: &BatchProblems)
     }
 }
 
-/// The add form's Recipe file field, with `problem` beneath and a note on what it takes.
+/// The add form's Recipe file field, with `problem_message` beneath and a note on what it takes.
 ///
 /// It accepts any file: phones label BeerXML exports inconsistently, so the server reads
 /// whatever comes and says if it isn't BeerXML.
@@ -655,11 +655,7 @@ fn recipe_field(problem_message: Option<&str>) -> Markup {
 /// The Batch page's Recipe: the Recipe viewer if `recipe` reads, a line saying so if it is
 /// attached but doesn't, or that there's none; and beneath, the upload form.
 #[must_use]
-pub fn recipe_section(
-    batch_number: BatchNumber,
-    recipe: Option<&AttachedRecipe>,
-    problem_message: Option<&str>,
-) -> Markup {
+pub fn recipe_section(batch_number: BatchNumber, recipe: Option<&AttachedRecipe>) -> Markup {
     html! {
         section.section.narrow #recipe aria-labelledby="recipe-heading" {
             h2 #recipe-heading { "Recipe" }
@@ -672,13 +668,13 @@ pub fn recipe_section(
                     "No Recipe yet. Attach a BeerXML file exported from Brewfather, BeerSmith or similar."
                 },
             }
-            (recipe_upload(batch_number, recipe.is_some(), problem_message))
+            (recipe_upload(batch_number, recipe.is_some(), None))
         }
     }
 }
 
 /// The form that attaches a Recipe to the Batch `number`, or replaces the one it `has`, with
-/// `problem` under its file field; and, when it has one, the button that removes it after
+/// `problem_message` under its file field; and, when it has one, the button that removes it after
 /// asking.
 ///
 /// htmx swaps a refused upload in place of the form; without htmx, it posts as a plain form.

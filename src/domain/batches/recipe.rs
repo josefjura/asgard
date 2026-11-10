@@ -49,6 +49,7 @@ impl Recipe {
         &self.bytes
     }
 
+    /// What the Recipe viewer shows of the file's first Recipe.
     #[must_use]
     pub const fn summary(&self) -> &RecipeSummary {
         &self.summary
@@ -196,13 +197,6 @@ pub struct MashStepLine {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Mass(i64);
 
-impl Mass {
-    #[must_use]
-    pub const fn decigrams(self) -> i64 {
-        self.0
-    }
-}
-
 /// In g below 1 kg, with a decimal only when it has one (`30 g`, `2.5 g`); in kg from 1 kg, to
 /// at most two decimals (`5.4 kg`, `5.25 kg`).
 impl fmt::Display for Mass {
@@ -330,6 +324,10 @@ fn percent(percent: beerxml::units::Percent) -> Option<Percent> {
     scaled(percent.get(), 10.0).map(Percent::from_tenths)
 }
 
+fn litres(litres: beerxml::units::Litres) -> Option<Litres> {
+    scaled(litres.get(), 10.0).map(Litres)
+}
+
 fn minutes(minutes: beerxml::units::Minutes) -> Option<Minutes> {
     scaled(minutes.get(), 1.0).map(Minutes)
 }
@@ -370,10 +368,7 @@ fn summary(recipe: beerxml::Recipe) -> RecipeSummary {
         name: recipe.name.trim().to_owned(),
         kind: text(recipe.kind.as_ref().map(beerxml::RecipeType::as_str)),
         style: recipe.style.as_ref().map(style),
-        batch_size: recipe
-            .batch_size
-            .and_then(|litres| scaled(litres.get(), 10.0))
-            .map(Litres),
+        batch_size: recipe.batch_size.and_then(litres),
         boil_time: recipe.boil_time.and_then(minutes),
         efficiency: recipe.efficiency.and_then(percent),
         targets: Targets {
