@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO batches (name, notes, recipe, added_by, added_at)\n               VALUES (?, ?, ?, ?, ?) RETURNING number AS \"number!\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "number!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "587ef5df60e30db28427d7f5ed86fe43fdabe161ce7937b6779b8154da3ad344"
+}

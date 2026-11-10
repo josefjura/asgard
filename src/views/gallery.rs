@@ -93,12 +93,16 @@ const RANDOM_CARD_HEIGHT: u16 = 260;
 const QUOTE_ROW_HEIGHT: u16 = 280;
 /// The add form with a problem under each field.
 const QUOTE_FORM_HEIGHT: u16 = 700;
-/// The Batches tab: the add form, and three Batches under it on a phone.
-const BATCHES_HEIGHT: u16 = 1100;
-/// A Batch's page with its Brew day, Bottling and Notes over several lines.
-const BATCH_PAGE_HEIGHT: u16 = 1150;
+/// The Batches tab: the add form with its Recipe field, and three Batches under it on a phone.
+const BATCHES_HEIGHT: u16 = 1300;
+/// A Batch's page with its Brew day, Bottling, Recipe upload and Notes over several lines.
+const BATCH_PAGE_HEIGHT: u16 = 1450;
+/// A Batch's page with the whole Recipe viewer, on a phone.
+const RECIPE_PAGE_HEIGHT: u16 = 2900;
+/// The whole Recipe viewer on its own, on a phone.
+const RECIPE_VIEWER_HEIGHT: u16 = 1500;
 /// The Batch form with a problem under each field, or with Cancel and delete beneath it.
-const BATCH_FORM_HEIGHT: u16 = 760;
+const BATCH_FORM_HEIGHT: u16 = 900;
 const DESKTOP_WIDTH: u16 = 1280;
 
 /// # Panics
@@ -674,21 +678,78 @@ fn batches_pages() -> Vec<Fixture> {
         .collect()
 }
 
-/// A Batch's page in each Stage, without Notes, and once it's gone.
-fn batch_pages() -> [Fixture; 5] {
+/// A Batch's page in each Stage, without Notes, and once it's gone; with a Recipe, before and
+/// after brewing and when it can't be read; the Recipe viewer for a full and a sparse Recipe;
+/// and a refused Recipe upload.
+fn batch_pages() -> Vec<Fixture> {
+    use crate::domain::batches::AttachedRecipe;
+    use crate::domain::batches::recipe_fixtures::{attached, full, sparse};
     use batches::fixtures::{bare, fermenting_pilsner, pilsner, planned_pilsner};
 
-    [
+    let with_recipe = [
+        (
+            "Bottled, with a Recipe",
+            batches::batch_page(&pilsner(), Some(&attached())),
+            RECIPE_PAGE_HEIGHT,
+        ),
+        (
+            "Planned, with Recipe targets",
+            batches::batch_page(&bare(), Some(&attached())),
+            RECIPE_PAGE_HEIGHT,
+        ),
+        (
+            "Recipe unreadable",
+            batches::batch_page(&bare(), Some(&AttachedRecipe::Unreadable)),
+            BATCH_PAGE_HEIGHT,
+        ),
+    ]
+    .map(|(state, document, height)| Fixture {
+        component: "Batch page",
+        state: state.to_owned(),
+        document,
+        height,
+    });
+    let viewers = [
+        ("Full", full(), RECIPE_VIEWER_HEIGHT),
+        ("Sparse", sparse(), 200),
+    ]
+    .map(|(state, recipe, height)| Fixture {
+        component: "Recipe viewer",
+        state: state.to_owned(),
+        document: document(
+            "Recipe viewer",
+            &html! { main.shell-main { (batches::recipe_viewer(&recipe)) } },
+        ),
+        height,
+    });
+    let upload = Fixture {
+        component: "Recipe upload",
+        state: "Refused".to_owned(),
+        document: document(
+            "Recipe upload",
+            &html! {
+                main.shell-main {
+                    (batches::recipe_upload(
+                        pilsner().number,
+                        true,
+                        Some("This BeerXML file has no recipe in it, only ingredients or other records. Export the recipe itself and try again."),
+                    ))
+                }
+            },
+        ),
+        height: 400,
+    };
+    let stages = [
         (
             "Planned, with Notes, edited",
-            batches::batch_page(&planned_pilsner()),
+            batches::batch_page(&planned_pilsner(), None),
         ),
         (
             "In the fermenter, FG read early",
-            batches::batch_page(&fermenting_pilsner()),
+            batches::batch_page(&fermenting_pilsner(), None),
         ),
-        ("Bottled, with ABV", batches::batch_page(&pilsner())),
-        ("Without Notes", batches::batch_page(&bare())),
+        ("Bottled, with ABV", batches::batch_page(&pilsner(), None)),
+        ("Without Notes", batches::batch_page(&bare(), None)),
         ("Gone", batches::gone_page(bare().number)),
     ]
     .map(|(state, document)| Fixture {
@@ -696,7 +757,13 @@ fn batch_pages() -> [Fixture; 5] {
         state: state.to_owned(),
         document,
         height: BATCH_PAGE_HEIGHT,
-    })
+    });
+    stages
+        .into_iter()
+        .chain(with_recipe)
+        .chain(viewers)
+        .chain([upload])
+        .collect()
 }
 
 /// A Batch's Brew day and Bottling forms empty, filled in and refused, as htmx swaps them into
@@ -1261,6 +1328,8 @@ mod tests {
             "Brew day form",
             "Bottling form",
             "Bottling page",
+            "Recipe viewer",
+            "Recipe upload",
         ] {
             assert!(
                 html.contains(&format!("<h2>{component}</h2>")),
@@ -1285,6 +1354,12 @@ mod tests {
             "Gone",
             "Filled in",
             "Edit refused",
+            "Bottled, with a Recipe",
+            "Planned, with Recipe targets",
+            "Recipe unreadable",
+            "Full",
+            "Sparse",
+            "Refused",
         ] {
             assert!(html.contains(&format!("<h3>{state}</h3>")), "{state}");
         }

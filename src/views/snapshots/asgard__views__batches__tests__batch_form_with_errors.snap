@@ -2,11 +2,11 @@
 source: src/views/batches.rs
 expression: "form(Purpose::Add, values, &problems).into_string().replace(\"><\", \">\\n<\")"
 ---
-<form class="entry-form" method="post" action="/batches" hx-post="/batches" hx-swap="outerHTML">
+<form class="entry-form" method="post" action="/batches" enctype="multipart/form-data" hx-post="/batches" hx-swap="outerHTML">
 <div class="field">
 <label for="batch-name">Name</label>
-<input id="batch-name" type="text" name="name" value=" " required maxlength="100" autocomplete="off" aria-invalid="true" aria-describedby="batch-name-problem">
-<p class="field-problem" id="batch-name-problem">Give the Batch a name.</p>
+<input id="batch-name" type="text" name="name" value=" " maxlength="100" autocomplete="off" aria-invalid="true" aria-describedby="batch-name-problem">
+<p class="field-problem" id="batch-name-problem">Give the Batch a name, or attach a Recipe to take its name from.</p>
 </div>
 <div class="field">
 <label for="batch-notes">Notes <span class="optional">(optional)</span>
@@ -14,6 +14,13 @@ expression: "form(Purpose::Add, values, &problems).into_string().replace(\"><\",
 <textarea id="batch-notes" name="notes" rows="5" maxlength="5000" aria-invalid="true" aria-describedby="batch-notes-problem">Mashed at 66 °C.
 Too long after this.</textarea>
 <p class="field-problem" id="batch-notes-problem">Keep the Notes to 5000 characters or fewer.</p>
+</div>
+<div class="field">
+<label for="batch-recipe">Recipe <span class="optional">(optional)</span>
+</label>
+<input id="batch-recipe" type="file" name="recipe" aria-invalid="true" aria-describedby="batch-recipe-problem">
+<p class="field-problem" id="batch-recipe-problem">This isn't a BeerXML file. Export the recipe as BeerXML and try again.</p>
+<p class="note">A BeerXML file from Brewfather, BeerSmith or similar. With a Recipe, the name can be left empty to take the Recipe's.</p>
 </div>
 <button class="button large" type="submit">Add Batch</button>
 </form>

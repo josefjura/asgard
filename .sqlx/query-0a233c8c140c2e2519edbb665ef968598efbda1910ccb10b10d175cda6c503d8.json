@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT recipe FROM batches WHERE number = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "recipe",
+        "ordinal": 0,
+        "type_info": "Blob"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "0a233c8c140c2e2519edbb665ef968598efbda1910ccb10b10d175cda6c503d8"
+}

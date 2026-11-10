@@ -1,0 +1,157 @@
+---
+source: src/views/batches.rs
+expression: "recipe_viewer(&recipe_fixtures::full()).into_string().replace(\"><\", \">\\n<\")"
+---
+<div class="recipe">
+<p class="recipe-name">Únětický Vzor 10.7° (G70 30L)</p>
+<p class="recipe-style">Czech Premium Pale Lager · Pale Czech Lager · BJCP 2015</p>
+<dl class="recipe-facts">
+<dt>Type</dt>
+<dd>All Grain</dd>
+<dt>Batch size</dt>
+<dd>30 L</dd>
+<dt>Boil time</dt>
+<dd>90 min</dd>
+<dt>Efficiency</dt>
+<dd>75.0 %</dd>
+</dl>
+<h3>Targets</h3>
+<dl class="recipe-facts">
+<dt>OG</dt>
+<dd>1.043</dd>
+<dt>FG</dt>
+<dd>1.010</dd>
+<dt>ABV</dt>
+<dd>4.4 %</dd>
+<dt>IBU</dt>
+<dd>36 IBU</dd>
+<dt>Colour</dt>
+<dd>9 EBC</dd>
+</dl>
+<h3>Style ranges</h3>
+<dl class="recipe-facts">
+<dt>OG</dt>
+<dd>1.044–1.060</dd>
+<dt>FG</dt>
+<dd>1.013–1.017</dd>
+<dt>IBU</dt>
+<dd>30–45 IBU</dd>
+<dt>Colour</dt>
+<dd>14–23 EBC</dd>
+</dl>
+<h3>Fermentables</h3>
+<div class="recipe-table-wrap">
+<table class="recipe-table">
+<thead>
+<tr>
+<th scope="col">Fermentable</th>
+<th scope="col">Amount</th>
+<th scope="col">Share</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th scope="row">Pilsner (Weyermann)</th>
+<td>5.4 kg</td>
+<td>95.6 %</td>
+</tr>
+<tr>
+<th scope="row">Carapils (Weyermann)</th>
+<td>250 g</td>
+<td>4.4 %</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3>Hops</h3>
+<div class="recipe-table-wrap">
+<table class="recipe-table">
+<thead>
+<tr>
+<th scope="col">Hop</th>
+<th scope="col">Amount</th>
+<th scope="col">Alpha</th>
+<th scope="col">Use</th>
+<th scope="col">Time</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th scope="row">Sladek <span class="recipe-aside">Pellet</span>
+</th>
+<td>30 g</td>
+<td>6.5 %</td>
+<td>Boil</td>
+<td>60 min</td>
+</tr>
+<tr>
+<th scope="row">Saaz <span class="recipe-aside">Pellet</span>
+</th>
+<td>40 g</td>
+<td>3.5 %</td>
+<td>Boil</td>
+<td>20 min</td>
+</tr>
+<tr>
+<th scope="row">Saaz <span class="recipe-aside">Pellet</span>
+</th>
+<td>50 g</td>
+<td>3.5 %</td>
+<td>Boil</td>
+<td>5 min</td>
+</tr>
+<tr>
+<th scope="row">Saaz <span class="recipe-aside">Pellet</span>
+</th>
+<td>30 g</td>
+<td>3.5 %</td>
+<td>Aroma</td>
+<td>15 min</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3>Yeast</h3>
+<ul class="recipe-yeasts">
+<li>NovaLager <span class="recipe-aside">Lallemand · LalBrew NovaLager · Dry</span>
+</li>
+</ul>
+<h3>Mash</h3>
+<div class="recipe-table-wrap">
+<table class="recipe-table">
+<thead>
+<tr>
+<th scope="col">Step</th>
+<th scope="col">Temperature</th>
+<th scope="col">Time</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<th scope="row">Vystírka (Protein Rest) <span class="recipe-aside">Infusion</span>
+</th>
+<td>52 °C</td>
+<td>5 min</td>
+</tr>
+<tr>
+<th scope="row">Nižší cukrotvorná (Maltose) <span class="recipe-aside">Temperature</span>
+</th>
+<td>63 °C</td>
+<td>40 min</td>
+</tr>
+<tr>
+<th scope="row">Vyšší cukrotvorná (Dextrin) <span class="recipe-aside">Temperature</span>
+</th>
+<td>72 °C</td>
+<td>25 min</td>
+</tr>
+<tr>
+<th scope="row">Odrmutování (Mash Out) <span class="recipe-aside">Temperature</span>
+</th>
+<td>78 °C</td>
+<td>10 min</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HOPS>
+ <HOP>
+  <NAME>Saaz</NAME>
+  <VERSION>1</VERSION>
+  <ALPHA>3.5</ALPHA>
+  <AMOUNT>0.05</AMOUNT>
+  <USE>Boil</USE>
+  <TIME>60</TIME>
+ </HOP>
+</HOPS>

@@ -1,6 +1,5 @@
 ---
 source: src/views/batches.rs
-assertion_line: 791
 expression: "page(&empty_form(), &later_page()).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
@@ -49,16 +48,22 @@ expression: "page(&empty_form(), &later_page()).into_string().replace(\"><\", \"
 <section class="section" aria-labelledby="new-batch">
 <h2 id="new-batch">Add a Batch</h2>
 <p class="muted">A name is enough. It gets the next Batch number.</p>
-<form class="entry-form" method="post" action="/batches" hx-post="/batches" hx-swap="outerHTML">
+<form class="entry-form" method="post" action="/batches" enctype="multipart/form-data" hx-post="/batches" hx-swap="outerHTML">
 <div class="field">
 <label for="batch-name">Name</label>
-<input id="batch-name" type="text" name="name" value="" required maxlength="100" autocomplete="off">
+<input id="batch-name" type="text" name="name" value="" maxlength="100" autocomplete="off">
 </div>
 <div class="field">
 <label for="batch-notes">Notes <span class="optional">(optional)</span>
 </label>
 <textarea id="batch-notes" name="notes" rows="5" maxlength="5000">
 </textarea>
+</div>
+<div class="field">
+<label for="batch-recipe">Recipe <span class="optional">(optional)</span>
+</label>
+<input id="batch-recipe" type="file" name="recipe">
+<p class="note">A BeerXML file from Brewfather, BeerSmith or similar. With a Recipe, the name can be left empty to take the Recipe's.</p>
 </div>
 <button class="button large" type="submit">Add Batch</button>
 </form>

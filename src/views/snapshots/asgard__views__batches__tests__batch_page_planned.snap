@@ -1,7 +1,6 @@
 ---
 source: src/views/batches.rs
-assertion_line: 1007
-expression: "batch_page(&planned_pilsner()).into_string().replace(\"><\", \">\\n<\")"
+expression: "batch_page(&planned_pilsner(), None).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -56,6 +55,19 @@ expression: "batch_page(&planned_pilsner()).into_string().replace(\"><\", \">\\n
 <h2 id="bottling-heading">Bottling</h2>
 <p class="muted">Not bottled yet.</p>
 <a class="button secondary small" href="/batches/12/bottling" hx-get="/batches/12/bottling" hx-target="#bottling" hx-swap="outerHTML">Record Bottling</a>
+</section>
+<section class="section narrow" id="recipe" aria-labelledby="recipe-heading">
+<h2 id="recipe-heading">Recipe</h2>
+<p class="muted">No Recipe yet. Attach a BeerXML file exported from Brewfather, BeerSmith or similar.</p>
+<div class="recipe-upload" id="recipe-upload">
+<form class="entry-form" method="post" action="/batches/12/recipe" enctype="multipart/form-data" hx-post="/batches/12/recipe" hx-target="#recipe-upload" hx-swap="outerHTML">
+<div class="field">
+<label for="recipe-file">BeerXML file</label>
+<input id="recipe-file" type="file" name="recipe" required>
+</div>
+<button class="button secondary small" type="submit">Attach Recipe</button>
+</form>
+</div>
 </section>
 <section class="section narrow" aria-labelledby="notes">
 <h2 id="notes">Notes</h2>
