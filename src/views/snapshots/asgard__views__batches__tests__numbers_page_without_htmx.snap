@@ -1,6 +1,6 @@
 ---
 source: src/views/batches.rs
-assertion_line: 1051
+assertion_line: 1048
 expression: "numbers_page(number,\n&bottling_form(number, &values,\n&problems)).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
@@ -60,7 +60,7 @@ expression: "numbers_page(number,\n&bottling_form(number, &values,\n&problems)).
 <input id="bottling-fg" type="text" inputmode="decimal" name="fg" value="1,060" placeholder="1.010" autocomplete="off" aria-invalid="true" aria-describedby="bottling-fg-problem">
 <p class="field-problem" id="bottling-fg-problem">The FG has to be below the OG.</p>
 </div>
-<p class="note">Leave a field empty to clear it. An FG can go in before Bottling.</p>
+<p class="note">Leave a field empty to clear it. To record an FG before Bottling, clear the bottling date.</p>
 <div class="edit-actions">
 <button class="button" type="submit">Save Bottling</button>
 <a class="button secondary" href="/batches/12">Cancel</a>

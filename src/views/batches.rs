@@ -438,7 +438,7 @@ pub fn bottling_form(
                     &values.bottling_date, problems.bottling_date.as_deref()))
                 (field("bottling-fg", "fg", "FG", Input::Number("1.010"), &values.fg,
                     problems.fg.as_deref()))
-                p.note { "Leave a field empty to clear it. An FG can go in before Bottling." }
+                p.note { "Leave a field empty to clear it. To record an FG before Bottling, clear the bottling date." }
                 div.edit-actions {
                     button.button type="submit" { "Save Bottling" }
                     a.button.secondary href=(paths::batch(batch_number)) { "Cancel" }
