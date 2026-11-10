@@ -1,8 +1,9 @@
-//! Services and types: finance, shopping, reminders, quotes, members.
+//! Services and types: finance, shopping, reminders, quotes, batches, members.
 //!
 //! No axum or Maud imports here; everything is unit-testable on its own.
 
 pub mod auth;
+pub mod batches;
 pub mod channel;
 pub mod clock;
 pub mod events;

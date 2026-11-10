@@ -69,6 +69,15 @@ expression: "page(tab).into_string().replace(\"><\", \">\\n<\")"
 </svg>
 <span>Shopping</span>
 </a>
+<a class="tab" href="/batches">
+<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+<path d="M10 2h4v4.5l2.5 3.5V21a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V10L10 6.5z">
+</path>
+<path d="M7.5 13h9v5h-9z">
+</path>
+</svg>
+<span>Batches</span>
+</a>
 <a class="tab" href="/reminders">
 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
 <path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z">

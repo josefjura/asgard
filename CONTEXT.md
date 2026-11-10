@@ -1,6 +1,6 @@
 # Asgard
 
-The shared app of a small home-brewery crew: their common money, shopping, reminders and quotes in one place.
+The shared app of a small home-brewery crew: their common money, shopping, brewery log, reminders and quotes in one place.
 
 ## Names
 
@@ -99,6 +99,48 @@ _Avoid_: priority
 **Recently bought**:
 The Items bought in the last 7 days, where marking one bought can be undone. Older bought Items are kept but not shown.
 _Avoid_: done, history
+
+## Brewing
+
+**Batch**:
+One brew, logged in the Batches tab: a name, free-text Notes, and later its Brew day, Bottling and Recipe. Any Member may add, edit or delete any Batch.
+_Avoid_: brew log entry (Entry means an Expense or Payment), recipe (that's the Recipe a Batch may carry)
+
+**Batch number**:
+A Batch's automatic number, #1, #2, …: one more than the highest ever used, and never used again after its Batch is deleted, so a number always means the same brew.
+_Avoid_: id
+
+**Recipe**:
+The BeerXML file a Batch may carry, exported from Brewfather, BeerSmith or similar and kept exactly as it was uploaded. Optional, and can be attached, replaced or removed later.
+_Avoid_: recipe for the Batch itself
+
+**Recipe viewer**:
+The light, read-only view of a Batch's Recipe: style, targets, fermentables, hops, yeast and mash steps, in metric units.
+
+**Brew day**:
+When a Batch was brewed: the brew date, its OG and its Volume.
+
+**Bottling**:
+When a Batch was bottled: the bottling date and its FG.
+
+**OG**:
+Original gravity: the specific gravity measured on Brew day, such as 1.052.
+
+**FG**:
+Final gravity: the specific gravity measured at the end of fermentation, such as 1.010. Always below the OG.
+
+**Volume**:
+How many litres went into the fermenter on Brew day, to one decimal.
+
+**ABV**:
+Alcohol by volume, worked out from OG and FG and never entered by hand.
+
+**Stage**:
+Where a Batch is: *Planned*, *Brewed* (shown as "In the fermenter") or *Bottled*. It follows from which dates are recorded, so no Member sets it.
+_Avoid_: status
+
+**Notes**:
+Free text on a Batch, with its line breaks kept: what went wrong, dry hopping, tasting impressions.
 
 ## Reminders
 

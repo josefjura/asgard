@@ -1,6 +1,7 @@
 //! Maud components and pages: pure functions from data to HTML, no DB access.
 
 pub mod admin;
+pub mod batches;
 pub mod brand;
 pub mod delete;
 pub mod display_name;
