@@ -4,8 +4,10 @@ version = "0.7.0"
 edition = "2024"
 
 [dependencies]
-axum = "0.8.9"
+axum = { version = "0.8.9", features = ["multipart"] }
 base64 = "0.23.1"
+# BeerXML reading, by its reference crate. The package is `beerxml-rs`; the library is `beerxml`.
+beerxml = { package = "beerxml-rs", git = "https://github.com/josefjura/beerxml", tag = "rust-v0.1.1" }
 cookie = "0.18.2"
 jiff = { version = "0.2.38", features = ["tzdb-bundle-always"] }
 maud = { version = "0.27.0", features = ["axum"] }
@@ -29,6 +31,7 @@ webauthn-rs = { version = "0.5.5", features = ["conditional-ui"] }
 webauthn-rs-proto = "0.5.5"
 
 [dev-dependencies]
+futures-util = { version = "0.3.34", default-features = false }
 http-body-util = "0.1.5"
 insta = { version = "1.49.0", features = ["filters"] }
 proptest = "1.12.0"

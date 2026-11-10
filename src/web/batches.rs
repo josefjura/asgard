@@ -1,7 +1,9 @@
 //! The Batches tab, the Crew's brewery log: adding a Batch, reading the log a page at a time,
-//! each Batch's own page, recording its Brew day and Bottling, and editing or deleting any Batch.
+//! each Batch's own page, recording its Brew day and Bottling, attaching its Recipe, and editing
+//! or deleting any Batch.
 
-use axum::extract::{Path, Query, State};
+use axum::extract::multipart::{Field, MultipartError};
+use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -18,7 +20,7 @@ use super::{AppError, AppState};
 use crate::domain::batches::{
     Batch, BatchError, BatchName, BatchNumber, Bottling, BrewDay, FG_MAX, FG_MIN, Gravity,
     GravityError, NAME_MAX, NOTES_MAX, NameError, NewBatch, Notes, NotesError, OG_MAX, OG_MIN,
-    RecordError, RuleError, VOLUME_MAX, Volume, VolumeError,
+    RECIPE_MAX_BYTES, Recipe, RecipeError, RecordError, RuleError, VOLUME_MAX, Volume, VolumeError,
 };
 use crate::views;
 use crate::views::batches::{
@@ -27,9 +29,20 @@ use crate::views::batches::{
 };
 use crate::views::nav::Tab;
 
+/// The most a request that uploads a Recipe may carry: the file's cap, plus room for the name,
+/// the Notes and the multipart framing. It's only a backstop: the handlers stop reading a file
+/// at the cap and say it's too big in the form, which a bare 413 can't, since htmx doesn't swap
+/// one in.
+const UPLOAD_LIMIT: usize = RECIPE_MAX_BYTES + 64 * 1024;
+
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route(Tab::Batches.href(), get(show).post(add))
+        .route(
+            Tab::Batches.href(),
+            get(show)
+                .post(add)
+                .layer(DefaultBodyLimit::max(UPLOAD_LIMIT)),
+        )
         .route("/batches/{number}", get(batch).post(save))
         .route("/batches/{number}/edit", get(edit))
         .route("/batches/{number}/delete", post(delete))
@@ -41,6 +54,11 @@ pub fn routes() -> Router<AppState> {
             "/batches/{number}/bottling",
             get(bottling_form).post(record_bottling),
         )
+        .route(
+            "/batches/{number}/recipe",
+            post(attach_recipe).layer(DefaultBodyLimit::max(UPLOAD_LIMIT)),
+        )
+        .route("/batches/{number}/recipe/delete", post(remove_recipe))
 }
 
 /// Which page of the log to show. Missing means the first.
@@ -81,16 +99,23 @@ impl BatchForm {
     }
 }
 
-/// Adds the Batch, with the next Batch number, and goes back to the tab, where it is at the top
-/// of the log. A refused form shows what to fix: alone for htmx, inside the tab otherwise.
+/// Adds the Batch, with the next Batch number and the Recipe uploaded with it, if any, and goes
+/// back to the tab, where it is at the top of the log. A blank name takes the Recipe's. A
+/// refused form shows what to fix: alone for htmx, inside the tab otherwise.
 async fn add(
     State(state): State<AppState>,
     Member(member): Member,
     Htmx(htmx): Htmx,
-    Form(input): Form<BatchForm>,
+    mut multipart: Multipart,
 ) -> Result<Response, AppError> {
-    let batch = match parse(&input) {
-        Ok(batch) => batch,
+    let Uploaded {
+        name,
+        notes,
+        recipe: upload,
+    } = read_upload(&mut multipart).await?;
+    let input = BatchForm { name, notes };
+    let (batch, recipe) = match parse_new(&input, upload) {
+        Ok(parsed) => parsed,
         Err(problems) => {
             let form = views::batches::form(Purpose::Add, input.values(), &problems);
             let body = if htmx {
@@ -101,16 +126,20 @@ async fn add(
             return Ok((StatusCode::UNPROCESSABLE_ENTITY, fresh(body)).into_response());
         }
     };
-    let number = state.batches.add(member.id, &batch).await?;
+    let number = state
+        .batches
+        .add(member.id, &batch, recipe.as_ref())
+        .await?;
     tracing::info!(
         member = member.id.get(),
         batch = number.get(),
+        recipe = recipe.is_some(),
         "a Member added a Batch"
     );
     Ok(go_to(htmx, Tab::Batches.href()))
 }
 
-/// The Batch `number`'s own page.
+/// The Batch `number`'s own page, with its Recipe read from the file as it was uploaded.
 async fn batch(
     State(state): State<AppState>,
     Member(_): Member,
@@ -119,9 +148,201 @@ async fn batch(
 ) -> Result<Response, AppError> {
     let number = BatchNumber::from_client(number);
     Ok(match found(&state, htmx, number).await? {
-        Ok(batch) => fresh(views::batches::batch_page(&batch)).into_response(),
+        Ok(batch) => {
+            let recipe = state.batches.recipe(number).await?;
+            fresh(views::batches::batch_page(&batch, recipe.as_ref())).into_response()
+        }
         Err(gone) => gone,
     })
+}
+
+/// Attaches the uploaded Recipe to the Batch `number`, in place of any it had, and goes to its
+/// page. A refused file shows what's wrong in the upload form: in place for htmx, on a page of
+/// its own otherwise.
+async fn attach_recipe(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(number): Path<i64>,
+    mut multipart: Multipart,
+) -> Result<Response, AppError> {
+    let number = BatchNumber::from_client(number);
+    let problem = match read_upload(&mut multipart).await?.recipe {
+        Upload::Missing => "Choose a BeerXML file to attach.".to_owned(),
+        Upload::TooBig => recipe_message(RecipeError::TooBig),
+        Upload::File(bytes) => match Recipe::parse(bytes) {
+            Ok(recipe) => {
+                match state
+                    .batches
+                    .attach_recipe(number, member.id, &recipe)
+                    .await
+                {
+                    Err(BatchError::NotFound) => return Ok(gone(htmx, number)),
+                    done => done?,
+                }
+                tracing::info!(
+                    member = member.id.get(),
+                    batch = number.get(),
+                    "a Member attached a Recipe"
+                );
+                return Ok(go_to(htmx, &paths::batch(number)));
+            }
+            Err(err) => recipe_message(err),
+        },
+    };
+    // A Batch that is gone is reported as gone, not as a form to fix.
+    let has = match state.batches.recipe(number).await {
+        Ok(recipe) => recipe.is_some(),
+        Err(BatchError::NotFound) => return Ok(gone(htmx, number)),
+        Err(err) => return Err(err.into()),
+    };
+    let form = views::batches::recipe_upload(number, has, Some(&problem));
+    Ok(fragment_or_page(
+        htmx,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        form,
+        |form| views::batches::numbers_page(number, form),
+    ))
+}
+
+/// Removes the Batch `number`'s Recipe for good and goes to its page.
+async fn remove_recipe(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(number): Path<i64>,
+) -> Result<Response, AppError> {
+    let number = BatchNumber::from_client(number);
+    match state.batches.remove_recipe(number, member.id).await {
+        Err(BatchError::NotFound) => return Ok(gone(htmx, number)),
+        done => done?,
+    }
+    tracing::info!(
+        member = member.id.get(),
+        batch = number.get(),
+        "a Member removed a Recipe"
+    );
+    Ok(go_to(htmx, &paths::batch(number)))
+}
+
+/// A Recipe file as a multipart form brought it.
+enum Upload {
+    /// No file was chosen: a browser sends the field empty, without a file name.
+    Missing,
+    File(Vec<u8>),
+    /// Over [`RECIPE_MAX_BYTES`]. Reading stopped there.
+    TooBig,
+}
+
+/// What a multipart form brought: its text fields, and the file in its `recipe` field.
+struct Uploaded {
+    name: String,
+    notes: String,
+    recipe: Upload,
+}
+
+/// Reads the fields of a multipart form. A Recipe file over the cap stops the reading there, so
+/// the forms put the file last, after the fields they keep when it's refused.
+///
+/// A request over the backstop is refused as a file too big too, wherever the reading meets it.
+/// The reader takes in whatever has already arrived, so a file far over the cap can be met before
+/// the name and Notes are read, and they are lost; a file just over the cap never is.
+///
+/// # Errors
+///
+/// [`AppError::Upload`] if the form didn't arrive whole, other than for being too big.
+async fn read_upload(multipart: &mut Multipart) -> Result<Uploaded, AppError> {
+    let mut uploaded = Uploaded {
+        name: String::new(),
+        notes: String::new(),
+        recipe: Upload::Missing,
+    };
+    let read = async {
+        while let Some(field) = multipart.next_field().await? {
+            match field.name() {
+                Some("name") => uploaded.name = field.text().await?,
+                Some("notes") => uploaded.notes = field.text().await?,
+                Some("recipe") => {
+                    uploaded.recipe = read_file(field).await?;
+                    if matches!(uploaded.recipe, Upload::TooBig) {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok::<_, MultipartError>(())
+    };
+    match read.await {
+        Ok(()) => {}
+        Err(err) if err.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+            uploaded.recipe = Upload::TooBig;
+        }
+        Err(err) => return Err(err.into()),
+    }
+    Ok(uploaded)
+}
+
+/// The file in `field`, read up to [`RECIPE_MAX_BYTES`] and no further.
+async fn read_file(mut field: Field<'_>) -> Result<Upload, MultipartError> {
+    let chosen = field.file_name().is_some_and(|name| !name.is_empty());
+    let mut bytes = Vec::new();
+    while let Some(chunk) = field.chunk().await? {
+        if bytes.len() + chunk.len() > RECIPE_MAX_BYTES {
+            return Ok(Upload::TooBig);
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(if !chosen && bytes.is_empty() {
+        Upload::Missing
+    } else {
+        Upload::File(bytes)
+    })
+}
+
+/// The new Batch and the Recipe uploaded with it, or what is wrong with each field. A blank name
+/// takes the Recipe's.
+fn parse_new(
+    input: &BatchForm,
+    upload: Upload,
+) -> Result<(NewBatch, Option<Recipe>), BatchProblems> {
+    let recipe = match upload {
+        Upload::Missing => Ok(None),
+        Upload::TooBig => Err(RecipeError::TooBig),
+        Upload::File(bytes) => Recipe::parse(bytes).map(Some),
+    };
+    let name = match &recipe {
+        Ok(Some(recipe)) if input.name.trim().is_empty() => {
+            BatchName::of_recipe(recipe).ok_or(NameError::Blank)
+        }
+        _ => BatchName::parse(&input.name),
+    };
+    match (name, Notes::parse(&input.notes), recipe) {
+        (Ok(name), Ok(notes), Ok(recipe)) => Ok((NewBatch { name, notes }, recipe)),
+        (name, notes, recipe) => Err(BatchProblems {
+            name: name.err().map(|err| match err {
+                NameError::Blank => {
+                    "Give the Batch a name, or attach a Recipe to take its name from.".to_owned()
+                }
+                NameError::TooLong => name_message(err),
+            }),
+            notes: notes.err().map(notes_message),
+            recipe: recipe.err().map(recipe_message),
+        }),
+    }
+}
+
+fn recipe_message(err: RecipeError) -> String {
+    match err {
+        RecipeError::TooBig => format!(
+            "This file is over {} MB, too big for a BeerXML recipe. Export just the one recipe and try again.",
+            RECIPE_MAX_BYTES / (1024 * 1024)
+        ),
+        RecipeError::NotBeerXml => {
+            "This isn't a BeerXML file. Export the recipe as BeerXML and try again.".to_owned()
+        }
+        RecipeError::NoRecipe => "This BeerXML file has no recipe in it, only ingredients or other records. Export the recipe itself and try again.".to_owned(),
+    }
 }
 
 /// The Batch `number` in its edit form, for any Member to edit or delete.
@@ -523,6 +744,7 @@ fn parse(input: &BatchForm) -> Result<NewBatch, BatchProblems> {
         (name, notes) => Err(BatchProblems {
             name: name.err().map(name_message),
             notes: notes.err().map(notes_message),
+            recipe: None,
         }),
     }
 }
@@ -549,11 +771,16 @@ async fn page(state: &AppState, form: &Markup, page_number: usize) -> Result<Mar
 #[cfg(test)]
 mod tests {
     use axum::body::Body;
-    use axum::http::header::{COOKIE, LOCATION};
+    use axum::http::header::{CONTENT_TYPE, COOKIE, LOCATION};
     use axum::http::{Method, Request, Response, StatusCode};
     use sqlx::SqlitePool;
 
-    use crate::domain::batches::{BatchName, NAME_MAX, NOTES_MAX, NewBatch, Notes, PAGE_SIZE};
+    use crate::domain::batches::recipe_fixtures::{
+        HOPS_ONLY, LATIN1, SPARSE, TWO_RECIPES, UNETICE,
+    };
+    use crate::domain::batches::{
+        BatchName, NAME_MAX, NOTES_MAX, NewBatch, Notes, PAGE_SIZE, RECIPE_MAX_BYTES,
+    };
     use crate::web::htmx::{HX_REDIRECT, HX_REQUEST};
     use crate::web::test_support::{PUBLIC_ORIGIN, TestApp, body_text, post_form, request};
 
@@ -564,6 +791,60 @@ mod tests {
             .collect()
     }
 
+    const BOUNDARY: &str = "asgard-test-boundary";
+
+    /// Posts `pairs` and the Recipe `file`, as a name and its bytes, as a multipart form to
+    /// `uri` from `origin`, as htmx does if `htmx`. Without a file, the Recipe field goes empty,
+    /// as a browser sends it when no file is chosen.
+    async fn post_multipart(
+        app: &TestApp,
+        uri: &str,
+        cookie: &str,
+        pairs: &[(&str, &str)],
+        file: Option<(&str, &[u8])>,
+        htmx: bool,
+        origin: &str,
+    ) -> Response<Body> {
+        let mut body = Vec::new();
+        for (name, value) in pairs {
+            body.extend_from_slice(
+                format!(
+                    "--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
+                )
+                .as_bytes(),
+            );
+        }
+        let (file_name, bytes) = file.unwrap_or(("", b""));
+        body.extend_from_slice(
+            format!(
+                "--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"recipe\"; filename=\"{file_name}\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+            )
+            .as_bytes(),
+        );
+        body.extend_from_slice(bytes);
+        body.extend_from_slice(format!("\r\n--{BOUNDARY}--\r\n").as_bytes());
+
+        let mut post = request(Method::POST, uri, Some(origin));
+        let headers = post.headers_mut();
+        headers.insert(COOKIE, cookie.parse().unwrap());
+        headers.insert(
+            CONTENT_TYPE,
+            format!("multipart/form-data; boundary={BOUNDARY}")
+                .parse()
+                .unwrap(),
+        );
+        if htmx {
+            headers.insert(HX_REQUEST, "true".parse().unwrap());
+        }
+        // In frames of 16 KiB, as it comes over the network, not all at once.
+        let frames: Vec<Result<Vec<u8>, std::convert::Infallible>> = body
+            .chunks(16 * 1024)
+            .map(|frame| Ok(frame.to_vec()))
+            .collect();
+        *post.body_mut() = Body::from_stream(futures_util::stream::iter(frames));
+        app.send(post).await
+    }
+
     /// Posts the add form with `pairs`, as htmx does if `htmx`.
     async fn post_batch(
         app: &TestApp,
@@ -571,7 +852,46 @@ mod tests {
         pairs: &[(&str, &str)],
         htmx: bool,
     ) -> Response<Body> {
-        post_form(app, "/batches", cookie, &fields(pairs), htmx, PUBLIC_ORIGIN).await
+        post_multipart(app, "/batches", cookie, pairs, None, htmx, PUBLIC_ORIGIN).await
+    }
+
+    /// Posts the add form with `pairs` and the Recipe `bytes`, as htmx does.
+    async fn post_batch_with_recipe(
+        app: &TestApp,
+        cookie: &str,
+        pairs: &[(&str, &str)],
+        bytes: &[u8],
+    ) -> Response<Body> {
+        post_multipart(
+            app,
+            "/batches",
+            cookie,
+            pairs,
+            Some(("recipe.xml", bytes)),
+            true,
+            PUBLIC_ORIGIN,
+        )
+        .await
+    }
+
+    /// Uploads `bytes` as the Batch `number`'s Recipe, as htmx does if `htmx`.
+    async fn upload(
+        app: &TestApp,
+        cookie: &str,
+        number: i64,
+        bytes: &[u8],
+        htmx: bool,
+    ) -> Response<Body> {
+        post_multipart(
+            app,
+            &format!("/batches/{number}/recipe"),
+            cookie,
+            &[],
+            Some(("recipe.xml", bytes)),
+            htmx,
+            PUBLIC_ORIGIN,
+        )
+        .await
     }
 
     /// Adds a Batch called `name` with htmx, expecting it added.
@@ -786,7 +1106,10 @@ mod tests {
         .await;
         assert!(!blank.contains("<!DOCTYPE"), "a fragment, not the page");
         assert!(blank.starts_with("<form "), "{blank}");
-        assert!(blank.contains("Give the Batch a name."), "{blank}");
+        assert!(
+            blank.contains("Give the Batch a name, or attach a Recipe to take its name from."),
+            "{blank}"
+        );
         assert!(blank.contains("line one\nline two</textarea>"), "{blank}");
 
         let long = refused(
@@ -821,7 +1144,7 @@ mod tests {
                 name: BatchName::parse(&format!("Batch {n:02}")).unwrap(),
                 notes: Notes::default(),
             };
-            app.state.batches.add(member, &batch).await.unwrap();
+            app.state.batches.add(member, &batch, None).await.unwrap();
         }
 
         let first = page(&app, &cookie, "/batches").await;
@@ -1470,5 +1793,405 @@ mod tests {
             listed(&page(&app, &josef, "/batches").await),
             [("#1".to_owned(), "Guarded".to_owned())]
         );
+    }
+
+    /// Expects `response` to be the add form refused, keeping the name and Notes typed, and
+    /// saying `message` about the file.
+    async fn refused_recipe(response: Response<Body>, message: &str) {
+        let status = response.status();
+        let html = body_text(response).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{html}");
+        assert!(html.starts_with("<form "), "a fragment: {html}");
+        assert!(html.contains(message), "{message}: {html}");
+        assert!(html.contains(r#"value="Kept name""#), "{html}");
+        assert!(html.contains("Kept\nnotes</textarea>"), "{html}");
+    }
+
+    const NOT_BEERXML: &str = "This isn't a BeerXML file.";
+    const NO_RECIPE: &str = "This BeerXML file has no recipe in it";
+    const TOO_BIG: &str = "This file is over 1 MB, too big for a BeerXML recipe.";
+
+    #[sqlx::test]
+    async fn a_batch_added_with_a_recipe_and_no_name_takes_the_recipes(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+
+        let response = post_batch_with_recipe(&app, &josef, &[("name", " ")], UNETICE).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[HX_REDIRECT], "/batches");
+        let named = post_batch_with_recipe(&app, &josef, &[("name", "Mine")], SPARSE).await;
+        assert_eq!(named.status(), StatusCode::OK);
+
+        assert_eq!(
+            listed(&page(&app, &josef, "/batches").await),
+            [
+                ("#2".to_owned(), "Mine".to_owned()),
+                ("#1".to_owned(), "Únětický Vzor 10.7° (G70 30L)".to_owned())
+            ]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_file_of_several_recipes_uses_the_first(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+
+        post_batch_with_recipe(&app, &josef, &[], TWO_RECIPES).await;
+
+        let html = page(&app, &josef, "/batches/1").await;
+        assert!(
+            html.contains(r#"<h1 class="batch-title">First Pale Ale</h1>"#),
+            "{html}"
+        );
+        assert!(html.contains(r#"<p class="recipe-name">First Pale Ale</p>"#));
+        assert!(!html.contains("Second Stout"));
+    }
+
+    #[sqlx::test]
+    async fn the_batch_page_shows_the_recipe_viewer(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        post_batch_with_recipe(&app, &josef, &[("name", "Vzor")], UNETICE).await;
+
+        let html = page(&app, &josef, "/batches/1").await;
+
+        for shown in [
+            r#"<p class="recipe-name">Únětický Vzor 10.7° (G70 30L)</p>"#,
+            "Czech Premium Pale Lager · Pale Czech Lager · BJCP 2015",
+            "<dt>Batch size</dt><dd>30 L</dd>",
+            "<dt>Boil time</dt><dd>90 min</dd>",
+            "<h3>Style ranges</h3>",
+            "<dt>OG</dt><dd>1.044–1.060</dd>",
+            r#"<th scope="row">Pilsner (Weyermann)</th><td>5.4 kg</td><td>95.6 %</td>"#,
+            r#"<th scope="row">Carapils (Weyermann)</th><td>250 g</td><td>4.4 %</td>"#,
+            r#"<th scope="row">Sladek <span class="recipe-aside">Pellet</span></th><td>30 g</td><td>6.5 %</td><td>Boil</td><td>60 min</td>"#,
+            r#"NovaLager <span class="recipe-aside">Lallemand · LalBrew NovaLager · Dry</span>"#,
+            r#"<th scope="row">Nižší cukrotvorná (Maltose) <span class="recipe-aside">Temperature</span></th><td>63 °C</td><td>40 min</td>"#,
+            "Replace Recipe",
+            "Remove Recipe",
+        ] {
+            assert!(html.contains(shown), "{shown}: {html}");
+        }
+    }
+
+    #[sqlx::test]
+    async fn targets_sit_beside_the_measured_og_fg_and_abv(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        post_batch_with_recipe(&app, &josef, &[], UNETICE).await;
+
+        let planned = page(&app, &josef, "/batches/1").await;
+        assert!(
+            planned.contains(r#"<dt>OG</dt><dd><span class="measured missing">Not measured</span> <span class="target">target 1.043</span></dd>"#),
+            "{planned}"
+        );
+
+        recorded(
+            &app,
+            &josef,
+            1,
+            "brew-day",
+            &[("brew_date", "2026-10-03"), ("og", "1.045")],
+        )
+        .await;
+        recorded(
+            &app,
+            &josef,
+            1,
+            "bottling",
+            &[("bottling_date", "2026-10-17"), ("fg", "1.011")],
+        )
+        .await;
+        let html = page(&app, &josef, "/batches/1").await;
+        assert!(
+            html.contains(r#"<dt>OG</dt><dd><span class="measured">1.045</span> <span class="target">target 1.043</span></dd>"#),
+            "{html}"
+        );
+        assert!(html.contains(
+            r#"<dt>FG</dt><dd><span class="measured">1.011</span> <span class="target">target 1.010</span></dd>"#
+        ));
+        // The sample has no target ABV.
+        assert!(html.contains(r#"<dt>ABV</dt><dd><span class="measured">4.5 %</span></dd>"#));
+    }
+
+    #[sqlx::test]
+    async fn an_iso_8859_1_recipe_shows_its_accented_names_unchanged(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+
+        post_batch_with_recipe(&app, &josef, &[], LATIN1).await;
+
+        let html = page(&app, &josef, "/batches/1").await;
+        assert!(
+            html.contains(r#"<h1 class="batch-title">Únětický Vzor 10.7°</h1>"#),
+            "{html}"
+        );
+        assert!(html.contains(r#"<p class="recipe-name">Únětický Vzor 10.7°</p>"#));
+        assert!(html.contains("Plzeňský slad"));
+        let number = 1_i64;
+        let stored: Option<Vec<u8>> =
+            sqlx::query_scalar!("SELECT recipe FROM batches WHERE number = ?", number)
+                .fetch_one(&app.state.db)
+                .await
+                .unwrap();
+        assert_eq!(stored.as_deref(), Some(LATIN1), "kept byte for byte");
+    }
+
+    #[sqlx::test]
+    async fn a_file_that_isnt_a_recipe_is_refused_keeping_the_rest(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let kept = [("name", "Kept name"), ("notes", "Kept\nnotes")];
+
+        refused_recipe(
+            post_batch_with_recipe(&app, &josef, &kept, b"Just some text").await,
+            NOT_BEERXML,
+        )
+        .await;
+        refused_recipe(
+            post_batch_with_recipe(&app, &josef, &kept, HOPS_ONLY).await,
+            NO_RECIPE,
+        )
+        .await;
+        let mut big = UNETICE.to_vec();
+        big.resize(RECIPE_MAX_BYTES + 1, b' ');
+        refused_recipe(
+            post_batch_with_recipe(&app, &josef, &kept, &big).await,
+            TOO_BIG,
+        )
+        .await;
+
+        // Without a name either, both are said.
+        let both = refused(&app, &josef, &[("name", "")], true).await;
+        assert!(both.contains("Give the Batch a name, or attach a Recipe"));
+
+        let plain = post_multipart(
+            &app,
+            "/batches",
+            &josef,
+            &kept,
+            Some(("big.xml", &big)),
+            false,
+            PUBLIC_ORIGIN,
+        )
+        .await;
+        assert_eq!(plain.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let html = body_text(plain).await;
+        assert!(html.contains("<!DOCTYPE"), "the whole tab");
+        assert!(html.contains(TOO_BIG));
+
+        assert!(
+            page(&app, &josef, "/batches")
+                .await
+                .contains("No Batches yet.")
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_file_far_over_the_cap_is_too_big_in_the_form_not_a_bare_413(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        // Far over the request's backstop, not just the file's cap.
+        let huge = vec![b'x'; 3 * RECIPE_MAX_BYTES];
+
+        let response = post_batch_with_recipe(&app, &josef, &[("name", "Lost")], &huge).await;
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let html = body_text(response).await;
+        assert!(html.starts_with("<form "), "the form: {html}");
+        assert!(html.contains(TOO_BIG), "{html}");
+
+        add(&app, &josef, "Pilsner", "").await;
+        let response = upload(&app, &josef, 1, &huge, true).await;
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(body_text(response).await.contains(TOO_BIG));
+        assert_eq!(listed(&page(&app, &josef, "/batches").await).len(), 1);
+    }
+
+    #[sqlx::test]
+    async fn a_member_attaches_replaces_and_removes_a_recipe(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let ondra = app.sign_in_new_member("Ondra").await;
+        add(&app, &josef, "Pilsner", "").await;
+        let before = page(&app, &josef, "/batches/1").await;
+        assert!(before.contains("No Recipe yet."), "{before}");
+        assert!(before.contains("Attach Recipe"));
+        assert!(!before.contains("Remove Recipe"));
+
+        let response = upload(&app, &ondra, 1, UNETICE, true).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[HX_REDIRECT], "/batches/1");
+        let attached = page(&app, &josef, "/batches/1").await;
+        assert!(
+            attached.contains("Únětický Vzor 10.7° (G70 30L)"),
+            "{attached}"
+        );
+        assert!(
+            attached.contains(r#"<h1 class="batch-title">Pilsner</h1>"#),
+            "the name stays"
+        );
+        assert!(attached.contains("Edited by Ondra"));
+
+        let plain = upload(&app, &josef, 1, SPARSE, false).await;
+        assert_eq!(plain.status(), StatusCode::SEE_OTHER);
+        assert_eq!(plain.headers()[LOCATION], "/batches/1");
+        let replaced = page(&app, &josef, "/batches/1").await;
+        assert!(replaced.contains(r#"<p class="recipe-name">Just a name</p>"#));
+        assert!(!replaced.contains("Únětický"));
+
+        let removed = post_form(
+            &app,
+            "/batches/1/recipe/delete",
+            &josef,
+            &[],
+            true,
+            PUBLIC_ORIGIN,
+        )
+        .await;
+        assert_eq!(removed.status(), StatusCode::OK);
+        assert_eq!(removed.headers()[HX_REDIRECT], "/batches/1");
+        let after = page(&app, &josef, "/batches/1").await;
+        assert!(after.contains("No Recipe yet."), "{after}");
+        assert!(!after.contains("Just a name"));
+    }
+
+    #[sqlx::test]
+    async fn a_refused_upload_says_why_in_place_and_keeps_the_recipe(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add(&app, &josef, "Pilsner", "").await;
+        upload(&app, &josef, 1, UNETICE, true).await;
+        let before = page(&app, &josef, "/batches/1").await;
+        let mut big = UNETICE.to_vec();
+        big.resize(RECIPE_MAX_BYTES + 1, b' ');
+
+        for (bytes, message) in [
+            (b"<html></html>".as_slice(), NOT_BEERXML),
+            (HOPS_ONLY, NO_RECIPE),
+            (&big, TOO_BIG),
+        ] {
+            let response = upload(&app, &josef, 1, bytes, true).await;
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+            let html = body_text(response).await;
+            assert!(
+                html.starts_with(r#"<div class="recipe-upload" id="recipe-upload">"#),
+                "a fragment: {html}"
+            );
+            assert!(html.contains(message), "{message}: {html}");
+            assert!(html.contains("Replace Recipe"), "it still has one");
+        }
+
+        let none = post_multipart(
+            &app,
+            "/batches/1/recipe",
+            &josef,
+            &[],
+            None,
+            false,
+            PUBLIC_ORIGIN,
+        )
+        .await;
+        assert_eq!(none.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let html = body_text(none).await;
+        assert!(html.contains("<h1>Batch #1</h1>"), "a page: {html}");
+        assert!(html.contains("Choose a BeerXML file to attach."));
+
+        assert_eq!(page(&app, &josef, "/batches/1").await, before);
+    }
+
+    #[sqlx::test]
+    async fn the_recipe_of_a_batch_thats_gone_says_so(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add(&app, &josef, "Soon gone", "").await;
+        delete(&app, &josef, 1, true).await;
+
+        for response in [
+            upload(&app, &josef, 1, UNETICE, false).await,
+            upload(&app, &josef, 1, HOPS_ONLY, false).await,
+            post_form(
+                &app,
+                "/batches/1/recipe/delete",
+                &josef,
+                &[],
+                false,
+                PUBLIC_ORIGIN,
+            )
+            .await,
+        ] {
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            assert!(body_text(response).await.contains("This Batch is gone"));
+        }
+        let htmx = upload(&app, &josef, 1, UNETICE, true).await;
+        assert_eq!(htmx.headers()[HX_REDIRECT], "/batches/1");
+    }
+
+    #[sqlx::test]
+    async fn signed_out_recipe_uploads_redirect_to_sign_in(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add(&app, &josef, "Pilsner", "").await;
+
+        for response in [
+            upload(&app, "", 1, UNETICE, false).await,
+            post_form(
+                &app,
+                "/batches/1/recipe/delete",
+                "",
+                &[],
+                false,
+                PUBLIC_ORIGIN,
+            )
+            .await,
+        ] {
+            assert_eq!(response.status(), StatusCode::SEE_OTHER);
+            assert_eq!(response.headers()[LOCATION], "/sign-in");
+        }
+        assert!(
+            page(&app, &josef, "/batches/1")
+                .await
+                .contains("No Recipe yet.")
+        );
+    }
+
+    #[sqlx::test]
+    async fn recipe_posts_from_another_origin_are_refused(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        add(&app, &josef, "Guarded", "").await;
+        upload(&app, &josef, 1, SPARSE, true).await;
+        let foreign = "https://evil.example";
+
+        let attach = post_multipart(
+            &app,
+            "/batches/1/recipe",
+            &josef,
+            &[],
+            Some(("evil.xml", UNETICE)),
+            true,
+            foreign,
+        )
+        .await;
+        assert_eq!(attach.status(), StatusCode::FORBIDDEN);
+        let add_with = post_multipart(
+            &app,
+            "/batches",
+            &josef,
+            &[("name", "Hacked")],
+            Some(("evil.xml", UNETICE)),
+            true,
+            foreign,
+        )
+        .await;
+        assert_eq!(add_with.status(), StatusCode::FORBIDDEN);
+        let remove = post_form(&app, "/batches/1/recipe/delete", &josef, &[], true, foreign).await;
+        assert_eq!(remove.status(), StatusCode::FORBIDDEN);
+
+        let html = page(&app, &josef, "/batches/1").await;
+        assert!(
+            html.contains(r#"<p class="recipe-name">Just a name</p>"#),
+            "{html}"
+        );
+        assert_eq!(listed(&page(&app, &josef, "/batches").await).len(), 1);
     }
 }

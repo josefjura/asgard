@@ -1,0 +1,7 @@
+---
+source: src/views/batches.rs
+expression: "recipe_viewer(&recipe_fixtures::sparse()).into_string().replace(\"><\", \">\\n<\")"
+---
+<div class="recipe">
+<p class="recipe-name">Just a name</p>
+</div>

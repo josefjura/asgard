@@ -1,0 +1,17 @@
+---
+source: src/views/batches.rs
+expression: "recipe_upload(pilsner().number, true,\nSome(\"This BeerXML file has no recipe in it.\")).into_string().replace(\"><\",\n\">\\n<\")"
+---
+<div class="recipe-upload" id="recipe-upload">
+<form class="entry-form" method="post" action="/batches/12/recipe" enctype="multipart/form-data" hx-post="/batches/12/recipe" hx-target="#recipe-upload" hx-swap="outerHTML">
+<div class="field">
+<label for="recipe-file">Replace with another BeerXML file</label>
+<input id="recipe-file" type="file" name="recipe" required aria-invalid="true" aria-describedby="recipe-file-problem">
+<p class="field-problem" id="recipe-file-problem">This BeerXML file has no recipe in it.</p>
+</div>
+<button class="button secondary small" type="submit">Replace Recipe</button>
+</form>
+<form class="recipe-remove" method="post" action="/batches/12/recipe/delete" hx-post="/batches/12/recipe/delete" hx-confirm="Remove the Recipe from this Batch? The file is gone for good.">
+<button class="button secondary small" type="submit">Remove Recipe</button>
+</form>
+</div>

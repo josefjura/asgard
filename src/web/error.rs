@@ -1,3 +1,4 @@
+use axum::extract::multipart::MultipartError;
 use axum::http::StatusCode;
 use axum::http::header::LOCATION;
 use axum::response::{IntoResponse, Response};
@@ -22,6 +23,9 @@ pub enum AppError {
     DatabaseUnavailable(#[source] sqlx::Error),
     #[error("database error")]
     Database(#[from] sqlx::Error),
+    /// A multipart form, such as one uploading a Recipe, didn't arrive whole.
+    #[error("upload failed")]
+    Upload(#[from] MultipartError),
     #[error("request not sent from our origin")]
     ForeignOrigin,
     /// No valid session. `htmx` is whether htmx sent the request, which can't follow a redirect.
@@ -119,6 +123,10 @@ impl AppError {
         match self {
             Self::DatabaseUnavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, None),
             Self::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, None),
+            Self::Upload(err) => (
+                err.status(),
+                Some("The upload didn't arrive whole. Please try again.".to_owned()),
+            ),
             Self::ForeignOrigin => (StatusCode::FORBIDDEN, None),
             Self::SignInRequired { htmx: true } => (StatusCode::UNAUTHORIZED, None),
             Self::SignInRequired { htmx: false } => (StatusCode::SEE_OTHER, None),

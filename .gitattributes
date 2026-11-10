@@ -1,2 +1,4 @@
 * text=auto eol=lf
 *.png binary
+# BeerXML fixtures are kept byte for byte: their encodings and line endings are what is tested.
+src/domain/batches/fixtures/*.xml -text

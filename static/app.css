@@ -1216,6 +1216,119 @@ p.batch-meta {
   gap: var(--space-3);
 }
 
+/* The Recipe viewer: the recipe's name and style, its facts as name–value pairs, and a small
+   table each for the grist, the hops and the mash. A table wider than a phone scrolls inside
+   its frame, never the page. */
+.recipe {
+  margin-bottom: var(--space-4);
+}
+
+.recipe-name {
+  margin: 0;
+  font-family: var(--display);
+  font-size: var(--text-lead);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.recipe-style {
+  margin: 0 0 var(--space-3);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.recipe h3 {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--text-small);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.recipe-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+
+.recipe-facts dt {
+  color: var(--muted);
+}
+
+.recipe-facts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.recipe-table-wrap {
+  overflow-x: auto;
+}
+
+.recipe-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.recipe-table th,
+.recipe-table td {
+  padding: var(--space-1) var(--space-2) var(--space-1) 0;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.recipe-table th:last-child,
+.recipe-table td:last-child {
+  padding-right: 0;
+}
+
+.recipe-table thead th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* The name column takes the room left and wraps; the numbers keep to one line. */
+.recipe-table th:first-child {
+  width: 100%;
+  text-align: left;
+  white-space: normal;
+}
+
+.recipe-table tbody th {
+  font-weight: 400;
+}
+
+.recipe-aside {
+  color: var(--muted);
+  font-size: var(--text-tiny);
+}
+
+.recipe-yeasts {
+  margin: 0;
+  padding-left: var(--space-4);
+}
+
+/* Attach or replace sits above Remove, ruled off from the viewer. */
+.recipe-upload {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+
+.recipe-upload .entry-form {
+  margin: 0;
+}
+
+.recipe-remove {
+  margin: 0;
+}
+
 /* The Reminder's quick times: a row of small buttons under its due-time field, wrapping when
    the screen is narrow. */
 .quick-times {

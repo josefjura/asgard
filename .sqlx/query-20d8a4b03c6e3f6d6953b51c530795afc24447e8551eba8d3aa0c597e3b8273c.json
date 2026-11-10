@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE batches SET recipe = ?, edited_by = ?, edited_at = ? WHERE number = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "20d8a4b03c6e3f6d6953b51c530795afc24447e8551eba8d3aa0c597e3b8273c"
+}

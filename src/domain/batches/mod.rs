@@ -1,5 +1,5 @@
 //! The Crew's Batches: the brewery log. Each Batch is one brew, with an automatic Batch number, a
-//! name, free-text Notes, its Brew day and Bottling, and who added it.
+//! name, free-text Notes, its Brew day and Bottling, an optional Recipe, and who added it.
 //!
 //! Batches emit no events and send no notifications. Any Member may add, edit or delete any
 //! Batch; nothing here checks who added it.
@@ -11,11 +11,21 @@ use crate::domain::clock::{Clock, crew_time_of_unix_seconds, unix_seconds};
 use crate::domain::members::{DisplayName, MemberId, parse_date};
 
 mod numbers;
+mod recipe;
 
 pub use numbers::{
     Bottling, BrewDay, FG_MAX, FG_MIN, Gravity, GravityError, OG_MAX, OG_MIN, Percent, RuleError,
     VOLUME_MAX, Volume, VolumeError, abv, attenuation, check,
 };
+pub use recipe::{
+    AttachedRecipe, Celsius, Ebc, FermentableLine, HopLine, Ibu, Litres, MashStepLine, Mass,
+    Minutes, RECIPE_MAX_BYTES, Range, Recipe, RecipeError, RecipeSummary, StyleSummary, Targets,
+    YeastLine,
+};
+
+/// Recipes for the gallery and the snapshots.
+#[cfg(any(test, debug_assertions))]
+pub use recipe::fixtures as recipe_fixtures;
 
 /// The longest Batch name, in characters.
 pub const NAME_MAX: usize = 100;
@@ -49,6 +59,14 @@ impl BatchNumber {
 pub struct BatchName(String);
 
 impl BatchName {
+    /// The name a Batch takes from `recipe` when a Member leaves it blank: the Recipe's name, cut
+    /// to [`NAME_MAX`] characters. None if the Recipe's name is blank too.
+    #[must_use]
+    pub fn of_recipe(recipe: &Recipe) -> Option<Self> {
+        let name: String = recipe.summary().name.chars().take(NAME_MAX).collect();
+        Self::parse(&name).ok()
+    }
+
     /// Trims `input` and checks it can name a Batch.
     ///
     /// # Errors
@@ -306,8 +324,8 @@ impl Batches {
         Self { db, clock }
     }
 
-    /// Adds `batch` on behalf of `added_by`, now, with the next Batch number. Nobody is
-    /// notified.
+    /// Adds `batch` with its `recipe`, if it has one, on behalf of `added_by`, now, with the
+    /// next Batch number. Nobody is notified.
     ///
     /// # Errors
     ///
@@ -316,14 +334,17 @@ impl Batches {
         &self,
         added_by: MemberId,
         batch: &NewBatch,
+        recipe: Option<&Recipe>,
     ) -> Result<BatchNumber, sqlx::Error> {
         let added_at = unix_seconds(self.clock.now());
         let member = added_by.get();
+        let recipe = recipe.map(Recipe::bytes);
         let number = sqlx::query_scalar!(
-            r#"INSERT INTO batches (name, notes, added_by, added_at)
-               VALUES (?, ?, ?, ?) RETURNING number AS "number!""#,
+            r#"INSERT INTO batches (name, notes, recipe, added_by, added_at)
+               VALUES (?, ?, ?, ?, ?) RETURNING number AS "number!""#,
             batch.name.0,
             batch.notes.0,
+            recipe,
             member,
             added_at,
         )
@@ -524,6 +545,73 @@ impl Batches {
         Ok(())
     }
 
+    /// The Recipe attached to the Batch `number`, read from the file as it was uploaded, or None
+    /// if it has none.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BatchError::NotFound`] if there's no Batch `number`, or a database error.
+    pub async fn recipe(&self, number: BatchNumber) -> Result<Option<AttachedRecipe>, BatchError> {
+        let row = sqlx::query!("SELECT recipe FROM batches WHERE number = ?", number.0)
+            .fetch_optional(&self.db)
+            .await?
+            .ok_or(BatchError::NotFound)?;
+        Ok(row.recipe.as_deref().map(AttachedRecipe::read))
+    }
+
+    /// Attaches `recipe` to the Batch `number`, in place of any it had, edited by `edited_by`
+    /// now. Its name stays as it was.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BatchError::NotFound`] if there's no Batch `number`, or a database error.
+    pub async fn attach_recipe(
+        &self,
+        number: BatchNumber,
+        edited_by: MemberId,
+        recipe: &Recipe,
+    ) -> Result<(), BatchError> {
+        self.set_recipe(number, edited_by, Some(recipe.bytes()))
+            .await
+    }
+
+    /// Removes the Batch `number`'s Recipe, edited by `edited_by` now. Removing it from a Batch
+    /// without one changes only who edited it when.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BatchError::NotFound`] if there's no Batch `number`, or a database error.
+    pub async fn remove_recipe(
+        &self,
+        number: BatchNumber,
+        edited_by: MemberId,
+    ) -> Result<(), BatchError> {
+        self.set_recipe(number, edited_by, None).await
+    }
+
+    async fn set_recipe(
+        &self,
+        number: BatchNumber,
+        edited_by: MemberId,
+        recipe: Option<&[u8]>,
+    ) -> Result<(), BatchError> {
+        let edited_at = unix_seconds(self.clock.now());
+        let member = edited_by.get();
+        let done = sqlx::query!(
+            "UPDATE batches SET recipe = ?, edited_by = ?, edited_at = ? WHERE number = ?",
+            recipe,
+            member,
+            edited_at,
+            number.0,
+        )
+        .execute(&self.db)
+        .await?;
+        if done.rows_affected() == 0 {
+            return Err(BatchError::NotFound);
+        }
+        Ok(())
+    }
+
     /// Deletes the Batch `number` for good. Its number is never used again.
     ///
     /// # Errors
@@ -639,9 +727,11 @@ mod tests {
     use sqlx::SqlitePool;
 
     use super::{
-        BatchError, BatchName, BatchNumber, Bottling, BrewDay, Gravity, NAME_MAX, NOTES_MAX,
-        NameError, NewBatch, Notes, NotesError, PAGE_SIZE, RecordError, RuleError, Stage, Volume,
+        AttachedRecipe, BatchError, BatchName, BatchNumber, Bottling, BrewDay, Gravity, NAME_MAX,
+        NOTES_MAX, NameError, NewBatch, Notes, NotesError, PAGE_SIZE, Recipe, RecordError,
+        RuleError, Stage, Volume,
     };
+    use crate::domain::batches::recipe_fixtures::{LATIN1, SPARSE, UNETICE};
     use crate::domain::clock::ManualClock;
     use crate::domain::members::DisplayName;
     use crate::domain::members::fixtures::add_member;
@@ -742,6 +832,7 @@ mod tests {
             .add(
                 ondra,
                 &new_batch(" Pilsner ", "Saaz only.\nOpen fermenter."),
+                None,
             )
             .await
             .unwrap();
@@ -764,10 +855,19 @@ mod tests {
         let josef = add_member(&db, "Josef", true).await;
         let (batches, _) = service(db);
 
-        let first = batches.add(josef, &new_batch("One", "")).await.unwrap();
-        let second = batches.add(josef, &new_batch("Two", "")).await.unwrap();
+        let first = batches
+            .add(josef, &new_batch("One", ""), None)
+            .await
+            .unwrap();
+        let second = batches
+            .add(josef, &new_batch("Two", ""), None)
+            .await
+            .unwrap();
         batches.delete(second).await.unwrap();
-        let third = batches.add(josef, &new_batch("Three", "")).await.unwrap();
+        let third = batches
+            .add(josef, &new_batch("Three", ""), None)
+            .await
+            .unwrap();
 
         assert_eq!(first.get(), 1);
         assert_eq!(second.get(), 2);
@@ -780,7 +880,7 @@ mod tests {
         let (batches, _) = service(db);
         for n in 1..=PAGE_SIZE + 1 {
             batches
-                .add(josef, &new_batch(&format!("Batch {n:02}"), ""))
+                .add(josef, &new_batch(&format!("Batch {n:02}"), ""), None)
                 .await
                 .unwrap();
         }
@@ -819,7 +919,7 @@ mod tests {
         let simon = add_member(&db, "Šimon", false).await;
         let (batches, clock) = service(db);
         let number = batches
-            .add(josef, &new_batch("Pilsnr", "Typo."))
+            .add(josef, &new_batch("Pilsnr", "Typo."), None)
             .await
             .unwrap();
         clock.advance(Duration::from_hours(2));
@@ -847,8 +947,14 @@ mod tests {
     async fn a_deleted_batch_is_gone_from_everywhere(db: SqlitePool) {
         let josef = add_member(&db, "Josef", true).await;
         let (batches, _) = service(db);
-        let kept = batches.add(josef, &new_batch("Kept", "")).await.unwrap();
-        let gone = batches.add(josef, &new_batch("Gone", "")).await.unwrap();
+        let kept = batches
+            .add(josef, &new_batch("Kept", ""), None)
+            .await
+            .unwrap();
+        let gone = batches
+            .add(josef, &new_batch("Gone", ""), None)
+            .await
+            .unwrap();
 
         batches.delete(gone).await.unwrap();
 
@@ -878,7 +984,10 @@ mod tests {
         let josef = add_member(&db, "Josef", true).await;
         let ondra = add_member(&db, "Ondra", false).await;
         let (batches, clock) = service(db);
-        let number = batches.add(josef, &new_batch("Pilsner", "")).await.unwrap();
+        let number = batches
+            .add(josef, &new_batch("Pilsner", ""), None)
+            .await
+            .unwrap();
         clock.advance(Duration::from_hours(1));
 
         let brewed = brew_day(Some(date(2026, 10, 3)), Some("1.050"), Some("23.5"));
@@ -924,7 +1033,10 @@ mod tests {
     async fn a_value_that_breaks_a_rule_against_the_other_form_changes_nothing(db: SqlitePool) {
         let josef = add_member(&db, "Josef", true).await;
         let (batches, _) = service(db);
-        let number = batches.add(josef, &new_batch("Pilsner", "")).await.unwrap();
+        let number = batches
+            .add(josef, &new_batch("Pilsner", ""), None)
+            .await
+            .unwrap();
         let brewed = brew_day(Some(date(2026, 10, 3)), Some("1.050"), None);
         let bottled = bottling(Some(date(2026, 10, 17)), Some("1.010"));
         batches
@@ -992,7 +1104,7 @@ mod tests {
         let josef = add_member(&db, "Josef", true).await;
         let (batches, _) = service(db);
         let deleted = batches
-            .add(josef, &new_batch("Soon gone", ""))
+            .add(josef, &new_batch("Soon gone", ""), None)
             .await
             .unwrap();
         batches.delete(deleted).await.unwrap();
@@ -1011,5 +1123,128 @@ mod tests {
                 Err(BatchError::NotFound)
             ));
         }
+    }
+
+    #[test]
+    fn a_batch_takes_its_name_from_the_recipe_cut_to_fit() {
+        let unetice = Recipe::parse(UNETICE.to_vec()).unwrap();
+        assert_eq!(
+            BatchName::of_recipe(&unetice).unwrap().as_str(),
+            "Únětický Vzor 10.7° (G70 30L)"
+        );
+
+        let long = format!(
+            "<RECIPES><RECIPE><NAME>{}</NAME></RECIPE></RECIPES>",
+            "š".repeat(NAME_MAX + 5)
+        );
+        let long = Recipe::parse(long.into_bytes()).unwrap();
+        assert_eq!(
+            BatchName::of_recipe(&long).unwrap().as_str(),
+            "š".repeat(NAME_MAX)
+        );
+
+        let blank =
+            Recipe::parse(b"<RECIPES><RECIPE><NAME> </NAME></RECIPE></RECIPES>".to_vec()).unwrap();
+        assert_eq!(BatchName::of_recipe(&blank), None);
+    }
+
+    /// The Recipe bytes stored for the Batch `number`.
+    async fn stored(db: &SqlitePool, number: BatchNumber) -> Option<Vec<u8>> {
+        let number = number.get();
+        sqlx::query_scalar!("SELECT recipe FROM batches WHERE number = ?", number)
+            .fetch_one(db)
+            .await
+            .unwrap()
+    }
+
+    #[sqlx::test]
+    async fn a_recipe_is_stored_byte_for_byte_and_read_back(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db.clone());
+        let latin1 = Recipe::parse(LATIN1.to_vec()).unwrap();
+
+        let number = batches
+            .add(josef, &new_batch("Vzor", ""), Some(&latin1))
+            .await
+            .unwrap();
+
+        assert_eq!(stored(&db, number).await.as_deref(), Some(LATIN1));
+        let Some(AttachedRecipe::Readable(summary)) = batches.recipe(number).await.unwrap() else {
+            panic!("the Recipe reads");
+        };
+        assert_eq!(summary.name, "Únětický Vzor 10.7°");
+        assert_eq!(summary.fermentables[0].name, "Plzeňský slad");
+    }
+
+    #[sqlx::test]
+    async fn a_recipe_is_attached_replaced_and_removed(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let simon = add_member(&db, "Šimon", false).await;
+        let (batches, clock) = service(db.clone());
+        let number = batches
+            .add(josef, &new_batch("Pilsner", ""), None)
+            .await
+            .unwrap();
+        assert_eq!(batches.recipe(number).await.unwrap(), None);
+        clock.advance(Duration::from_hours(1));
+
+        let unetice = Recipe::parse(UNETICE.to_vec()).unwrap();
+        batches
+            .attach_recipe(number, simon, &unetice)
+            .await
+            .unwrap();
+        assert_eq!(stored(&db, number).await.as_deref(), Some(UNETICE));
+        let batch = batches.get(number).await.unwrap();
+        assert_eq!(batch.name.as_str(), "Pilsner", "the name stays");
+        assert_eq!(batch.edited.unwrap().by.as_str(), "Šimon");
+
+        let sparse = Recipe::parse(SPARSE.to_vec()).unwrap();
+        batches.attach_recipe(number, josef, &sparse).await.unwrap();
+        assert_eq!(stored(&db, number).await.as_deref(), Some(SPARSE));
+
+        batches.remove_recipe(number, josef).await.unwrap();
+        assert_eq!(stored(&db, number).await, None);
+        assert_eq!(batches.recipe(number).await.unwrap(), None);
+    }
+
+    #[sqlx::test]
+    async fn a_stored_recipe_that_no_longer_reads_still_shows_it_is_attached(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db.clone());
+        let number = batches
+            .add(josef, &new_batch("Pilsner", ""), None)
+            .await
+            .unwrap();
+        let raw = number.get();
+        sqlx::query!("UPDATE batches SET recipe = X'00' WHERE number = ?", raw)
+            .execute(&db)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            batches.recipe(number).await.unwrap(),
+            Some(AttachedRecipe::Unreadable)
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_recipe_cant_be_attached_to_or_removed_from_a_batch_that_isnt_there(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db);
+        let missing = BatchNumber::from_client(999);
+        let unetice = Recipe::parse(UNETICE.to_vec()).unwrap();
+
+        assert!(matches!(
+            batches.recipe(missing).await,
+            Err(BatchError::NotFound)
+        ));
+        assert!(matches!(
+            batches.attach_recipe(missing, josef, &unetice).await,
+            Err(BatchError::NotFound)
+        ));
+        assert!(matches!(
+            batches.remove_recipe(missing, josef).await,
+            Err(BatchError::NotFound)
+        ));
     }
 }

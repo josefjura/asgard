@@ -43,6 +43,26 @@ impl Gravity {
         Self::parse(input, FG_MIN, FG_MAX)
     }
 
+    /// A target OG from a Recipe, in thousandths, if it's in the range an OG can be.
+    #[must_use]
+    pub const fn og_target(thousandths: i64) -> Option<Self> {
+        Self::within(thousandths, OG_MIN, OG_MAX)
+    }
+
+    /// A target FG from a Recipe, in thousandths, if it's in the range an FG can be.
+    #[must_use]
+    pub const fn fg_target(thousandths: i64) -> Option<Self> {
+        Self::within(thousandths, FG_MIN, FG_MAX)
+    }
+
+    const fn within(thousandths: i64, min: i64, max: i64) -> Option<Self> {
+        if thousandths >= min && thousandths <= max {
+            Some(Self(thousandths))
+        } else {
+            None
+        }
+    }
+
     /// A gravity read back from the database, which checked its range when it was stored.
     pub(super) const fn from_stored(thousandths: i64) -> Self {
         Self(thousandths)
@@ -188,6 +208,12 @@ fn digits(input: &str) -> Option<i64> {
 pub struct Percent(i64);
 
 impl Percent {
+    /// A percentage of `tenths` tenths: 53 is 5.3 %.
+    #[must_use]
+    pub const fn from_tenths(tenths: i64) -> Self {
+        Self(tenths)
+    }
+
     /// The percentage in tenths: 53 for 5.3 %.
     #[must_use]
     pub const fn tenths(self) -> i64 {
@@ -204,7 +230,7 @@ impl fmt::Display for Percent {
 
 /// `numerator / denominator` rounded half up, for a positive `denominator` and a numerator of
 /// zero or more.
-const fn round_half_up(numerator: i64, denominator: i64) -> i64 {
+pub(super) const fn round_half_up(numerator: i64, denominator: i64) -> i64 {
     (2 * numerator + denominator) / (2 * denominator)
 }
 
