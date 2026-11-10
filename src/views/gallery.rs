@@ -95,8 +95,8 @@ const QUOTE_ROW_HEIGHT: u16 = 280;
 const QUOTE_FORM_HEIGHT: u16 = 700;
 /// The Batches tab: the add form, and three Batches under it on a phone.
 const BATCHES_HEIGHT: u16 = 1100;
-/// A Batch's page with Notes over several lines.
-const BATCH_PAGE_HEIGHT: u16 = 820;
+/// A Batch's page with its Brew day, Bottling and Notes over several lines.
+const BATCH_PAGE_HEIGHT: u16 = 1150;
 /// The Batch form with a problem under each field, or with Cancel and delete beneath it.
 const BATCH_FORM_HEIGHT: u16 = 760;
 const DESKTOP_WIDTH: u16 = 1280;
@@ -585,11 +585,14 @@ fn quotes_pages() -> Vec<Fixture> {
         .collect()
 }
 
-/// The Batches tab empty, with a log, on a later page and with a refused form; a Batch row and
-/// each Stage's badge; a Batch's page with and without Notes, and once it's gone; the add form
-/// empty and refused; and the edit page filled in and refused.
+/// The Batches tab empty, with a log, on a later page and with a refused form; a Batch row in
+/// each Stage and each Stage's badge; a Batch's page in each Stage, and once it's gone; the add
+/// form empty and refused; the edit page filled in and refused; and the Brew day and Bottling
+/// forms empty, filled in and refused, in place and on their own page.
 fn batches_pages() -> Vec<Fixture> {
-    use batches::fixtures::{bare, empty, later_page, log, long, pilsner, refused, refused_edit};
+    use batches::fixtures::{
+        empty, later_page, log, long, pilsner, planned_pilsner, refused, refused_edit,
+    };
 
     let empty_form = batches::form(
         BatchPurpose::Add,
@@ -610,7 +613,12 @@ fn batches_pages() -> Vec<Fixture> {
         document: batches::page(form, &log),
         height: BATCHES_HEIGHT,
     });
-    let rows = [("Planned", pilsner()), ("Long name", long())].map(|(state, batch)| Fixture {
+    let rows = [
+        ("Planned", planned_pilsner()),
+        ("In the fermenter, long name", long()),
+        ("Bottled", pilsner()),
+    ]
+    .map(|(state, batch)| Fixture {
         component: "Batch row",
         state: state.to_owned(),
         document: document(
@@ -634,17 +642,6 @@ fn batches_pages() -> Vec<Fixture> {
         ),
         height: 220,
     };
-    let batch_pages = [
-        ("With Notes, edited", batches::batch_page(&pilsner())),
-        ("Without Notes", batches::batch_page(&bare())),
-        ("Gone", batches::gone_page(bare().number)),
-    ]
-    .map(|(state, document)| Fixture {
-        component: "Batch page",
-        state: state.to_owned(),
-        document,
-        height: BATCH_PAGE_HEIGHT,
-    });
     let forms =
         [("Empty", empty_form), ("With errors", refused_form)].map(|(state, form)| Fixture {
             component: "Batch form",
@@ -670,10 +667,94 @@ fn batches_pages() -> Vec<Fixture> {
     tabs.into_iter()
         .chain(rows)
         .chain([badges])
-        .chain(batch_pages)
+        .chain(batch_pages())
         .chain(forms)
         .chain(edit_pages)
+        .chain(numbers_forms())
         .collect()
+}
+
+/// A Batch's page in each Stage, without Notes, and once it's gone.
+fn batch_pages() -> [Fixture; 5] {
+    use batches::fixtures::{bare, fermenting_pilsner, pilsner, planned_pilsner};
+
+    [
+        (
+            "Planned, with Notes, edited",
+            batches::batch_page(&planned_pilsner()),
+        ),
+        (
+            "In the fermenter, FG read early",
+            batches::batch_page(&fermenting_pilsner()),
+        ),
+        ("Bottled, with ABV", batches::batch_page(&pilsner())),
+        ("Without Notes", batches::batch_page(&bare())),
+        ("Gone", batches::gone_page(bare().number)),
+    ]
+    .map(|(state, document)| Fixture {
+        component: "Batch page",
+        state: state.to_owned(),
+        document,
+        height: BATCH_PAGE_HEIGHT,
+    })
+}
+
+/// A Batch's Brew day and Bottling forms empty, filled in and refused, as htmx swaps them into
+/// the Batch's page; and one on its own page, as it is without htmx.
+fn numbers_forms() -> Vec<Fixture> {
+    use batches::fixtures::{bare, pilsner, refused_bottling, refused_brew_day};
+    use batches::{BottlingProblems, BottlingValues, BrewDayProblems, BrewDayValues};
+
+    let today = jiff::civil::date(2026, 11, 10);
+    let (brew_day, brew_day_problems) = refused_brew_day();
+    let (bottling, bottling_problems) = refused_bottling();
+    let number = pilsner().number;
+    let forms = [
+        (
+            "Brew day form",
+            "Empty, today",
+            batches::brew_day_form(
+                bare().number,
+                &BrewDayValues::of(&bare(), today),
+                &BrewDayProblems::default(),
+            ),
+        ),
+        (
+            "Brew day form",
+            "With errors",
+            batches::brew_day_form(number, &brew_day, &brew_day_problems),
+        ),
+        (
+            "Bottling form",
+            "Filled in",
+            batches::bottling_form(
+                number,
+                &BottlingValues::of(&pilsner(), today),
+                &BottlingProblems::default(),
+            ),
+        ),
+        (
+            "Bottling form",
+            "With errors",
+            batches::bottling_form(number, &bottling, &bottling_problems),
+        ),
+    ]
+    .map(|(component, state, form)| Fixture {
+        component,
+        state: state.to_owned(),
+        document: document(component, &html! { main.shell-main { (form) } }),
+        height: BATCH_FORM_HEIGHT,
+    });
+    let page = Fixture {
+        component: "Bottling page",
+        state: "Without htmx, with errors".to_owned(),
+        document: batches::numbers_page(
+            number,
+            &batches::bottling_form(number, &bottling, &bottling_problems),
+        ),
+        height: BATCH_FORM_HEIGHT,
+    };
+    forms.into_iter().chain([page]).collect()
 }
 
 /// A Quote's row while it's edited, filled in and refused, and once it's gone; and the page it's
@@ -1177,6 +1258,9 @@ mod tests {
             "Batch page",
             "Batch form",
             "Batch edit page",
+            "Brew day form",
+            "Bottling form",
+            "Bottling page",
         ] {
             assert!(
                 html.contains(&format!("<h2>{component}</h2>")),
@@ -1188,9 +1272,16 @@ mod tests {
             "With a log",
             "Later page",
             "Form with errors",
-            "Long name",
-            "With Notes, edited",
+            "Planned",
+            "In the fermenter, long name",
+            "Bottled",
+            "Planned, with Notes, edited",
+            "In the fermenter, FG read early",
+            "Bottled, with ABV",
             "Without Notes",
+            "Empty, today",
+            "With errors",
+            "Without htmx, with errors",
             "Gone",
             "Filled in",
             "Edit refused",

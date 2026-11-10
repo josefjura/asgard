@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE batches SET brew_date = ?, og = ?, volume = ?, edited_by = ?, edited_at = ?\n             WHERE number = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "9e04638996d7c84a6f2ab6a27fff6e525204e50bd45471ee4902126674b3b752"
+}

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT bottling_date, fg FROM batches WHERE number = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "bottling_date",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "fg",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "fa1c8c0fbab9816aa52e150276f6a87723ada378a681eaa0ccd02259e4d16dc2"
+}
