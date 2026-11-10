@@ -73,7 +73,7 @@ pub enum NameError {
 }
 
 /// Free text about a Batch: trimmed, possibly empty, and at most [`NOTES_MAX`] characters. Line
-/// breaks are kept.
+/// breaks are kept, as `\n`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Notes(String);
 
@@ -84,11 +84,13 @@ impl Notes {
     ///
     /// Returns [`NotesError::TooLong`].
     pub fn parse(input: &str) -> Result<Self, NotesError> {
-        let notes = input.trim();
+        // Browsers send each line break as CRLF but count it as one character against the
+        // textarea's maxlength, so it is one character here too.
+        let notes = input.trim().replace("\r\n", "\n");
         if notes.chars().count() > NOTES_MAX {
             Err(NotesError::TooLong)
         } else {
-            Ok(Self(notes.to_owned()))
+            Ok(Self(notes))
         }
     }
 
@@ -150,9 +152,9 @@ pub struct NewBatch {
 
 /// An instant a Batch was added or edited at, shown as a date and time in the Crew's time zone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Instant(i64);
+pub struct Moment(i64);
 
-impl Instant {
+impl Moment {
     /// The date and time it showed on the clock in the Crew's time zone.
     #[must_use]
     pub fn crew_time(self) -> DateTime {
@@ -164,7 +166,7 @@ impl Instant {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Edited {
     pub by: DisplayName,
-    pub at: Instant,
+    pub at: Moment,
 }
 
 /// A Batch as the log and its own page show it.
@@ -174,7 +176,7 @@ pub struct Batch {
     pub name: BatchName,
     pub notes: Notes,
     pub added_by: DisplayName,
-    pub added_at: Instant,
+    pub added_at: Moment,
     /// None until a Member edits it.
     pub edited: Option<Edited>,
 }
@@ -207,10 +209,10 @@ impl From<BatchRow> for Batch {
             name: BatchName(row.name),
             notes: Notes(row.notes),
             added_by: DisplayName::from_stored(row.added_by),
-            added_at: Instant(row.added_at),
+            added_at: Moment(row.added_at),
             edited: row.edited_by.zip(row.edited_at).map(|(by, at)| Edited {
                 by: DisplayName::from_stored(by),
-                at: Instant(at),
+                at: Moment(at),
             }),
         }
     }
@@ -382,13 +384,13 @@ impl Batches {
 pub mod fixtures {
     use jiff::civil::DateTime;
 
-    use super::{Batch, BatchName, BatchNumber, Edited, Instant, Notes};
+    use super::{Batch, BatchName, BatchNumber, Edited, Moment, Notes};
     use crate::domain::clock::unix_seconds_at_crew_time;
     use crate::domain::members::DisplayName;
 
-    fn instant(at: &str) -> Instant {
+    fn instant(at: &str) -> Moment {
         let at: DateTime = at.parse().expect("fixture times are valid");
-        Instant(unix_seconds_at_crew_time(at).expect("fixture times exist"))
+        Moment(unix_seconds_at_crew_time(at).expect("fixture times exist"))
     }
 
     fn name(name: &str) -> DisplayName {
@@ -497,6 +499,18 @@ mod tests {
                 .as_str(),
             "Dry hopped on day 4.\nTasted grassy."
         );
+    }
+
+    #[test]
+    fn a_line_break_a_browser_sends_as_crlf_is_one_character() {
+        // As many characters as allowed once each CRLF counts as one, but more if it counted two.
+        let typed = format!("{}a", "a\n".repeat(NOTES_MAX / 2 - 1));
+        let sent = typed.replace('\n', "\r\n");
+
+        let notes = Notes::parse(&sent).unwrap();
+
+        assert_eq!(notes.as_str(), typed);
+        assert_eq!(notes.as_str().chars().count(), NOTES_MAX - 1);
     }
 
     #[test]

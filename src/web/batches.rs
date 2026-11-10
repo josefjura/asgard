@@ -14,7 +14,8 @@ use super::htmx::{Htmx, fragment_or_page, go_to};
 use super::pages::fresh;
 use super::{AppError, AppState};
 use crate::domain::batches::{
-    BatchError, BatchName, BatchNumber, NAME_MAX, NOTES_MAX, NameError, NewBatch, Notes, NotesError,
+    Batch, BatchError, BatchName, BatchNumber, NAME_MAX, NOTES_MAX, NameError, NewBatch, Notes,
+    NotesError,
 };
 use crate::views;
 use crate::views::batches::{BatchProblems, BatchValues, Purpose, paths};
@@ -103,11 +104,10 @@ async fn batch(
     Path(number): Path<i64>,
 ) -> Result<Response, AppError> {
     let number = BatchNumber::from_client(number);
-    let batch = match state.batches.get(number).await {
-        Err(BatchError::NotFound) => return Ok(gone(htmx, number)),
-        batch => batch?,
-    };
-    Ok(fresh(views::batches::batch_page(&batch)).into_response())
+    Ok(match found(&state, htmx, number).await? {
+        Ok(batch) => fresh(views::batches::batch_page(&batch)).into_response(),
+        Err(gone) => gone,
+    })
 }
 
 /// The Batch `number` in its edit form, for any Member to edit or delete.
@@ -118,12 +118,13 @@ async fn edit(
     Path(number): Path<i64>,
 ) -> Result<Response, AppError> {
     let number = BatchNumber::from_client(number);
-    let batch = match state.batches.get(number).await {
-        Err(BatchError::NotFound) => return Ok(gone(htmx, number)),
-        batch => batch?,
-    };
-    let form = views::batches::edit_form(&batch);
-    Ok(fresh(views::batches::edit_page(number, &form)).into_response())
+    Ok(match found(&state, htmx, number).await? {
+        Ok(batch) => {
+            let form = views::batches::edit_form(&batch);
+            fresh(views::batches::edit_page(number, &form)).into_response()
+        }
+        Err(gone) => gone,
+    })
 }
 
 /// Saves the edited Batch `number` and goes to its page; its number, and who added it when, stay
@@ -183,6 +184,19 @@ async fn delete(
         "a Member deleted a Batch"
     );
     Ok(go_to(htmx, Tab::Batches.href()))
+}
+
+/// The Batch `number`, or the answer saying it's gone.
+async fn found(
+    state: &AppState,
+    htmx: bool,
+    number: BatchNumber,
+) -> Result<Result<Batch, Response>, AppError> {
+    match state.batches.get(number).await {
+        Ok(batch) => Ok(Ok(batch)),
+        Err(BatchError::NotFound) => Ok(Err(gone(htmx, number))),
+        Err(err) => Err(err.into()),
+    }
 }
 
 /// What answers a request about the Batch `number` once someone has deleted it: the page saying

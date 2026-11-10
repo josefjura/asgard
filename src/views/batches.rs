@@ -67,7 +67,7 @@ pub struct BatchProblems {
 
 /// A Batch number as the Crew says it: `#12`.
 #[must_use]
-pub fn number(number: BatchNumber) -> String {
+pub fn number_label(number: BatchNumber) -> String {
     format!("#{}", number.get())
 }
 
@@ -139,7 +139,7 @@ pub fn batch_row(batch: &Batch) -> Markup {
     html! {
         li.batch {
             a.batch-link href=(paths::batch(batch.number)) {
-                span.batch-number { (number(batch.number)) }
+                span.batch-number { (number_label(batch.number)) }
                 span.batch-main {
                     span.batch-name { (batch.name.as_str()) }
                     span.batch-meta {
@@ -176,7 +176,7 @@ pub fn batch_page(batch: &Batch) -> Markup {
     shell(
         Place::Tab(Tab::Batches),
         &html! {
-            p.batch-eyebrow { "Batch " (number(batch.number)) }
+            p.batch-eyebrow { "Batch " (number_label(batch.number)) }
             h1.batch-title { (batch.name.as_str()) }
             (stage_badge(batch.stage()))
             section.section.narrow aria-labelledby="notes" {
@@ -213,7 +213,7 @@ pub fn edit_page(batch_number: BatchNumber, form: &Markup) -> Markup {
     shell(
         Place::Tab(Tab::Batches),
         &html! {
-            h1 { "Edit Batch " (number(batch_number)) }
+            h1 { "Edit Batch " (number_label(batch_number)) }
             (form)
             (delete_section(&Deletion {
                 kind: "Batch",
@@ -231,7 +231,7 @@ pub fn gone_page(batch_number: BatchNumber) -> Markup {
     shell(
         Place::Tab(Tab::Batches),
         &html! {
-            h1 { "Batch " (number(batch_number)) }
+            h1 { "Batch " (number_label(batch_number)) }
             p.empty role="status" {
                 "This Batch is gone: someone deleted it, or it never existed."
             }
