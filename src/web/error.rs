@@ -5,6 +5,7 @@ use axum::response::{IntoResponse, Response};
 use super::htmx::HX_REDIRECT;
 use super::sign_in;
 use crate::domain::auth::{AuthError, PASSKEY_NAME_MAX, PasskeyNameError};
+use crate::domain::batches::BatchError;
 use crate::domain::finance::money::{AMOUNT_MAX, AMOUNT_MIN, AmountError, Crowns};
 use crate::domain::finance::{DESCRIPTION_MAX, DescriptionError, EntryError};
 use crate::domain::members::{DISPLAY_NAME_MAX, NameError};
@@ -48,6 +49,9 @@ pub enum AppError {
     /// The Quote asked for doesn't exist, or was deleted.
     #[error("no such Quote")]
     NoSuchQuote,
+    /// The Batch asked for doesn't exist, or was deleted.
+    #[error("no such Batch")]
+    NoSuchBatch,
     /// A quick-time button named a quick time that doesn't exist.
     #[error("no such quick time")]
     NoSuchQuickTime,
@@ -96,6 +100,15 @@ impl From<QuoteError> for AppError {
         match err {
             QuoteError::NotFound => Self::NoSuchQuote,
             QuoteError::Database(err) => Self::Database(err),
+        }
+    }
+}
+
+impl From<BatchError> for AppError {
+    fn from(err: BatchError) -> Self {
+        match err {
+            BatchError::NotFound => Self::NoSuchBatch,
+            BatchError::Database(err) => Self::Database(err),
         }
     }
 }
@@ -152,6 +165,13 @@ impl AppError {
                 StatusCode::NOT_FOUND,
                 Some(
                     "That Quote no longer exists: someone may have deleted it. Reload the page to see the latest Quotes."
+                        .to_owned(),
+                ),
+            ),
+            Self::NoSuchBatch => (
+                StatusCode::NOT_FOUND,
+                Some(
+                    "That Batch no longer exists: someone may have deleted it. Reload the page to see the latest Batches."
                         .to_owned(),
                 ),
             ),

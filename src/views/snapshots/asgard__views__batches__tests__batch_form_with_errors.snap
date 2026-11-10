@@ -1,0 +1,19 @@
+---
+source: src/views/batches.rs
+expression: "form(Purpose::Add, values, &problems).into_string().replace(\"><\", \">\\n<\")"
+---
+<form class="entry-form" method="post" action="/batches" hx-post="/batches" hx-swap="outerHTML">
+<div class="field">
+<label for="batch-name">Name</label>
+<input id="batch-name" type="text" name="name" value=" " required maxlength="100" autocomplete="off" aria-invalid="true" aria-describedby="batch-name-problem">
+<p class="field-problem" id="batch-name-problem">Give the Batch a name.</p>
+</div>
+<div class="field">
+<label for="batch-notes">Notes <span class="optional">(optional)</span>
+</label>
+<textarea id="batch-notes" name="notes" rows="5" maxlength="5000" aria-invalid="true" aria-describedby="batch-notes-problem">Mashed at 66 °C.
+Too long after this.</textarea>
+<p class="field-problem" id="batch-notes-problem">Keep the Notes to 5000 characters or fewer.</p>
+</div>
+<button class="button large" type="submit">Add Batch</button>
+</form>

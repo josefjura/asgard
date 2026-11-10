@@ -5,18 +5,26 @@ use maud::{Markup, html};
 pub enum Tab {
     Finance,
     Shopping,
+    Batches,
     Reminders,
     Quotes,
 }
 
 impl Tab {
-    pub const ALL: [Self; 4] = [Self::Finance, Self::Shopping, Self::Reminders, Self::Quotes];
+    pub const ALL: [Self; 5] = [
+        Self::Finance,
+        Self::Shopping,
+        Self::Batches,
+        Self::Reminders,
+        Self::Quotes,
+    ];
 
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
             Self::Finance => "Finance",
             Self::Shopping => "Shopping",
+            Self::Batches => "Batches",
             Self::Reminders => "Reminders",
             Self::Quotes => "Quotes",
         }
@@ -28,6 +36,7 @@ impl Tab {
         match self {
             Self::Finance => "/",
             Self::Shopping => "/shopping",
+            Self::Batches => "/batches",
             Self::Reminders => "/reminders",
             Self::Quotes => "/quotes",
         }
@@ -47,6 +56,11 @@ impl Tab {
                         path d="M3 4h2l2.4 11h10.2L20 8H6.2" {}
                         circle cx="9" cy="19.5" r="1.5" {}
                         circle cx="17" cy="19.5" r="1.5" {}
+                    }
+                    Self::Batches => {
+                        // A bottle with a label.
+                        path d="M10 2h4v4.5l2.5 3.5V21a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V10L10 6.5z" {}
+                        path d="M7.5 13h9v5h-9z" {}
                     }
                     Self::Reminders => {
                         path d="M6 16v-5a6 6 0 0 1 12 0v5l2 2H4z" {}
@@ -86,7 +100,7 @@ impl Place {
     }
 }
 
-/// The navigation between the four tabs, with the tab at `current` marked as the current page.
+/// The navigation between the five tabs, with the tab at `current` marked as the current page.
 #[must_use]
 pub fn bottom_nav(current: Place) -> Markup {
     html! {

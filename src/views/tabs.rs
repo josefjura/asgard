@@ -19,6 +19,7 @@ const fn empty_text(tab: Tab) -> &'static str {
     match tab {
         Tab::Finance => "Expenses, Payments and everyone's Balance will show up here.",
         Tab::Shopping => "The Crew's Shopping list will show up here.",
+        Tab::Batches => "The Crew's brewery log will show up here.",
         Tab::Reminders => "Reminders for the whole Crew will show up here.",
         Tab::Quotes => "The Crew's collection of Quotes will show up here.",
     }

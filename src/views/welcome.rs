@@ -63,6 +63,7 @@ const fn tour_line(tab: Tab) -> &'static str {
     match tab {
         Tab::Finance => "Log what you spent for the Crew and see who owes whom.",
         Tab::Shopping => "The list of things the Crew needs to buy, by how soon.",
+        Tab::Batches => "The Crew's brewery log: every Batch, numbered, with its Notes.",
         Tab::Reminders => "Notify the whole Crew at a set date and time.",
         Tab::Quotes => "The Crew's collection of memorable things people said.",
     }

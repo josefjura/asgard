@@ -1,0 +1,17 @@
+---
+source: src/views/batches.rs
+expression: "empty_form().into_string().replace(\"><\", \">\\n<\")"
+---
+<form class="entry-form" method="post" action="/batches" hx-post="/batches" hx-swap="outerHTML">
+<div class="field">
+<label for="batch-name">Name</label>
+<input id="batch-name" type="text" name="name" value="" required maxlength="100" autocomplete="off">
+</div>
+<div class="field">
+<label for="batch-notes">Notes <span class="optional">(optional)</span>
+</label>
+<textarea id="batch-notes" name="notes" rows="5" maxlength="5000">
+</textarea>
+</div>
+<button class="button large" type="submit">Add Batch</button>
+</form>

@@ -5,9 +5,11 @@ use maud::{DOCTYPE, Markup, html};
 
 use crate::assets;
 use crate::domain::auth::{LinkKind, PasskeyName};
+use crate::domain::batches::Stage;
 use crate::domain::finance::history::HistoryFilter;
 use crate::domain::members::{CREW_NAME, DisplayName};
 use crate::views::admin::{self, Outcome as AdminOutcome};
+use crate::views::batches::{self, BatchProblems, BatchValues, Purpose as BatchPurpose};
 use crate::views::brand::header_logo;
 use crate::views::display_name::{self, Outcome};
 use crate::views::finance::{
@@ -91,6 +93,12 @@ const RANDOM_CARD_HEIGHT: u16 = 260;
 const QUOTE_ROW_HEIGHT: u16 = 280;
 /// The add form with a problem under each field.
 const QUOTE_FORM_HEIGHT: u16 = 700;
+/// The Batches tab: the add form, and three Batches under it on a phone.
+const BATCHES_HEIGHT: u16 = 1100;
+/// A Batch's page with Notes over several lines.
+const BATCH_PAGE_HEIGHT: u16 = 820;
+/// The Batch form with a problem under each field, or with Cancel and delete beneath it.
+const BATCH_FORM_HEIGHT: u16 = 760;
 const DESKTOP_WIDTH: u16 = 1280;
 
 /// # Panics
@@ -196,6 +204,7 @@ pub fn fixtures() -> Vec<Fixture> {
         .chain(reminder_pages())
         .chain(shopping_pages())
         .chain(quotes_pages())
+        .chain(batches_pages())
         .collect()
 }
 
@@ -573,6 +582,97 @@ fn quotes_pages() -> Vec<Fixture> {
         .chain(rows)
         .chain(forms)
         .chain(quote_edits())
+        .collect()
+}
+
+/// The Batches tab empty, with a log, on a later page and with a refused form; a Batch row and
+/// each Stage's badge; a Batch's page with and without Notes, and once it's gone; the add form
+/// empty and refused; and the edit page filled in and refused.
+fn batches_pages() -> Vec<Fixture> {
+    use batches::fixtures::{bare, empty, later_page, log, long, pilsner, refused, refused_edit};
+
+    let empty_form = batches::form(
+        BatchPurpose::Add,
+        BatchValues::default(),
+        &BatchProblems::default(),
+    );
+    let (values, problems) = refused();
+    let refused_form = batches::form(BatchPurpose::Add, values, &problems);
+    let tabs = [
+        ("No Batches", &empty_form, empty()),
+        ("With a log", &empty_form, log()),
+        ("Later page", &empty_form, later_page()),
+        ("Form with errors", &refused_form, log()),
+    ]
+    .map(|(state, form, log)| Fixture {
+        component: "Batches tab",
+        state: state.to_owned(),
+        document: batches::page(form, &log),
+        height: BATCHES_HEIGHT,
+    });
+    let rows = [("Planned", pilsner()), ("Long name", long())].map(|(state, batch)| Fixture {
+        component: "Batch row",
+        state: state.to_owned(),
+        document: document(
+            "Batch row",
+            &html! { main.shell-main { ul.batch-list { (batches::batch_row(&batch)) } } },
+        ),
+        height: 160,
+    });
+    let badges = Fixture {
+        component: "Stage badge",
+        state: "Planned, in the fermenter and Bottled".to_owned(),
+        document: document(
+            "Stage badge",
+            &html! {
+                main.shell-main {
+                    @for stage in [Stage::Planned, Stage::Brewed, Stage::Bottled] {
+                        p { (batches::stage_badge(stage)) }
+                    }
+                }
+            },
+        ),
+        height: 220,
+    };
+    let batch_pages = [
+        ("With Notes, edited", batches::batch_page(&pilsner())),
+        ("Without Notes", batches::batch_page(&bare())),
+        ("Gone", batches::gone_page(bare().number)),
+    ]
+    .map(|(state, document)| Fixture {
+        component: "Batch page",
+        state: state.to_owned(),
+        document,
+        height: BATCH_PAGE_HEIGHT,
+    });
+    let forms =
+        [("Empty", empty_form), ("With errors", refused_form)].map(|(state, form)| Fixture {
+            component: "Batch form",
+            state: state.to_owned(),
+            document: document("Batch form", &html! { main.shell-main { (form) } }),
+            height: BATCH_FORM_HEIGHT,
+        });
+    let number = pilsner().number;
+    let (values, problems) = refused_edit();
+    let edit_pages = [
+        ("Filled in", batches::edit_form(&pilsner())),
+        (
+            "Edit refused",
+            batches::form(BatchPurpose::Edit(number), values, &problems),
+        ),
+    ]
+    .map(|(state, form)| Fixture {
+        component: "Batch edit page",
+        state: state.to_owned(),
+        document: batches::edit_page(number, &form),
+        height: BATCH_FORM_HEIGHT,
+    });
+    tabs.into_iter()
+        .chain(rows)
+        .chain([badges])
+        .chain(batch_pages)
+        .chain(forms)
+        .chain(edit_pages)
         .collect()
 }
 
@@ -1061,6 +1161,39 @@ mod tests {
             "On",
             "iPhone outside the installed app",
             "Blocked",
+        ] {
+            assert!(html.contains(&format!("<h3>{state}</h3>")), "{state}");
+        }
+    }
+
+    #[test]
+    fn lists_every_batches_component_in_every_state() {
+        let html = page(&fixtures()).into_string();
+
+        for component in [
+            "Batches tab",
+            "Batch row",
+            "Stage badge",
+            "Batch page",
+            "Batch form",
+            "Batch edit page",
+        ] {
+            assert!(
+                html.contains(&format!("<h2>{component}</h2>")),
+                "{component}"
+            );
+        }
+        for state in [
+            "No Batches",
+            "With a log",
+            "Later page",
+            "Form with errors",
+            "Long name",
+            "With Notes, edited",
+            "Without Notes",
+            "Gone",
+            "Filled in",
+            "Edit refused",
         ] {
             assert!(html.contains(&format!("<h3>{state}</h3>")), "{state}");
         }

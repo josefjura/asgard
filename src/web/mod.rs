@@ -2,6 +2,7 @@
 
 mod access;
 mod admin;
+mod batches;
 mod error;
 mod finance;
 #[cfg(debug_assertions)]
@@ -35,6 +36,7 @@ use webauthn_rs::prelude::WebauthnError;
 
 use crate::assets;
 use crate::domain::auth::Auth;
+use crate::domain::batches::Batches;
 use crate::domain::clock::Clock;
 use crate::domain::events::{Event, Events};
 use crate::domain::finance::Finance;
@@ -60,6 +62,7 @@ pub struct AppState {
     pub reminders: Reminders,
     pub shopping: Shopping,
     pub quotes: Quotes,
+    pub batches: Batches,
     /// The VAPID public key browsers subscribe with, base64url.
     pub vapid_public_key: Arc<str>,
     pub events: Events,
@@ -96,6 +99,7 @@ impl AppState {
                 events.emitter(Event::AsapItemAdded),
             ),
             quotes: Quotes::new(db.clone(), clock.clone()),
+            batches: Batches::new(db.clone(), clock.clone()),
             vapid_public_key: vapid_public_key.into(),
             events,
             public_origin: PublicOrigin::of(public_url),
@@ -124,6 +128,7 @@ fn routes() -> Router<AppState> {
         .merge(reminders::routes())
         .merge(shopping::routes())
         .merge(quotes::routes())
+        .merge(batches::routes())
         .merge(sign_in::routes())
         .merge(links::routes())
         .merge(welcome::routes())
