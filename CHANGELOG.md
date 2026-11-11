@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.8.0](https://github.com/josefjura/asgard/compare/v0.7.0...v0.8.0) (2026-11-11)
+
+
+### Features
+
+* a push when a Brewing slot is planned ([#140](https://github.com/josefjura/asgard/issues/140)) ([09550c6](https://github.com/josefjura/asgard/commit/09550c676d790fc2140c8b1d7980eb8e38012acd))
+* a Reminder on the Monday of each Brewing slot's week ([#143](https://github.com/josefjura/asgard/issues/143)) ([bea8acc](https://github.com/josefjura/asgard/commit/bea8accd637bcafc68f39013cdf1bc464514e77c))
+* Batches tab with name, Notes, numbers, edit and delete ([#130](https://github.com/josefjura/asgard/issues/130)) ([1769b97](https://github.com/josefjura/asgard/commit/1769b97cba1abbb415c699480e7e2ecc2f733a40))
+* Brew day and Bottling with ABV ([#131](https://github.com/josefjura/asgard/issues/131)) ([abc1540](https://github.com/josefjura/asgard/commit/abc15409e67e389c273983bfddabb2b5db28e06d))
+* edit and delete any Quote ([#122](https://github.com/josefjura/asgard/issues/122)) ([ab663fc](https://github.com/josefjura/asgard/commit/ab663fcfd872ea8ba585f43d18f25caedc1cf910))
+* import Heimdall's data on the cutover day ([#124](https://github.com/josefjura/asgard/issues/124)) ([855c35b](https://github.com/josefjura/asgard/commit/855c35bd43c9c7545038fc90e4ac60ced8efe0bc))
+* link a Planned Batch to a Brewing slot ([#141](https://github.com/josefjura/asgard/issues/141)) ([4572384](https://github.com/josefjura/asgard/commit/4572384ade9b9aa118601b0b5c6f173ff51b96d4))
+* Next brewday on Shopping names the next Brewing slot ([#142](https://github.com/josefjura/asgard/issues/142)) ([d81a17e](https://github.com/josefjura/asgard/commit/d81a17e7903c0833bdf3adec103dd1f1fba6923e))
+* plan, move and cancel Brewing slots ([#139](https://github.com/josefjura/asgard/issues/139)) ([1b51e97](https://github.com/josefjura/asgard/commit/1b51e9767612797c6129497a71cc907ba35eae3e))
+* push ASAP Items to the rest of the Crew ([#123](https://github.com/josefjura/asgard/issues/123)) ([4c7a099](https://github.com/josefjura/asgard/commit/4c7a099114632de99246ad9bafd9b3445c2cf266))
+* random Quote with Another one ([#119](https://github.com/josefjura/asgard/issues/119)) ([338c255](https://github.com/josefjura/asgard/commit/338c255cf717e863f3aef7f8aaea945ed29d1d15))
+* Recipe upload and Recipe viewer ([#132](https://github.com/josefjura/asgard/issues/132)) ([2d76816](https://github.com/josefjura/asgard/commit/2d76816c9dec32d6de5b3f9250eef2805d433360))
+* search Quotes as you type ([#120](https://github.com/josefjura/asgard/issues/120)) ([44204c5](https://github.com/josefjura/asgard/commit/44204c5bbea69ba08430eb556fa3b959307888f7))
+
 ## [0.7.0](https://github.com/josefjura/asgard/compare/v0.6.0...v0.7.0) (2026-11-02)
 
 
