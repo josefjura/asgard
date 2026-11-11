@@ -22,6 +22,7 @@ pub mod reminders;
 pub mod settings;
 pub mod shopping;
 pub mod sign_in;
+pub mod slots;
 pub mod tabs;
 pub mod time;
 pub mod welcome;

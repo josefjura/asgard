@@ -24,6 +24,7 @@ use crate::views::push::{self, PushState, PushUrls};
 use crate::views::quotes::{self, Purpose as QuotePurpose, QuoteProblems, QuoteValues};
 use crate::views::reminders::{self, ReminderProblems, ReminderValues};
 use crate::views::shopping::{self, Fold, ItemProblems, ItemValues};
+use crate::views::slots;
 use crate::views::{invite, offline, settings, sign_in, tabs, welcome};
 
 /// One component in one state, rendered as a complete document.
@@ -93,8 +94,9 @@ const RANDOM_CARD_HEIGHT: u16 = 260;
 const QUOTE_ROW_HEIGHT: u16 = 280;
 /// The add form with a problem under each field.
 const QUOTE_FORM_HEIGHT: u16 = 700;
-/// The Batches tab: the add form with its Recipe field, and three Batches under it on a phone.
-const BATCHES_HEIGHT: u16 = 1300;
+/// The Batches tab: three Brewing slots and the plan form, then the add form with its Recipe
+/// field, and three Batches under it on a phone.
+const BATCHES_HEIGHT: u16 = 1600;
 /// A Batch's page with its Brew day, Bottling, Recipe upload and Notes over several lines.
 const BATCH_PAGE_HEIGHT: u16 = 1450;
 /// A Batch's page with the whole Recipe viewer, on a phone.
@@ -103,6 +105,8 @@ const RECIPE_PAGE_HEIGHT: u16 = 2900;
 const RECIPE_VIEWER_HEIGHT: u16 = 1500;
 /// The Batch form with a problem under each field, or with Cancel and delete beneath it.
 const BATCH_FORM_HEIGHT: u16 = 900;
+/// The Brewing slots section alone, with the most slots its fixtures have.
+const SLOTS_HEIGHT: u16 = 520;
 const DESKTOP_WIDTH: u16 = 1280;
 
 /// # Panics
@@ -605,16 +609,22 @@ fn batches_pages() -> Vec<Fixture> {
     );
     let (values, problems) = refused();
     let refused_form = batches::form(BatchPurpose::Add, values, &problems);
+    let no_slots = slots::slots_section(&[], &slots::plan_form("", None, slots::fixtures::TODAY));
+    let with_slots = slots::slots_section(
+        &slots::fixtures::several(),
+        &slots::plan_form("", None, slots::fixtures::TODAY),
+    );
     let tabs = [
-        ("No Batches", &empty_form, empty()),
-        ("With a log", &empty_form, log()),
-        ("Later page", &empty_form, later_page()),
-        ("Form with errors", &refused_form, log()),
+        ("No Batches", &no_slots, &empty_form, empty()),
+        ("With a log", &no_slots, &empty_form, log()),
+        ("With Brewing slots", &with_slots, &empty_form, log()),
+        ("Later page", &no_slots, &empty_form, later_page()),
+        ("Form with errors", &no_slots, &refused_form, log()),
     ]
-    .map(|(state, form, log)| Fixture {
+    .map(|(state, slots, form, log)| Fixture {
         component: "Batches tab",
         state: state.to_owned(),
-        document: batches::page(form, &log),
+        document: batches::page(slots, form, &log),
         height: BATCHES_HEIGHT,
     });
     let rows = [
@@ -675,7 +685,62 @@ fn batches_pages() -> Vec<Fixture> {
         .chain(forms)
         .chain(edit_pages)
         .chain(numbers_forms())
+        .chain(slot_pages())
         .collect()
+}
+
+/// The Brewing slots section with no slot, one and several, and with a refused plan; the page a
+/// slot is moved on, filled in and refused; and the page once a slot is gone.
+fn slot_pages() -> Vec<Fixture> {
+    use slots::fixtures::{REFUSED, TODAY, one, several};
+
+    let empty_plan = slots::plan_form("", None, TODAY);
+    let (value, message) = REFUSED;
+    let refused_plan = slots::plan_form(value, Some(message), TODAY);
+    let sections = [
+        ("No slot", Vec::new(), &empty_plan),
+        ("One slot", one(), &empty_plan),
+        ("Several slots", several(), &empty_plan),
+        ("Plan refused", one(), &refused_plan),
+    ]
+    .map(|(state, list, plan)| Fixture {
+        component: "Brewing slots",
+        state: state.to_owned(),
+        document: document(
+            "Brewing slots",
+            &html! { main.shell-main { (slots::slots_section(&list, plan)) } },
+        ),
+        height: SLOTS_HEIGHT,
+    });
+    let slot = &one()[0];
+    let moves = [
+        (
+            "Filled in",
+            slots::move_form(slot.id, "2026-11-21", None, TODAY),
+        ),
+        (
+            "Move refused",
+            slots::move_form(
+                slot.id,
+                "2026-11-10",
+                Some("Pick today or a later date."),
+                TODAY,
+            ),
+        ),
+    ]
+    .map(|(state, form)| Fixture {
+        component: "Move a Brewing slot",
+        state: state.to_owned(),
+        document: slots::move_page(slot.date, &form),
+        height: PAGE_HEIGHT,
+    });
+    let gone = Fixture {
+        component: "Move a Brewing slot",
+        state: "Slot gone".to_owned(),
+        document: slots::gone_page(),
+        height: PAGE_HEIGHT,
+    };
+    sections.into_iter().chain(moves).chain([gone]).collect()
 }
 
 /// A Batch's page in each Stage, without Notes, and once it's gone; with a Recipe, before and

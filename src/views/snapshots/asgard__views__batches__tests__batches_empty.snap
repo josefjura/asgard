@@ -1,6 +1,6 @@
 ---
 source: src/views/batches.rs
-expression: "page(&empty_form(), &empty()).into_string().replace(\"><\", \">\\n<\")"
+expression: "page(&no_slots(), &empty_form(), &empty()).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -44,6 +44,17 @@ expression: "page(&empty_form(), &empty()).into_string().replace(\"><\", \">\\n<
 </header>
 <main class="shell-main">
 <h1>Batches</h1>
+<section class="section slots" aria-labelledby="slots">
+<h2 id="slots">Brewing slots</h2>
+<p class="empty">No brew day set aside yet. Plan one and the Crew sees it here.</p>
+<form class="entry-form slot-form" id="plan-slot" method="post" action="/batches/slots" hx-post="/batches/slots" hx-swap="outerHTML">
+<div class="field">
+<label for="slot-date">Date</label>
+<input id="slot-date" type="date" name="date" value="" min="2026-11-11" required>
+</div>
+<button class="button" type="submit">Plan a slot</button>
+</form>
+</section>
 <div class="columns">
 <section class="section" aria-labelledby="new-batch">
 <h2 id="new-batch">Add a Batch</h2>

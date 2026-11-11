@@ -1,6 +1,9 @@
 //! The Crew's Batches: the brewery log. Each Batch is one brew, with an automatic Batch number, a
 //! name, free-text Notes, its Brew day and Bottling, an optional Recipe, and who added it.
 //!
+//! Brewing slots, the dates set aside for brewing, live here too, since they only exist for
+//! Batches.
+//!
 //! Batches emit no events and send no notifications. Any Member may add, edit or delete any
 //! Batch; nothing here checks who added it.
 
@@ -12,6 +15,7 @@ use crate::domain::members::{DisplayName, MemberId, parse_date};
 
 mod numbers;
 mod recipe;
+mod slots;
 
 pub use numbers::{
     Bottling, BrewDay, FG_MAX, FG_MIN, Gravity, GravityError, OG_MAX, OG_MIN, Percent, RuleError,
@@ -22,6 +26,11 @@ pub use recipe::{
     Minutes, RECIPE_MAX_BYTES, Range, Recipe, RecipeError, RecipeSummary, StyleSummary, Targets,
     YeastLine,
 };
+pub use slots::{MoveError, Slot, SlotError, SlotId};
+
+/// Brewing slots for the gallery and the snapshots.
+#[cfg(any(test, debug_assertions))]
+pub use slots::fixtures as slot_fixtures;
 
 /// Recipes for the gallery and the snapshots.
 #[cfg(any(test, debug_assertions))]

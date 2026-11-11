@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM brewing_slots WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "7580c50c63fb11de06c0334b26ff4d4fcaab8bf0b5a418b0264406bad0f8d881"
+}

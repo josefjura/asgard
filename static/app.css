@@ -1216,6 +1216,63 @@ p.batch-meta {
   gap: var(--space-3);
 }
 
+/* The Brewing slots above the log: each slot's day in the display face, what's brewed on it
+   beneath, and Move and Cancel beside it. On a narrow phone the buttons drop under the day. */
+.slot-list {
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.slot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.slot-main {
+  display: grid;
+  min-width: 0;
+}
+
+.slot-date {
+  font-family: var(--display);
+  font-size: var(--text-lead);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.slot-batch {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+
+.slot-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.slot-actions form {
+  margin: 0;
+}
+
+/* The date and its button on one line where they fit; the problem under the date wraps the
+   button below. */
+.slot-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-3);
+}
+
+.slot-form .field {
+  flex: 1 1 12rem;
+}
+
 /* The Recipe viewer: the recipe's name and style, its facts as name–value pairs, and a small
    table each for the grist, the hops and the mash. A table wider than a phone scrolls inside
    its frame, never the page. */

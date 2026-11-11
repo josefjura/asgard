@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO brewing_slots (date, created_by, created_at) VALUES (?, ?, ?)\n                   RETURNING id AS \"id!\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "7cd182afde0cbf8ca0474099459af87bf058c2d229f5a62857fc90b572bb4bb4"
+}

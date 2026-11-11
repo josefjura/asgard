@@ -1,6 +1,6 @@
 //! The Batches tab, the Crew's brewery log.
 //!
-//! The form a Member adds a Batch with, every Batch newest first, each Batch's own page with its
+//! The Brewing slots at the top (see `views::slots`), the form a Member adds a Batch with, every Batch newest first, each Batch's own page with its
 //! Brew day, Bottling and Recipe, and the page it's edited or deleted on.
 
 use std::fmt::Display;
@@ -180,14 +180,15 @@ pub fn href(page: usize) -> String {
     }
 }
 
-/// The Batches tab: `form` to add a Batch, and one page of the log, newest first. On a wide
-/// screen the form sits beside the log.
+/// The Batches tab: the Brewing `slots` section first, then `form` to add a Batch, and one page
+/// of the log, newest first. On a wide screen the form sits beside the log.
 #[must_use]
-pub fn page(form: &Markup, log: &BatchPage) -> Markup {
+pub fn page(slots: &Markup, form: &Markup, log: &BatchPage) -> Markup {
     shell(
         Place::Tab(Tab::Batches),
         &html! {
             h1 { "Batches" }
+            (slots)
             div.columns {
                 section.section aria-labelledby="new-batch" {
                     h2 #new-batch { "Add a Batch" }
@@ -1105,25 +1106,43 @@ mod tests {
         )
     }
 
+    fn no_slots() -> Markup {
+        crate::views::slots::slots_section(
+            &[],
+            &crate::views::slots::plan_form("", None, crate::views::slots::fixtures::TODAY),
+        )
+    }
+
+    #[test]
+    fn batches_with_slots() {
+        use crate::views::slots::{fixtures, plan_form, slots_section};
+        let slots = slots_section(&fixtures::several(), &plan_form("", None, fixtures::TODAY));
+        assert_html_snapshot!(page(&slots, &empty_form(), &log()));
+    }
+
     #[test]
     fn batches_empty() {
-        assert_html_snapshot!(page(&empty_form(), &empty()));
+        assert_html_snapshot!(page(&no_slots(), &empty_form(), &empty()));
     }
 
     #[test]
     fn batches_log() {
-        assert_html_snapshot!(page(&empty_form(), &log()));
+        assert_html_snapshot!(page(&no_slots(), &empty_form(), &log()));
     }
 
     #[test]
     fn batches_later_page() {
-        assert_html_snapshot!(page(&empty_form(), &later_page()));
+        assert_html_snapshot!(page(&no_slots(), &empty_form(), &later_page()));
     }
 
     #[test]
     fn batches_with_a_refused_form() {
         let (values, problems) = refused();
-        assert_html_snapshot!(page(&form(Purpose::Add, values, &problems), &log()));
+        assert_html_snapshot!(page(
+            &no_slots(),
+            &form(Purpose::Add, values, &problems),
+            &log()
+        ));
     }
 
     #[test]
@@ -1535,7 +1554,7 @@ mod tests {
 
     #[test]
     fn pages_link_newer_and_older() {
-        let html = page(&empty_form(), &later_page()).into_string();
+        let html = page(&no_slots(), &empty_form(), &later_page()).into_string();
 
         assert!(html.contains(r#"rel="prev" href="/batches""#), "{html}");
         assert!(html.contains(r#"rel="next" href="/batches?page=3""#));
@@ -1544,7 +1563,7 @@ mod tests {
 
     #[test]
     fn the_empty_log_says_so() {
-        let html = page(&empty_form(), &empty()).into_string();
+        let html = page(&no_slots(), &empty_form(), &empty()).into_string();
 
         assert!(html.contains("No Batches yet."), "{html}");
         assert!(!html.contains("batch-list"));
