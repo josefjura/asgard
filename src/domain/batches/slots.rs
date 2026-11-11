@@ -10,12 +10,22 @@
 //!
 //! A newly planned slot is announced to the rest of the Crew as [`SlotPlanned`]; moving or
 //! cancelling one is not.
+//!
+//! Each slot brings an ordinary Reminder, due at [`reminder_time`] and saying [`reminder_text`].
+//! It follows the slot: moving the slot or changing its Batch rewrites the pending Reminder, and
+//! cancelling the slot deletes it. A sent Reminder is never touched, and one a Member deleted
+//! isn't brought back until the slot moves.
 
-use jiff::civil::Date;
+use jiff::ToSpan;
+use jiff::civil::{Date, DateTime};
+use sqlx::SqliteConnection;
 
 use super::{BatchName, BatchNumber, Batches};
 use crate::domain::clock::unix_seconds;
 use crate::domain::members::{MemberId, everyone_but, parse_date};
+use crate::domain::reminders::{
+    DueAt, NewReminder, ReminderError, ReminderId, ReminderText, Reminders,
+};
 
 /// Which Brewing slot: the one a form or link names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -161,6 +171,57 @@ pub fn check_date(date: Date, today: Date) -> Result<(), SlotError> {
     }
 }
 
+/// When the Reminder of a slot on `date` is due: 09:00 in Prague on the Monday of its week.
+///
+/// A week runs Monday to Sunday, so the Crew has the days before the slot to get ready. A slot
+/// on a Monday is reminded that morning.
+///
+/// # Panics
+///
+/// In the first week of jiff's range, the year 9999 BC.
+#[must_use]
+pub fn reminder_time(date: Date) -> DateTime {
+    let monday = date
+        .checked_sub(i64::from(date.weekday().to_monday_zero_offset()).days())
+        .expect("a slot's Monday is within jiff's range");
+    monday.at(9, 0, 0, 0)
+}
+
+/// What the Reminder of a slot on `date` says: the day and its Batch, or that none is picked yet.
+///
+/// # Panics
+///
+/// Never: a Batch name is far shorter than a Reminder's text may be.
+#[must_use]
+pub fn reminder_text(date: Date, batch: Option<&SlotBatch>) -> ReminderText {
+    let day = date.strftime("%a %-d %b");
+    let text = batch.map_or_else(
+        || format!("Brew day {day}, and no Batch is picked yet"),
+        |batch| format!("Brew day {day}: #{} {}", batch.number.0, batch.name.0),
+    );
+    ReminderText::parse(&text).expect("a slot's Reminder text is short enough")
+}
+
+/// Whether a slot without a pending Reminder gets one when its Reminder follows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Missing {
+    /// The slot was planned or moved: it gets one if its due time is still ahead, and loses one
+    /// whose due time has passed.
+    Create,
+    /// Only its Batch changed: a Reminder a Member deleted, or one already sent, stays that way.
+    Leave,
+}
+
+/// `result` of writing a slot's Reminder, with a refusal told as None: its due time passed in the
+/// moment since it was worked out, or the ticker sent it meanwhile.
+fn unless_refused<T>(result: Result<T, ReminderError>) -> Result<Option<T>, sqlx::Error> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(ReminderError::NotInFuture | ReminderError::NotFound) => Ok(None),
+        Err(ReminderError::Database(err)) => Err(err),
+    }
+}
+
 /// `result` of writing a slot onto `date`, with a clash with another slot's date told as
 /// [`SlotError::Taken`]. A clash on any other unique column, such as the slot's Batch, stays a
 /// database error.
@@ -206,7 +267,7 @@ impl SlotRow {
 
 impl Batches {
     /// Plans a slot on `date` on behalf of `planned_by`, now, and announces it to the rest of the
-    /// Crew.
+    /// Crew. Its Reminder is created on their behalf, unless its due time has passed.
     ///
     /// # Errors
     ///
@@ -217,6 +278,7 @@ impl Batches {
         let created_at = unix_seconds(self.clock.now());
         let member = planned_by.get();
         let day = date.to_string();
+        let mut tx = self.db.begin().await?;
         let id = taken_on(
             sqlx::query_scalar!(
                 r#"INSERT INTO brewing_slots (date, created_by, created_at) VALUES (?, ?, ?)
@@ -225,11 +287,14 @@ impl Batches {
                 member,
                 created_at,
             )
-            .fetch_one(&self.db)
+            .fetch_one(&mut *tx)
             .await,
             date,
         )?;
         let slot = SlotId(id);
+        self.follow(&mut tx, slot, Missing::Create).await?;
+        tx.commit().await?;
+        self.reminders.announce_change();
         let notify = everyone_but(&self.db, planned_by).await?;
         self.events.emit(SlotPlanned {
             slot,
@@ -240,7 +305,9 @@ impl Batches {
         Ok(slot)
     }
 
-    /// Moves the slot `id` to `date`. Moving it to the date it's on changes nothing.
+    /// Moves the slot `id` to `date`, and its pending Reminder with it. A slot without a pending
+    /// Reminder gets one, and one whose new due time has passed loses it. Moving it to the date
+    /// it's on changes nothing.
     ///
     /// # Errors
     ///
@@ -250,27 +317,119 @@ impl Batches {
     pub async fn move_slot(&self, id: SlotId, date: Date) -> Result<(), MoveError> {
         check_date(date, self.clock.today())?;
         let day = date.to_string();
-        let done = taken_on(
+        let mut tx = self.db.begin().await?;
+        let was = sqlx::query_scalar!("SELECT date FROM brewing_slots WHERE id = ?", id.0)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(MoveError::NotFound)?;
+        if was == day {
+            return Ok(());
+        }
+        taken_on(
             sqlx::query!("UPDATE brewing_slots SET date = ? WHERE id = ?", day, id.0)
-                .execute(&self.db)
+                .execute(&mut *tx)
                 .await,
             date,
         )?;
-        if done.rows_affected() == 0 {
-            return Err(MoveError::NotFound);
-        }
+        self.follow(&mut tx, id, Missing::Create).await?;
+        tx.commit().await?;
+        self.reminders.announce_change();
         Ok(())
     }
 
-    /// Cancels the slot `id` for good. A slot already cancelled stays cancelled.
+    /// Cancels the slot `id` for good, and deletes its Reminder if it's pending. A slot already
+    /// cancelled stays cancelled.
     ///
     /// # Errors
     ///
     /// Returns a database error.
     pub async fn cancel_slot(&self, id: SlotId) -> Result<(), sqlx::Error> {
+        let mut tx = self.db.begin().await?;
+        let reminder = sqlx::query_scalar!(
+            r#"SELECT reminder_id AS "reminder_id?" FROM brewing_slots WHERE id = ?"#,
+            id.0
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+        if let Some(reminder) = reminder {
+            Reminders::delete_pending_on(&mut tx, ReminderId::from_client(reminder)).await?;
+        }
         sqlx::query!("DELETE FROM brewing_slots WHERE id = ?", id.0)
-            .execute(&self.db)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
+        self.reminders.announce_change();
+        Ok(())
+    }
+
+    /// Brings the pending Reminder of the slot `id` in line with the slot's date and Batch, on
+    /// `conn`: rewrites it while its due time is ahead, overwriting any edit a Member made. When
+    /// `missing` is [`Missing::Create`], it also creates one the slot lacks and deletes one whose
+    /// due time has passed. A sent Reminder is never touched. Nothing happens for a slot that
+    /// isn't there.
+    ///
+    /// The caller tells the ticker once its transaction is committed.
+    pub(super) async fn follow(
+        &self,
+        conn: &mut SqliteConnection,
+        id: SlotId,
+        missing: Missing,
+    ) -> Result<(), sqlx::Error> {
+        let Some(row) = sqlx::query!(
+            r#"SELECT brewing_slots.date, brewing_slots.created_by,
+                      reminders.id AS "pending?",
+                      batches.number AS "batch_number?", batches.name AS "batch_name?"
+               FROM brewing_slots
+               LEFT JOIN reminders
+                 ON reminders.id = brewing_slots.reminder_id AND reminders.sent_at IS NULL
+               LEFT JOIN batches ON batches.number = brewing_slots.batch_number
+               WHERE brewing_slots.id = ?"#,
+            id.0
+        )
+        .fetch_optional(&mut *conn)
+        .await?
+        else {
+            return Ok(());
+        };
+        let date = parse_date(&row.date)?;
+        let batch = row
+            .batch_number
+            .zip(row.batch_name)
+            .map(|(number, name)| SlotBatch {
+                number: BatchNumber(number),
+                name: BatchName(name),
+            });
+        let now = unix_seconds(self.clock.now());
+        let reminder = DueAt::at_crew_time(reminder_time(date))
+            .filter(|due_at| due_at.unix_seconds() > now)
+            .map(|due_at| NewReminder {
+                text: reminder_text(date, batch.as_ref()),
+                due_at,
+            });
+        match (row.pending.map(ReminderId::from_client), reminder) {
+            (Some(pending), Some(reminder)) => {
+                unless_refused(self.reminders.edit_on(conn, pending, &reminder).await)?;
+            }
+            (Some(pending), None) if missing == Missing::Create => {
+                Reminders::delete_pending_on(conn, pending).await?;
+            }
+            (None, Some(reminder)) if missing == Missing::Create => {
+                let created_by = MemberId::from_stored(row.created_by);
+                let created = self.reminders.create_on(conn, created_by, &reminder).await;
+                if let Some(created) = unless_refused(created)? {
+                    let reminder_id = created.get();
+                    sqlx::query!(
+                        "UPDATE brewing_slots SET reminder_id = ? WHERE id = ?",
+                        reminder_id,
+                        id.0
+                    )
+                    .execute(conn)
+                    .await?;
+                }
+            }
+            _ => {}
+        }
         Ok(())
     }
 
@@ -380,7 +539,7 @@ impl Batches {
 
     /// Links the Planned Batch `number` to the slot `id`, to be brewed that day. A Batch on
     /// another slot moves here, leaving that slot with nothing chosen, and a Batch this slot had
-    /// before waits for a slot again.
+    /// before waits for a slot again. The pending Reminders of both slots follow.
     ///
     /// # Errors
     ///
@@ -410,11 +569,12 @@ impl Batches {
             return Err(LinkError::SlotDone);
         }
         // Off its old slot first: a Batch is on one slot at most.
-        sqlx::query!(
-            "UPDATE brewing_slots SET batch_number = NULL WHERE batch_number = ?",
+        let old = sqlx::query_scalar!(
+            r#"UPDATE brewing_slots SET batch_number = NULL WHERE batch_number = ?
+               RETURNING id AS "id!""#,
             number.0
         )
-        .execute(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await?;
         let done = sqlx::query!(
             "UPDATE brewing_slots SET batch_number = ? WHERE id = ?",
@@ -426,12 +586,17 @@ impl Batches {
         if done.rows_affected() == 0 {
             return Err(LinkError::SlotNotFound);
         }
+        if let Some(old) = old.map(SlotId).filter(|&old| old != id) {
+            self.follow(&mut tx, old, Missing::Leave).await?;
+        }
+        self.follow(&mut tx, id, Missing::Leave).await?;
         tx.commit().await?;
+        self.reminders.announce_change();
         Ok(())
     }
 
-    /// Takes the Batch off the slot `id`, which then has nothing chosen. A slot with nothing
-    /// chosen stays that way.
+    /// Takes the Batch off the slot `id`, which then has nothing chosen, and its pending Reminder
+    /// says so. A slot with nothing chosen stays that way.
     ///
     /// # Errors
     ///
@@ -458,12 +623,14 @@ impl Batches {
         )
         .execute(&mut *tx)
         .await?;
+        self.follow(&mut tx, id, Missing::Leave).await?;
         tx.commit().await?;
+        self.reminders.announce_change();
         Ok(())
     }
 
-    /// Takes the Planned Batch `number` off its slot, to wait for another. A Batch without a slot
-    /// stays without one.
+    /// Takes the Planned Batch `number` off its slot, to wait for another; the slot's pending
+    /// Reminder says nothing is picked. A Batch without a slot stays without one.
     ///
     /// # Errors
     ///
@@ -478,13 +645,18 @@ impl Batches {
         if batch.brew_date.is_some() {
             return Err(LinkError::NotPlanned);
         }
-        sqlx::query!(
-            "UPDATE brewing_slots SET batch_number = NULL WHERE batch_number = ?",
+        let slot = sqlx::query_scalar!(
+            r#"UPDATE brewing_slots SET batch_number = NULL WHERE batch_number = ?
+               RETURNING id AS "id!""#,
             number.0
         )
-        .execute(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await?;
+        if let Some(slot) = slot {
+            self.follow(&mut tx, SlotId(slot), Missing::Leave).await?;
+        }
         tx.commit().await?;
+        self.reminders.announce_change();
         Ok(())
     }
 }
@@ -538,18 +710,20 @@ mod tests {
     use std::convert::identity;
     use std::time::{Duration, SystemTime};
 
-    use jiff::civil::{Date, date};
+    use jiff::civil::{Date, DateTime, date};
     use sqlx::SqlitePool;
     use tokio::sync::broadcast;
 
     use super::{
-        LinkError, MoveError, PlannedBatch, SlotError, SlotId, SlotPlanned, SlotState, check_date,
+        LinkError, MoveError, PlannedBatch, SlotBatch, SlotError, SlotId, SlotPlanned, SlotState,
+        check_date, reminder_text, reminder_time,
     };
     use crate::domain::batches::{BatchName, BatchNumber, Batches, BrewDay, NewBatch, Notes};
     use crate::domain::channel::Channel;
     use crate::domain::clock::ManualClock;
     use crate::domain::members::MemberId;
     use crate::domain::members::fixtures::add_member;
+    use crate::domain::reminders::{DueAt, NewReminder, ReminderText, Reminders};
 
     /// 2026-11-11T22:30:00Z: 23:30 in Prague, on Wednesday 11 November.
     fn wednesday_night() -> SystemTime {
@@ -564,10 +738,31 @@ mod tests {
     /// The service, its clock, and the slots it announces as planned.
     fn announcing(db: SqlitePool) -> (Batches, ManualClock, broadcast::Receiver<SlotPlanned>) {
         let clock = ManualClock::starting_at(wednesday_night());
+        let (batches, _, planned) = built(db, &clock);
+        (batches, clock, planned)
+    }
+
+    /// The service, the Reminders it keeps the slots' Reminders in, and its clock.
+    fn reminding(db: SqlitePool) -> (Batches, Reminders, ManualClock) {
+        let clock = ManualClock::starting_at(wednesday_night());
+        let (batches, reminders, _) = built(db, &clock);
+        (batches, reminders, clock)
+    }
+
+    fn built(
+        db: SqlitePool,
+        clock: &ManualClock,
+    ) -> (Batches, Reminders, broadcast::Receiver<SlotPlanned>) {
         let channel = Channel::new();
         let planned = channel.subscribe();
-        let batches = Batches::new(db, clock.clock(), channel.emitter(identity));
-        (batches, clock, planned)
+        let reminders = Reminders::new(db.clone(), clock.clock(), Channel::new().emitter(identity));
+        let batches = Batches::new(
+            db,
+            clock.clock(),
+            channel.emitter(identity),
+            reminders.clone(),
+        );
+        (batches, reminders, planned)
     }
 
     fn emitted(planned: &mut broadcast::Receiver<SlotPlanned>) -> Vec<SlotPlanned> {
@@ -1110,5 +1305,362 @@ mod tests {
         batches.cancel_slot(slot).await.unwrap();
 
         assert_eq!(emitted(&mut planned), []);
+    }
+
+    /// Each pending Reminder's text and due time on the clock in Prague, soonest first.
+    async fn pending(reminders: &Reminders) -> Vec<(String, DateTime)> {
+        reminders
+            .pending()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|reminder| {
+                let due = reminder.due_at.crew_time();
+                (reminder.text.as_str().to_owned(), due)
+            })
+            .collect()
+    }
+
+    /// `text` due at `due`, 09:00 on a Monday, as [`pending`] lists it.
+    fn due(text: &str, monday: Date) -> (String, DateTime) {
+        (text.to_owned(), monday.at(9, 0, 0, 0))
+    }
+
+    fn pils(number: i64) -> SlotBatch {
+        SlotBatch {
+            number: BatchNumber(number),
+            name: BatchName::parse("Vzor 10°").unwrap(),
+        }
+    }
+
+    #[test]
+    fn a_slots_reminder_is_due_at_nine_on_the_monday_of_its_week() {
+        // Sunday 22 November belongs to the week from Monday 16 November.
+        assert_eq!(
+            reminder_time(date(2026, 11, 22)),
+            date(2026, 11, 16).at(9, 0, 0, 0)
+        );
+        assert_eq!(
+            reminder_time(date(2026, 11, 21)),
+            date(2026, 11, 16).at(9, 0, 0, 0)
+        );
+        assert_eq!(
+            reminder_time(date(2026, 11, 16)),
+            date(2026, 11, 16).at(9, 0, 0, 0),
+            "a Monday slot that morning"
+        );
+        assert_eq!(
+            reminder_time(date(2027, 1, 1)),
+            date(2026, 12, 28).at(9, 0, 0, 0),
+            "across the new year"
+        );
+    }
+
+    #[test]
+    fn a_slots_reminder_names_the_day_and_its_batch_or_that_none_is_picked() {
+        assert_eq!(
+            reminder_text(date(2026, 11, 21), Some(&pils(14))).as_str(),
+            "Brew day Sat 21 Nov: #14 Vzor 10°"
+        );
+        assert_eq!(
+            reminder_text(date(2026, 11, 21), None).as_str(),
+            "Brew day Sat 21 Nov, and no Batch is picked yet"
+        );
+    }
+
+    #[sqlx::test]
+    async fn planning_a_slot_brings_a_pending_reminder_on_its_monday(db: SqlitePool) {
+        let ondra = add_member(&db, "Ondra", false).await;
+        let (batches, reminders, _) = reminding(db);
+
+        batches.plan_slot(ondra, date(2026, 11, 21)).await.unwrap();
+
+        assert_eq!(
+            pending(&reminders).await,
+            [due(
+                "Brew day Sat 21 Nov, and no Batch is picked yet",
+                date(2026, 11, 16)
+            )]
+        );
+        let reminder = &reminders.pending().await.unwrap()[0];
+        assert_eq!(
+            reminder.created_by.as_str(),
+            "Ondra",
+            "on behalf of its planner"
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_slot_whose_monday_has_passed_brings_no_reminder(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, reminders, _) = reminding(db);
+
+        // It's Wednesday: this week's Monday has passed.
+        batches.plan_slot(josef, date(2026, 11, 11)).await.unwrap();
+        batches.plan_slot(josef, date(2026, 11, 14)).await.unwrap();
+
+        assert_eq!(pending(&reminders).await, []);
+    }
+
+    #[sqlx::test]
+    async fn the_ticker_hears_of_a_slots_reminder(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, reminders, _) = reminding(db);
+
+        batches.plan_slot(josef, date(2026, 11, 21)).await.unwrap();
+
+        tokio::time::timeout(Duration::from_secs(1), reminders.changed())
+            .await
+            .expect("told of the new Reminder");
+    }
+
+    #[sqlx::test]
+    async fn moving_a_slot_moves_its_reminder(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, reminders, _) = reminding(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 21)).await.unwrap();
+        let id = reminders.pending().await.unwrap()[0].id;
+
+        batches.move_slot(slot, date(2026, 12, 3)).await.unwrap();
+
+        assert_eq!(
+            pending(&reminders).await,
+            [due(
+                "Brew day Thu 3 Dec, and no Batch is picked yet",
+                date(2026, 11, 30)
+            )]
+        );
+        assert_eq!(reminders.pending().await.unwrap()[0].id, id, "the same one");
+    }
+
+    #[sqlx::test]
+    async fn moving_a_slot_into_a_week_whose_monday_has_passed_drops_its_reminder(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, reminders, _) = reminding(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 21)).await.unwrap();
+
+        batches.move_slot(slot, date(2026, 11, 13)).await.unwrap();
+
+        assert_eq!(pending(&reminders).await, []);
+    }
+
+    #[sqlx::test]
+    async fn moving_a_slot_without_a_reminder_brings_one_if_its_monday_is_ahead(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, reminders, _) = reminding(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 13)).await.unwrap();
+        assert_eq!(pending(&reminders).await, []);
+
+        batches.move_slot(slot, date(2026, 11, 14)).await.unwrap();
+        assert_eq!(pending(&reminders).await, [], "still this week");
+
+        batches.move_slot(slot, date(2026, 11, 20)).await.unwrap();
+        assert_eq!(
+            pending(&reminders).await,
+            [due(
+                "Brew day Fri 20 Nov, and no Batch is picked yet",
+                date(2026, 11, 16)
+            )]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_slots_reminder_follows_its_batch(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, reminders, _) = reminding(db);
+        let first = batches.plan_slot(josef, date(2026, 11, 21)).await.unwrap();
+        let second = batches.plan_slot(josef, date(2026, 11, 28)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+        let unpicked = |day| format!("Brew day {day}, and no Batch is picked yet");
+
+        batches.link(first, pils).await.unwrap();
+        assert_eq!(
+            pending(&reminders).await,
+            [
+                due("Brew day Sat 21 Nov: #1 Pils", date(2026, 11, 16)),
+                due(&unpicked("Sat 28 Nov"), date(2026, 11, 23)),
+            ]
+        );
+
+        batches.link(second, pils).await.unwrap();
+        assert_eq!(
+            pending(&reminders).await,
+            [
+                due(&unpicked("Sat 21 Nov"), date(2026, 11, 16)),
+                due("Brew day Sat 28 Nov: #1 Pils", date(2026, 11, 23)),
+            ],
+            "moved to the other slot"
+        );
+
+        let renamed = NewBatch {
+            name: BatchName::parse("Vzor 10°").unwrap(),
+            notes: Notes::default(),
+        };
+        batches.edit(pils, josef, &renamed).await.unwrap();
+        assert_eq!(
+            pending(&reminders).await[1],
+            due("Brew day Sat 28 Nov: #1 Vzor 10°", date(2026, 11, 23)),
+            "renamed"
+        );
+
+        batches.unlink_slot(second).await.unwrap();
+        assert_eq!(
+            pending(&reminders).await[1],
+            due(&unpicked("Sat 28 Nov"), date(2026, 11, 23)),
+            "unlinked from the slot"
+        );
+
+        batches.link(second, pils).await.unwrap();
+        batches.unlink_batch(pils).await.unwrap();
+        assert_eq!(
+            pending(&reminders).await[1],
+            due(&unpicked("Sat 28 Nov"), date(2026, 11, 23)),
+            "unlinked from the Batch"
+        );
+
+        batches.link(second, pils).await.unwrap();
+        batches.delete(pils).await.unwrap();
+        assert_eq!(
+            pending(&reminders).await[1],
+            due(&unpicked("Sat 28 Nov"), date(2026, 11, 23)),
+            "its Batch deleted"
+        );
+    }
+
+    #[sqlx::test]
+    async fn brewing_on_a_free_slots_date_names_the_batch_in_its_reminder(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, reminders, _) = reminding(db);
+        batches.plan_slot(josef, date(2026, 11, 21)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+
+        brew(&batches, josef, pils, Some(date(2026, 11, 21))).await;
+
+        assert_eq!(
+            pending(&reminders).await,
+            [due("Brew day Sat 21 Nov: #1 Pils", date(2026, 11, 16))]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_members_edit_to_a_slots_reminder_is_overwritten_when_the_slot_changes(
+        db: SqlitePool,
+    ) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, reminders, _) = reminding(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 21)).await.unwrap();
+        let id = reminders.pending().await.unwrap()[0].id;
+        let edit = NewReminder {
+            text: ReminderText::parse("Buy malt!").unwrap(),
+            due_at: DueAt::parse("2026-11-20T18:00").unwrap(),
+        };
+        reminders.edit(id, &edit).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+
+        batches.link(slot, pils).await.unwrap();
+
+        assert_eq!(
+            pending(&reminders).await,
+            [due("Brew day Sat 21 Nov: #1 Pils", date(2026, 11, 16))]
+        );
+    }
+
+    #[sqlx::test]
+    async fn cancelling_a_slot_deletes_its_pending_reminder(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, reminders, _) = reminding(db);
+        let cancelled = batches.plan_slot(josef, date(2026, 11, 21)).await.unwrap();
+        batches.plan_slot(josef, date(2026, 11, 28)).await.unwrap();
+
+        batches.cancel_slot(cancelled).await.unwrap();
+
+        assert_eq!(
+            pending(&reminders).await,
+            [due(
+                "Brew day Sat 28 Nov, and no Batch is picked yet",
+                date(2026, 11, 23)
+            )]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_reminder_a_member_deleted_comes_back_only_when_the_slot_moves(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, reminders, _) = reminding(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 21)).await.unwrap();
+        let id = reminders.pending().await.unwrap()[0].id;
+        reminders.delete(id).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+
+        batches.link(slot, pils).await.unwrap();
+        batches.unlink_slot(slot).await.unwrap();
+        batches.link(slot, pils).await.unwrap();
+        assert_eq!(pending(&reminders).await, [], "not for a Batch");
+        batches.move_slot(slot, date(2026, 11, 21)).await.unwrap();
+        assert_eq!(pending(&reminders).await, [], "not to the same date");
+
+        batches.move_slot(slot, date(2026, 11, 22)).await.unwrap();
+        assert_eq!(
+            pending(&reminders).await,
+            [due("Brew day Sun 22 Nov: #1 Pils", date(2026, 11, 16))]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_sent_reminder_is_never_touched(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, reminders, clock) = reminding(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 21)).await.unwrap();
+        // Monday 16 November, 09:30 in Prague.
+        clock.advance(Duration::from_hours(4 * 24 + 10));
+        assert_eq!(reminders.send_due().await.unwrap(), 1);
+        let sent = || async {
+            let sent = reminders.sent().await.unwrap();
+            sent.into_iter()
+                .map(|reminder| reminder.text.as_str().to_owned())
+                .collect::<Vec<_>>()
+        };
+        let pils = add_batch(&batches, josef, "Pils").await;
+
+        batches.link(slot, pils).await.unwrap();
+        batches.unlink_slot(slot).await.unwrap();
+        assert_eq!(pending(&reminders).await, []);
+
+        batches.move_slot(slot, date(2026, 11, 28)).await.unwrap();
+        assert_eq!(
+            pending(&reminders).await,
+            [due(
+                "Brew day Sat 28 Nov, and no Batch is picked yet",
+                date(2026, 11, 23)
+            )],
+            "a new one for the new week"
+        );
+
+        batches.cancel_slot(slot).await.unwrap();
+        assert_eq!(pending(&reminders).await, []);
+        assert_eq!(
+            sent().await,
+            ["Brew day Sat 21 Nov, and no Batch is picked yet"]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_slots_reminder_is_at_nine_in_prague_across_a_clock_change(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, reminders, _) = reminding(db);
+        // The clocks go forward on Sunday 28 March 2027.
+        let slot = batches.plan_slot(josef, date(2027, 3, 28)).await.unwrap();
+        let winter = reminders.pending().await.unwrap()[0].due_at;
+
+        batches.move_slot(slot, date(2027, 4, 3)).await.unwrap();
+        let summer = reminders.pending().await.unwrap()[0].due_at;
+
+        assert_eq!(winter.crew_time(), date(2027, 3, 22).at(9, 0, 0, 0));
+        assert_eq!(summer.crew_time(), date(2027, 3, 29).at(9, 0, 0, 0));
+        assert_eq!(
+            summer.unix_seconds() - winter.unix_seconds(),
+            7 * 24 * 3600 - 3600,
+            "a week less the hour the clocks skip"
+        );
     }
 }

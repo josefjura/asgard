@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT reminder_id AS \"reminder_id?\" FROM brewing_slots WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "reminder_id?",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "a8f3b1b98840c7fa0ac1330fdd81d98b371f80127aad7fad5b02fe712c2bfc81"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM reminders WHERE id = ? AND sent_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "0237eff2fd96b85e1c73bf0caa97f0188e7428c16b02febc7a07e223a7b08383"
+}

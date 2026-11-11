@@ -8,11 +8,13 @@
 //! Member may add, edit or delete any Batch; nothing here checks who added it.
 
 use jiff::civil::{Date, DateTime};
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 
 use crate::domain::channel::Emitter;
 use crate::domain::clock::{Clock, crew_time_of_unix_seconds, unix_seconds};
 use crate::domain::members::{DisplayName, MemberId, parse_date};
+use crate::domain::reminders::Reminders;
+use slots::Missing;
 
 mod numbers;
 mod recipe;
@@ -29,6 +31,7 @@ pub use recipe::{
 };
 pub use slots::{
     LinkError, MoveError, PlannedBatch, Slot, SlotBatch, SlotError, SlotId, SlotPlanned, SlotState,
+    reminder_text, reminder_time,
 };
 
 /// Brewing slots for the gallery and the snapshots.
@@ -333,12 +336,24 @@ pub struct Batches {
     db: SqlitePool,
     clock: Clock,
     events: Emitter<SlotPlanned>,
+    /// Where each Brewing slot's Reminder is kept.
+    reminders: Reminders,
 }
 
 impl Batches {
     #[must_use]
-    pub const fn new(db: SqlitePool, clock: Clock, events: Emitter<SlotPlanned>) -> Self {
-        Self { db, clock, events }
+    pub const fn new(
+        db: SqlitePool,
+        clock: Clock,
+        events: Emitter<SlotPlanned>,
+        reminders: Reminders,
+    ) -> Self {
+        Self {
+            db,
+            clock,
+            events,
+            reminders,
+        }
     }
 
     /// Adds `batch` with its `recipe`, if it has one, on behalf of `added_by`, now, with the
@@ -489,18 +504,24 @@ impl Batches {
         .execute(&mut *tx)
         .await?;
         if let Some(brew_date) = brew_date {
-            sqlx::query!(
-                "UPDATE brewing_slots SET batch_number = ?
-                 WHERE date = ? AND batch_number IS NULL
-                   AND NOT EXISTS (SELECT 1 FROM brewing_slots WHERE batch_number = ?)",
+            let linked = sqlx::query_scalar!(
+                r#"UPDATE brewing_slots SET batch_number = ?
+                   WHERE date = ? AND batch_number IS NULL
+                     AND NOT EXISTS (SELECT 1 FROM brewing_slots WHERE batch_number = ?)
+                   RETURNING id AS "id!""#,
                 number.0,
                 brew_date,
                 number.0,
             )
-            .execute(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await?;
+            if let Some(linked) = linked {
+                self.follow(&mut tx, SlotId::from_client(linked), Missing::Leave)
+                    .await?;
+            }
         }
         tx.commit().await?;
+        self.reminders.announce_change();
         Ok(())
     }
 
@@ -562,6 +583,7 @@ impl Batches {
     ) -> Result<(), BatchError> {
         let edited_at = unix_seconds(self.clock.now());
         let member = edited_by.get();
+        let mut tx = self.db.begin().await?;
         let done = sqlx::query!(
             "UPDATE batches SET name = ?, notes = ?, edited_by = ?, edited_at = ?
              WHERE number = ?",
@@ -571,11 +593,17 @@ impl Batches {
             edited_at,
             number.0,
         )
-        .execute(&self.db)
+        .execute(&mut *tx)
         .await?;
         if done.rows_affected() == 0 {
             return Err(BatchError::NotFound);
         }
+        // Its slot's Reminder names it.
+        if let Some(slot) = slot_of(&mut tx, number).await? {
+            self.follow(&mut tx, slot, Missing::Leave).await?;
+        }
+        tx.commit().await?;
+        self.reminders.announce_change();
         Ok(())
     }
 
@@ -646,20 +674,42 @@ impl Batches {
         Ok(())
     }
 
-    /// Deletes the Batch `number` for good. Its number is never used again.
+    /// Deletes the Batch `number` for good. Its number is never used again. Its slot, if it had
+    /// one, has nothing chosen, and the slot's pending Reminder says so.
     ///
     /// # Errors
     ///
     /// Returns [`BatchError::NotFound`] if there's no Batch `number`, or a database error.
     pub async fn delete(&self, number: BatchNumber) -> Result<(), BatchError> {
+        let mut tx = self.db.begin().await?;
+        let slot = slot_of(&mut tx, number).await?;
         let done = sqlx::query!("DELETE FROM batches WHERE number = ?", number.0)
-            .execute(&self.db)
+            .execute(&mut *tx)
             .await?;
         if done.rows_affected() == 0 {
             return Err(BatchError::NotFound);
         }
+        if let Some(slot) = slot {
+            self.follow(&mut tx, slot, Missing::Leave).await?;
+        }
+        tx.commit().await?;
+        self.reminders.announce_change();
         Ok(())
     }
+}
+
+/// The Brewing slot the Batch `number` is on, if any.
+async fn slot_of(
+    conn: &mut SqliteConnection,
+    number: BatchNumber,
+) -> Result<Option<SlotId>, sqlx::Error> {
+    let slot = sqlx::query_scalar!(
+        r#"SELECT id AS "id!" FROM brewing_slots WHERE batch_number = ?"#,
+        number.0
+    )
+    .fetch_optional(conn)
+    .await?;
+    Ok(slot.map(SlotId::from_client))
 }
 
 /// Batches for the gallery and the snapshots.
@@ -791,10 +841,16 @@ mod tests {
 
     fn service(db: SqlitePool) -> (super::Batches, ManualClock) {
         let clock = ManualClock::starting_at(saturday_morning());
+        let reminders = crate::domain::reminders::Reminders::new(
+            db.clone(),
+            clock.clock(),
+            crate::domain::channel::Channel::new().emitter(std::convert::identity),
+        );
         let batches = super::Batches::new(
             db,
             clock.clock(),
             crate::domain::channel::Channel::new().emitter(std::convert::identity),
+            reminders,
         );
         (batches, clock)
     }

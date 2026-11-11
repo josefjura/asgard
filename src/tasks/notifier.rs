@@ -126,7 +126,7 @@ mod tests {
     use crate::domain::notifications::fixtures::{FakeSender, Sent, drain};
     use crate::domain::notifications::{Notification, Opens, Urgency};
     use crate::domain::push::fixtures::subscription;
-    use crate::domain::reminders::{ReminderDue, ReminderId, ReminderText};
+    use crate::domain::reminders::{ReminderDue, ReminderId, ReminderText, Reminders};
     use crate::domain::shopping::{ItemName, NewItem, Shopping, Urgency as ItemUrgency};
 
     /// A Crew whose devices the notifier pushes to.
@@ -165,6 +165,11 @@ mod tests {
                     db.clone(),
                     april.clock(),
                     channel.emitter(Event::SlotPlanned),
+                    Reminders::new(
+                        db.clone(),
+                        april.clock(),
+                        channel.emitter(Event::ReminderDue),
+                    ),
                 ),
                 subscriptions: PushSubscriptions::new(db, clock.clock()),
                 due: channel.emitter(Event::ReminderDue),

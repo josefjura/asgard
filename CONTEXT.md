@@ -118,7 +118,7 @@ _Avoid_: recipe for the Batch itself
 The light, read-only view of a Batch's Recipe: style, targets, fermentables, hops, yeast and mash steps, in metric units.
 
 **Brewing slot** (short: **slot**):
-A date the Crew has set aside for brewing, holding at most one Planned Batch.
+A date the Crew has set aside for brewing, holding at most one Planned Batch. Each brings an ordinary Reminder at 09:00 on the Monday of its week, naming its Batch or saying none is picked yet, which follows the slot as plans change.
 _Avoid_: Brew day (that's what was recorded on a Batch), session, event
 
 **Brew day**:

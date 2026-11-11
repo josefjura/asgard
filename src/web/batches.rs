@@ -2651,6 +2651,27 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn a_planned_slots_reminder_is_pending_on_the_reminders_tab(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let ondra = app.sign_in_new_member("Ondra").await;
+
+        plan(&app, &ondra, "2026-01-10").await;
+
+        let html = page(&app, &josef, "/reminders").await;
+        assert!(
+            html.contains("Brew day Sat 10 Jan, and no Batch is picked yet"),
+            "{html}"
+        );
+        assert!(
+            html.contains(
+                r#"<time datetime="2026-01-05T09:00">Monday 5 January 2026, 09:00</time> · Ondra"#
+            ),
+            "{html}"
+        );
+    }
+
+    #[sqlx::test]
     async fn a_taken_past_or_missing_date_is_refused_and_kept(db: SqlitePool) {
         let app = TestApp::new(db);
         let cookie = app.sign_in_new_admin("Josef").await;
