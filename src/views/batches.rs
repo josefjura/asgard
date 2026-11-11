@@ -254,10 +254,12 @@ fn batch_list(log: &BatchPage) -> Markup {
     }
 }
 
-/// A Batch in the log: its number, name and Stage, and when it was brewed and bottled, or the
-/// day of its Brewing slot until it's brewed. It leads to the Batch's own page.
+/// A Batch in the log: its number, name and Stage, and when it was brewed and bottled, or until
+/// it's brewed the day of its Brewing slot and who added it on which day. It leads to the Batch's
+/// own page.
 #[must_use]
 pub fn batch_row(batch: &Batch) -> Markup {
+    let added = batch.added_at.crew_time();
     html! {
         li.batch {
             a.batch-link href=(paths::batch(batch.number)) {
@@ -272,6 +274,8 @@ pub fn batch_row(batch: &Batch) -> Markup {
                             }
                         } @else {
                             (slot_line(batch.slot))
+                            " · Added by " (batch.added_by) " · "
+                            time datetime=(field_time(added)) { (day(added.date())) }
                         }
                     }
                 }
@@ -1321,7 +1325,12 @@ mod tests {
         assert!(html.contains(r#"<span class="batch-number">#12</span>"#));
         assert!(html.contains("Únětický Vzor 10.7°"));
         assert!(html.contains(r#"<span class="stage planned">Planned</span>"#));
-        assert!(html.contains("Waiting for a slot"), "{html}");
+        assert!(
+            html.contains(
+                r#"Waiting for a slot · Added by Josef · <time datetime="2026-10-24T18:05">24 October 2026</time>"#
+            ),
+            "{html}"
+        );
     }
 
     #[test]
