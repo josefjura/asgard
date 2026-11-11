@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT brewing_slots.id AS \"id!\", brewing_slots.date\n               FROM brewing_slots\n               LEFT JOIN batches ON batches.number = brewing_slots.batch_number\n               WHERE brewing_slots.date >= ? AND batches.brew_date IS NULL\n               ORDER BY brewing_slots.date",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "date",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "d9a7116011108e62cbc2164f513d289a4f486a46d6cb3feb2b1b51220f54e037"
+}

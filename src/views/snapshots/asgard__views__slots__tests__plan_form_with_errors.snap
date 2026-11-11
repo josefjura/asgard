@@ -1,0 +1,12 @@
+---
+source: src/views/slots.rs
+expression: "plan_form(value, Some(message), TODAY).into_string().replace(\"><\", \">\\n<\")"
+---
+<form class="entry-form slot-form" id="plan-slot" method="post" action="/batches/slots" hx-post="/batches/slots" hx-swap="outerHTML">
+<div class="field">
+<label for="slot-date">Date</label>
+<input id="slot-date" type="date" name="date" value="2026-11-21" min="2026-11-11" required aria-invalid="true" aria-describedby="slot-date-problem">
+<p class="field-problem" id="slot-date-problem">There's already a slot on Sat 21 Nov.</p>
+</div>
+<button class="button" type="submit">Plan a slot</button>
+</form>

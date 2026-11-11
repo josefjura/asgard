@@ -1,4 +1,5 @@
-//! The foot of an edit page: what deleting the thing does, and the button that deletes it.
+//! The foot of an edit page: what deleting the thing does, and the button that deletes it. Also
+//! the button alone that asks before it posts, for a row to cancel or remove something with.
 
 use maud::{Markup, html};
 
@@ -28,10 +29,23 @@ pub fn delete_section(deletion: &Deletion) -> Markup {
     html! {
         section.delete-section aria-label={ "Delete this " (kind) } {
             p { (explains) }
-            form method="post" action=(action) hx-post=(action)
-                hx-confirm={ "Delete this " (kind) "? " (warns) } {
-                button.button.danger type="submit" { "Delete " (kind) }
-            }
+            (confirm_button(
+                &format!("Delete {kind}"),
+                &format!("Delete this {kind}? {warns}"),
+                action,
+                "button danger",
+            ))
+        }
+    }
+}
+
+/// A button with `label` and `class` that posts to `action` once the Member answers OK to
+/// `question`. Without htmx, it posts as a plain form, without asking.
+#[must_use]
+pub fn confirm_button(label: &str, question: &str, action: &str, class: &str) -> Markup {
+    html! {
+        form method="post" action=(action) hx-post=(action) hx-confirm=(question) {
+            button class=(class) type="submit" { (label) }
         }
     }
 }

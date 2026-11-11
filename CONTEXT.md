@@ -93,7 +93,7 @@ One thing on the Shopping list, either **open** or **bought**.
 _Avoid_: todo, task
 
 **Urgency**:
-How soon an Item is needed: *ASAP*, *Next brewday* or *Nice to have*.
+How soon an Item is needed: *ASAP*, *Next brewday* or *Nice to have*. *Next brewday* means by the next Brewing slot.
 _Avoid_: priority
 
 **Recently bought**:
@@ -116,6 +116,10 @@ _Avoid_: recipe for the Batch itself
 
 **Recipe viewer**:
 The light, read-only view of a Batch's Recipe: style, targets, fermentables, hops, yeast and mash steps, in metric units.
+
+**Brewing slot** (short: **slot**):
+A date the Crew has set aside for brewing, holding at most one Planned Batch.
+_Avoid_: Brew day (that's what was recorded on a Batch), session, event
 
 **Brew day**:
 When a Batch was brewed: the brew date, its OG and its Volume.

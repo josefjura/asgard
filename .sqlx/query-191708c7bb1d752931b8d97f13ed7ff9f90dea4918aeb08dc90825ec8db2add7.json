@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE brewing_slots SET date = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "191708c7bb1d752931b8d97f13ed7ff9f90dea4918aeb08dc90825ec8db2add7"
+}

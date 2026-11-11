@@ -1,6 +1,6 @@
-//! The Batches tab, the Crew's brewery log: adding a Batch, reading the log a page at a time,
-//! each Batch's own page, recording its Brew day and Bottling, attaching its Recipe, and editing
-//! or deleting any Batch.
+//! The Batches tab, the Crew's brewery log: planning, moving and cancelling Brewing slots, adding
+//! a Batch, reading the log a page at a time, each Batch's own page, recording its Brew day and
+//! Bottling, attaching its Recipe, and editing or deleting any Batch.
 
 use axum::extract::multipart::{Field, MultipartError};
 use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
@@ -19,8 +19,9 @@ use super::{AppError, AppState};
 
 use crate::domain::batches::{
     Batch, BatchError, BatchName, BatchNumber, Bottling, BrewDay, FG_MAX, FG_MIN, Gravity,
-    GravityError, NAME_MAX, NOTES_MAX, NameError, NewBatch, Notes, NotesError, OG_MAX, OG_MIN,
-    RECIPE_MAX_BYTES, Recipe, RecipeError, RecordError, RuleError, VOLUME_MAX, Volume, VolumeError,
+    GravityError, MoveError, NAME_MAX, NOTES_MAX, NameError, NewBatch, Notes, NotesError, OG_MAX,
+    OG_MIN, RECIPE_MAX_BYTES, Recipe, RecipeError, RecordError, RuleError, SlotError, SlotId,
+    VOLUME_MAX, Volume, VolumeError,
 };
 use crate::views;
 use crate::views::batches::{
@@ -28,6 +29,7 @@ use crate::views::batches::{
     Purpose, paths,
 };
 use crate::views::nav::Tab;
+use crate::views::slots::{self as slot_views, slot_day};
 
 /// The most a request that uploads a Recipe may carry: the file's cap, plus room for the name,
 /// the Notes and the multipart framing. It's only a backstop: the handlers stop reading a file
@@ -59,6 +61,9 @@ pub fn routes() -> Router<AppState> {
             post(attach_recipe).layer(DefaultBodyLimit::max(UPLOAD_LIMIT)),
         )
         .route("/batches/{number}/recipe/delete", post(remove_recipe))
+        .route("/batches/slots", post(plan_slot))
+        .route("/batches/slots/{id}", get(slot_page).post(move_slot))
+        .route("/batches/slots/{id}/cancel", post(cancel_slot))
 }
 
 /// Which page of the log to show. Missing means the first.
@@ -74,12 +79,24 @@ async fn show(
     Member(_): Member,
     Query(query): Query<PageQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let form = views::batches::form(
+    let plan = plan_form(&state);
+    Ok(fresh(
+        page(&state, &plan, &add_form(), query.page.unwrap_or(1)).await?,
+    ))
+}
+
+/// The empty form a Batch is added with.
+fn add_form() -> Markup {
+    views::batches::form(
         Purpose::Add,
         BatchValues::default(),
         &BatchProblems::default(),
-    );
-    Ok(fresh(page(&state, &form, query.page.unwrap_or(1)).await?))
+    )
+}
+
+/// The empty form a Brewing slot is planned with.
+fn plan_form(state: &AppState) -> Markup {
+    slot_views::plan_form("", None, state.batches.today())
 }
 
 #[derive(Deserialize)]
@@ -121,7 +138,7 @@ async fn add(
             let body = if htmx {
                 form
             } else {
-                page(&state, &form, 1).await?
+                page(&state, &plan_form(&state), &form, 1).await?
             };
             return Ok((StatusCode::UNPROCESSABLE_ENTITY, fresh(body)).into_response());
         }
@@ -766,10 +783,157 @@ fn notes_message(err: NotesError) -> String {
     }
 }
 
-/// The Batches tab around `form`, with the `page_number`th page of the log.
-async fn page(state: &AppState, form: &Markup, page_number: usize) -> Result<Markup, AppError> {
+/// The Batches tab around `plan`, the form that plans a Brewing slot, and `form`, the one that
+/// adds a Batch, with the upcoming slots and the `page_number`th page of the log.
+async fn page(
+    state: &AppState,
+    plan: &Markup,
+    form: &Markup,
+    page_number: usize,
+) -> Result<Markup, AppError> {
+    let slots = state.batches.upcoming_slots().await?;
     let log = state.batches.page(page_number).await?;
-    Ok(views::batches::page(form, &log))
+    Ok(views::batches::page(
+        &slot_views::slots_section(&slots, plan),
+        form,
+        &log,
+    ))
+}
+
+#[derive(Deserialize)]
+struct SlotForm {
+    #[serde(default)]
+    date: String,
+}
+
+/// The date typed into a slot's form, or what to say about it.
+fn parse_slot_date(input: &SlotForm) -> Result<Date, String> {
+    input
+        .date
+        .trim()
+        .parse()
+        .map_err(|_| "Pick a date for the slot.".to_owned())
+}
+
+/// What a slot's form says about a date `err` refused.
+fn slot_message(err: SlotError) -> Result<String, AppError> {
+    match err {
+        SlotError::Past => Ok("Pick today or a later date.".to_owned()),
+        SlotError::Taken(date) => Ok(format!("There's already a slot on {}.", slot_day(date))),
+        SlotError::Database(err) => Err(err.into()),
+    }
+}
+
+/// Plans a Brewing slot on the date in the form and goes back to the tab, where it is among
+/// the upcoming slots. A refused date shows what to fix: alone for htmx, inside the tab
+/// otherwise.
+async fn plan_slot(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Form(input): Form<SlotForm>,
+) -> Result<Response, AppError> {
+    let message = match parse_slot_date(&input) {
+        Ok(date) => match state.batches.plan_slot(member.id, date).await {
+            Ok(id) => {
+                tracing::info!(
+                    member = member.id.get(),
+                    slot = id.get(),
+                    "a Member planned a Brewing slot"
+                );
+                return Ok(go_to(htmx, Tab::Batches.href()));
+            }
+            Err(err) => slot_message(err)?,
+        },
+        Err(message) => message,
+    };
+    let form = slot_views::plan_form(&input.date, Some(&message), state.batches.today());
+    let body = if htmx {
+        form
+    } else {
+        page(&state, &form, &add_form(), 1).await?
+    };
+    Ok((StatusCode::UNPROCESSABLE_ENTITY, fresh(body)).into_response())
+}
+
+/// The slot `id`'s page, where it is moved: its date in the form.
+async fn slot_page(
+    State(state): State<AppState>,
+    Member(_): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let id = SlotId::from_client(id);
+    let Some(slot) = state.batches.slot(id).await? else {
+        return Ok(slot_gone(htmx, id));
+    };
+    let form = slot_views::move_form(id, &slot.date.to_string(), None, state.batches.today());
+    Ok(fresh(slot_views::move_page(slot.date, &form)).into_response())
+}
+
+/// Moves the slot `id` to the date in the form and goes back to the tab. A refused date shows
+/// what to fix: alone for htmx, inside the slot's page otherwise.
+async fn move_slot(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+    Form(input): Form<SlotForm>,
+) -> Result<Response, AppError> {
+    let id = SlotId::from_client(id);
+    let message = match parse_slot_date(&input) {
+        Ok(date) => match state.batches.move_slot(id, date).await {
+            Ok(()) => {
+                tracing::info!(
+                    member = member.id.get(),
+                    slot = id.get(),
+                    "a Member moved a Brewing slot"
+                );
+                return Ok(go_to(htmx, Tab::Batches.href()));
+            }
+            Err(MoveError::NotFound) => return Ok(slot_gone(htmx, id)),
+            Err(MoveError::Date(err)) => slot_message(err)?,
+        },
+        Err(message) => message,
+    };
+    // A slot that is gone is reported as gone, not as a form to fix.
+    let Some(slot) = state.batches.slot(id).await? else {
+        return Ok(slot_gone(htmx, id));
+    };
+    let form = slot_views::move_form(id, &input.date, Some(&message), state.batches.today());
+    Ok(fragment_or_page(
+        htmx,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        form,
+        |form| slot_views::move_page(slot.date, form),
+    ))
+}
+
+/// Cancels the slot `id` for good and goes back to the tab. A slot already gone stays gone.
+async fn cancel_slot(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let id = SlotId::from_client(id);
+    state.batches.cancel_slot(id).await?;
+    tracing::info!(
+        member = member.id.get(),
+        slot = id.get(),
+        "a Member cancelled a Brewing slot"
+    );
+    Ok(go_to(htmx, Tab::Batches.href()))
+}
+
+/// What answers a request about the slot `id` once someone has cancelled it: the page saying
+/// so. htmx can't swap in a whole page, so it is told to load the slot's page, which says so.
+fn slot_gone(htmx: bool, id: SlotId) -> Response {
+    if htmx {
+        go_to(true, &slot_views::paths::slot(id))
+    } else {
+        (StatusCode::NOT_FOUND, fresh(slot_views::gone_page())).into_response()
+    }
 }
 
 #[cfg(test)]
@@ -2197,5 +2361,293 @@ mod tests {
             "{html}"
         );
         assert_eq!(listed(&page(&app, &josef, "/batches").await).len(), 1);
+    }
+
+    // Brewing slots. The test app's clock starts on Thursday 1 January 2026 in Prague.
+
+    /// Posts `date` to a slot's form at `uri`, as htmx does if `htmx`.
+    async fn post_slot(
+        app: &TestApp,
+        cookie: &str,
+        uri: &str,
+        date: &str,
+        htmx: bool,
+    ) -> Response<Body> {
+        post_form(
+            app,
+            uri,
+            cookie,
+            &fields(&[("date", date)]),
+            htmx,
+            PUBLIC_ORIGIN,
+        )
+        .await
+    }
+
+    /// Plans a slot on `date` with htmx, expecting it planned.
+    async fn plan(app: &TestApp, cookie: &str, date: &str) {
+        let response = post_slot(app, cookie, "/batches/slots", date, true).await;
+        assert_eq!(response.status(), StatusCode::OK, "{date}");
+        assert_eq!(response.headers()[HX_REDIRECT], "/batches");
+    }
+
+    /// The dates of the upcoming slots on `html`, in order.
+    fn slot_dates(html: &str) -> Vec<String> {
+        html.split(r#"<span class="slot-date"><time datetime=""#)
+            .skip(1)
+            .map(|rest| rest.split('"').next().unwrap_or_default().to_owned())
+            .collect()
+    }
+
+    /// Posts a slot's form, expecting it refused, and answers with what came back.
+    async fn slot_refused(
+        app: &TestApp,
+        cookie: &str,
+        uri: &str,
+        date: &str,
+        htmx: bool,
+    ) -> String {
+        let response = post_slot(app, cookie, uri, date, htmx).await;
+        let status = response.status();
+        let body = body_text(response).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        body
+    }
+
+    #[sqlx::test]
+    async fn signed_out_slot_requests_redirect_to_sign_in(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        plan(&app, &josef, "2026-01-10").await;
+
+        for response in [
+            app.get("/batches/slots/1").await,
+            post_slot(&app, "", "/batches/slots", "2026-01-11", false).await,
+            post_slot(&app, "", "/batches/slots/1", "2026-01-12", false).await,
+            post_slot(&app, "", "/batches/slots/1/cancel", "", false).await,
+        ] {
+            assert_eq!(response.status(), StatusCode::SEE_OTHER);
+            assert_eq!(response.headers()[LOCATION], "/sign-in");
+        }
+        assert_eq!(
+            slot_dates(&page(&app, &josef, "/batches").await),
+            ["2026-01-10"]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_new_tab_has_no_slots_and_the_plan_form(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+
+        let html = page(&app, &cookie, "/batches").await;
+
+        assert!(html.contains("No brew day set aside yet."), "{html}");
+        assert!(
+            html.contains(r#"action="/batches/slots" hx-post="/batches/slots""#),
+            "{html}"
+        );
+        assert!(html.contains(r#"min="2026-01-01""#));
+    }
+
+    #[sqlx::test]
+    async fn any_member_plans_slots_shown_soonest_first(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let ondra = app.sign_in_new_member("Ondra").await;
+
+        plan(&app, &josef, "2026-01-24").await;
+        plan(&app, &ondra, "2026-01-01").await;
+        let response = post_slot(&app, &ondra, "/batches/slots", "2026-01-10", false).await;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.headers()[LOCATION], "/batches");
+
+        let html = page(&app, &josef, "/batches").await;
+        assert_eq!(
+            slot_dates(&html),
+            ["2026-01-01", "2026-01-10", "2026-01-24"]
+        );
+        assert!(html.contains("Sat 10 Jan"), "{html}");
+        assert!(html.contains("Nothing chosen yet"));
+    }
+
+    #[sqlx::test]
+    async fn a_taken_past_or_missing_date_is_refused_and_kept(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-10").await;
+
+        let taken = slot_refused(&app, &cookie, "/batches/slots", "2026-01-10", true).await;
+        assert!(
+            taken.starts_with("<form "),
+            "a fragment, not the page: {taken}"
+        );
+        assert!(
+            taken.contains("There's already a slot on Sat 10 Jan."),
+            "{taken}"
+        );
+        assert!(taken.contains(r#"value="2026-01-10""#));
+
+        let past = slot_refused(&app, &cookie, "/batches/slots", "2025-12-31", false).await;
+        assert!(past.contains("<!DOCTYPE"), "the whole tab");
+        assert!(past.contains("Pick today or a later date."), "{past}");
+        assert!(past.contains(r#"value="2025-12-31""#));
+        assert_eq!(slot_dates(&past), ["2026-01-10"]);
+
+        let missing = slot_refused(&app, &cookie, "/batches/slots", " ", true).await;
+        assert!(missing.contains("Pick a date for the slot."), "{missing}");
+
+        assert_eq!(
+            slot_dates(&page(&app, &cookie, "/batches").await),
+            ["2026-01-10"]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_slot_whose_date_has_passed_is_no_longer_shown(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-01").await;
+        plan(&app, &cookie, "2026-01-02").await;
+
+        app.clock.advance(std::time::Duration::from_hours(24));
+
+        assert_eq!(
+            slot_dates(&page(&app, &cookie, "/batches").await),
+            ["2026-01-02"]
+        );
+    }
+
+    #[sqlx::test]
+    async fn any_member_moves_a_slot_another_planned(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let simon = app.sign_in_new_member("Šimon").await;
+        plan(&app, &josef, "2026-01-10").await;
+        plan(&app, &josef, "2026-01-17").await;
+
+        let form = page(&app, &simon, "/batches/slots/1").await;
+        assert!(form.contains("Move the slot on"), "{form}");
+        assert!(form.contains(r#"value="2026-01-10""#));
+        assert!(form.contains(r#"min="2026-01-01""#));
+
+        let response = post_slot(&app, &simon, "/batches/slots/1", "2026-01-24", true).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[HX_REDIRECT], "/batches");
+
+        assert_eq!(
+            slot_dates(&page(&app, &josef, "/batches").await),
+            ["2026-01-17", "2026-01-24"]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_move_to_a_taken_past_or_missing_date_is_refused_and_kept(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-10").await;
+        plan(&app, &cookie, "2026-01-17").await;
+
+        let taken = slot_refused(&app, &cookie, "/batches/slots/1", "2026-01-17", true).await;
+        assert!(
+            taken.starts_with("<form "),
+            "a fragment, not the page: {taken}"
+        );
+        assert!(
+            taken.contains("There's already a slot on Sat 17 Jan."),
+            "{taken}"
+        );
+        assert!(taken.contains(r#"value="2026-01-17""#));
+
+        let past = slot_refused(&app, &cookie, "/batches/slots/1", "2025-12-31", false).await;
+        assert!(past.contains("<!DOCTYPE"), "the slot's page");
+        assert!(past.contains("Move the slot on"), "{past}");
+        assert!(past.contains("Pick today or a later date."));
+        assert!(past.contains(r#"value="2025-12-31""#));
+
+        let missing = slot_refused(&app, &cookie, "/batches/slots/1", "", true).await;
+        assert!(missing.contains("Pick a date for the slot."), "{missing}");
+
+        assert_eq!(
+            slot_dates(&page(&app, &cookie, "/batches").await),
+            ["2026-01-10", "2026-01-17"]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_cancelled_slot_is_gone_and_frees_its_date(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let ondra = app.sign_in_new_member("Ondra").await;
+        plan(&app, &josef, "2026-01-10").await;
+
+        let tab = page(&app, &ondra, "/batches").await;
+        assert!(
+            tab.contains(
+                r#"hx-post="/batches/slots/1/cancel" hx-confirm="Cancel the slot on Sat 10 Jan?"#
+            ),
+            "{tab}"
+        );
+        let response = post_slot(&app, &ondra, "/batches/slots/1/cancel", "", true).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[HX_REDIRECT], "/batches");
+
+        let html = page(&app, &josef, "/batches").await;
+        assert_eq!(slot_dates(&html), Vec::<String>::new());
+        assert!(html.contains("No brew day set aside yet."));
+        plan(&app, &josef, "2026-01-10").await;
+    }
+
+    #[sqlx::test]
+    async fn a_cancelled_slot_cant_be_moved_or_cancelled_again(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-10").await;
+        post_slot(&app, &cookie, "/batches/slots/1/cancel", "", true).await;
+
+        let response = app.get_with("/batches/slots/1", &cookie).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(body_text(response).await.contains("This slot is gone"));
+
+        let moved = post_slot(&app, &cookie, "/batches/slots/1", "2026-01-17", true).await;
+        assert_eq!(moved.headers()[HX_REDIRECT], "/batches/slots/1");
+        let refused = post_slot(&app, &cookie, "/batches/slots/1", "", false).await;
+        assert_eq!(refused.status(), StatusCode::NOT_FOUND);
+
+        let again = post_slot(&app, &cookie, "/batches/slots/1/cancel", "", false).await;
+        assert_eq!(again.status(), StatusCode::SEE_OTHER);
+        assert_eq!(again.headers()[LOCATION], "/batches");
+        assert_eq!(
+            slot_dates(&page(&app, &cookie, "/batches").await),
+            Vec::<String>::new()
+        );
+    }
+
+    #[sqlx::test]
+    async fn slot_posts_from_another_origin_are_refused(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        plan(&app, &josef, "2026-01-10").await;
+
+        for uri in [
+            "/batches/slots",
+            "/batches/slots/1",
+            "/batches/slots/1/cancel",
+        ] {
+            let response = post_form(
+                &app,
+                uri,
+                &josef,
+                &fields(&[("date", "2026-01-24")]),
+                true,
+                "https://evil.example",
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{uri}");
+        }
+        assert_eq!(
+            slot_dates(&page(&app, &josef, "/batches").await),
+            ["2026-01-10"]
+        );
     }
 }
