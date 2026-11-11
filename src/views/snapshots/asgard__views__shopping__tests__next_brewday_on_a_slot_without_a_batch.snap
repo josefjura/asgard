@@ -1,0 +1,91 @@
+---
+source: src/views/shopping.rs
+expression: "open_items(&open(), &slot_without_batch()).into_string().replace(\"><\", \">\\n<\")"
+---
+<div id="open-items">
+<section class="section" aria-labelledby="urgency-asap">
+<h2 id="urgency-asap">ASAP</h2>
+<ul class="item-list">
+<li class="item" id="item-1">
+<div class="item-main">
+<span class="item-name" id="item-1-name">Star San</span>
+<span class="item-meta">
+<time datetime="2026-10-20T08:00">Tuesday 20 October 2026, 08:00</time> · Ondra</span>
+</div>
+<div class="item-actions">
+<a class="button small secondary" href="/shopping/1/edit" hx-get="/shopping/1/edit" hx-target="#item-1" hx-swap="outerHTML" aria-describedby="item-1-name">Edit</a>
+<form method="post" action="/shopping/1/bought" hx-post="/shopping/1/bought" hx-target="#open-items" hx-swap="outerHTML">
+<button class="button small secondary" type="submit" aria-describedby="item-1-name">Bought</button>
+</form>
+</div>
+</li>
+<li class="item" id="item-4">
+<div class="item-main">
+<span class="item-name" id="item-4-name">CO₂ bottle refill</span>
+<p class="item-note">The 10 kg one</p>
+<span class="item-meta">
+<time datetime="2026-10-23T19:42">Friday 23 October 2026, 19:42</time> · Josef</span>
+</div>
+<div class="item-actions">
+<a class="button small secondary" href="/shopping/4/edit" hx-get="/shopping/4/edit" hx-target="#item-4" hx-swap="outerHTML" aria-describedby="item-4-name">Edit</a>
+<form method="post" action="/shopping/4/bought" hx-post="/shopping/4/bought" hx-target="#open-items" hx-swap="outerHTML">
+<button class="button small secondary" type="submit" aria-describedby="item-4-name">Bought</button>
+</form>
+</div>
+</li>
+</ul>
+</section>
+<section class="section" aria-labelledby="urgency-next-brewday">
+<h2 id="urgency-next-brewday">Next brewday · <time datetime="2026-11-21">Sat 21 Nov</time>
+</h2>
+<ul class="item-list">
+<li class="item" id="item-2">
+<div class="item-main">
+<span class="item-name" id="item-2-name">Pilsner malt</span>
+<p class="item-note">25 kg
+<a href="https://www.example.cz/slady/pilsner?bag=25" target="_blank" rel="noopener noreferrer">https://www.example.cz/slady/pilsner?bag=25</a>
+</p>
+<span class="item-meta">
+<time datetime="2026-10-21T12:15">Wednesday 21 October 2026, 12:15</time> · Šimon</span>
+</div>
+<div class="item-actions">
+<a class="button small secondary" href="/shopping/2/edit" hx-get="/shopping/2/edit" hx-target="#item-2" hx-swap="outerHTML" aria-describedby="item-2-name">Edit</a>
+<form method="post" action="/shopping/2/bought" hx-post="/shopping/2/bought" hx-target="#open-items" hx-swap="outerHTML">
+<button class="button small secondary" type="submit" aria-describedby="item-2-name">Bought</button>
+</form>
+</div>
+</li>
+<li class="item" id="item-5">
+<div class="item-main">
+<span class="item-name" id="item-5-name">Saaz</span>
+<span class="item-meta">
+<time datetime="2026-10-24T09:00">Saturday 24 October 2026, 09:00</time> · Josef</span>
+</div>
+<div class="item-actions">
+<a class="button small secondary" href="/shopping/5/edit" hx-get="/shopping/5/edit" hx-target="#item-5" hx-swap="outerHTML" aria-describedby="item-5-name">Edit</a>
+<form method="post" action="/shopping/5/bought" hx-post="/shopping/5/bought" hx-target="#open-items" hx-swap="outerHTML">
+<button class="button small secondary" type="submit" aria-describedby="item-5-name">Bought</button>
+</form>
+</div>
+</li>
+</ul>
+</section>
+<section class="section" aria-labelledby="urgency-nice-to-have">
+<h2 id="urgency-nice-to-have">Nice to have</h2>
+<ul class="item-list">
+<li class="item" id="item-3">
+<div class="item-main">
+<span class="item-name" id="item-3-name">A new hydrometer</span>
+<span class="item-meta">
+<time datetime="2026-10-22T21:05">Thursday 22 October 2026, 21:05</time> · Ondra</span>
+</div>
+<div class="item-actions">
+<a class="button small secondary" href="/shopping/3/edit" hx-get="/shopping/3/edit" hx-target="#item-3" hx-swap="outerHTML" aria-describedby="item-3-name">Edit</a>
+<form method="post" action="/shopping/3/bought" hx-post="/shopping/3/bought" hx-target="#open-items" hx-swap="outerHTML">
+<button class="button small secondary" type="submit" aria-describedby="item-3-name">Bought</button>
+</form>
+</div>
+</li>
+</ul>
+</section>
+</div>
