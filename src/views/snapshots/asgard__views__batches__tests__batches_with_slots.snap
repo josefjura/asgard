@@ -55,6 +55,7 @@ expression: "page(&slots, &empty_form(), &log()).into_string().replace(\"><\", \
 <span class="slot-batch">Nothing chosen yet</span>
 </span>
 <span class="slot-actions">
+<a class="button secondary small" href="/batches/slots/5#slot-batch">Pick a Batch</a>
 <a class="button secondary small" href="/batches/slots/5">Move</a>
 <form method="post" action="/batches/slots/5/cancel" hx-post="/batches/slots/5/cancel" hx-confirm="Cancel the slot on Wed 11 Nov? The day is no longer set aside for brewing.">
 <button class="button danger small" type="submit">Cancel</button>
@@ -69,6 +70,7 @@ expression: "page(&slots, &empty_form(), &log()).into_string().replace(\"><\", \
 <span class="slot-batch">Nothing chosen yet</span>
 </span>
 <span class="slot-actions">
+<a class="button secondary small" href="/batches/slots/3#slot-batch">Pick a Batch</a>
 <a class="button secondary small" href="/batches/slots/3">Move</a>
 <form method="post" action="/batches/slots/3/cancel" hx-post="/batches/slots/3/cancel" hx-confirm="Cancel the slot on Sat 21 Nov? The day is no longer set aside for brewing.">
 <button class="button danger small" type="submit">Cancel</button>
@@ -83,6 +85,7 @@ expression: "page(&slots, &empty_form(), &log()).into_string().replace(\"><\", \
 <span class="slot-batch">Nothing chosen yet</span>
 </span>
 <span class="slot-actions">
+<a class="button secondary small" href="/batches/slots/4#slot-batch">Pick a Batch</a>
 <a class="button secondary small" href="/batches/slots/4">Move</a>
 <form method="post" action="/batches/slots/4/cancel" hx-post="/batches/slots/4/cancel" hx-confirm="Cancel the slot on Sat 5 Dec? The day is no longer set aside for brewing.">
 <button class="button danger small" type="submit">Cancel</button>
@@ -145,8 +148,7 @@ expression: "page(&slots, &empty_form(), &log()).into_string().replace(\"><\", \
 <span class="batch-number">#11</span>
 <span class="batch-main">
 <span class="batch-name">Stout</span>
-<span class="batch-meta">Added by Ondra · <time datetime="2026-10-10T09:15">10 October 2026</time>
-</span>
+<span class="batch-meta">Waiting for a slot</span>
 </span>
 <span class="stage planned">Planned</span>
 <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">

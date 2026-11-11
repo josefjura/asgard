@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT batches.number AS \"number!\", batches.name, batches.notes,\n                      added.display_name AS added_by, batches.added_at,\n                      edited.display_name AS \"edited_by?\", batches.edited_at,\n                      batches.brew_date, batches.og, batches.volume, batches.bottling_date,\n                      batches.fg\n               FROM batches\n               JOIN members AS added ON added.id = batches.added_by\n               LEFT JOIN members AS edited ON edited.id = batches.edited_by\n               ORDER BY batches.number DESC\n               LIMIT ? OFFSET ?",
+  "query": "SELECT batches.number AS \"number!\", batches.name, batches.notes,\n                      added.display_name AS added_by, batches.added_at,\n                      edited.display_name AS \"edited_by?\", batches.edited_at,\n                      batches.brew_date, batches.og, batches.volume, batches.bottling_date,\n                      batches.fg, brewing_slots.date AS \"slot_date?\"\n               FROM batches\n               JOIN members AS added ON added.id = batches.added_by\n               LEFT JOIN members AS edited ON edited.id = batches.edited_by\n               LEFT JOIN brewing_slots ON brewing_slots.batch_number = batches.number\n               WHERE batches.number = ?",
   "describe": {
     "columns": [
       {
@@ -62,10 +62,15 @@
         "name": "fg",
         "ordinal": 11,
         "type_info": "Integer"
+      },
+      {
+        "name": "slot_date?",
+        "ordinal": 12,
+        "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 1
     },
     "nullable": [
       false,
@@ -79,8 +84,9 @@
       true,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "a8a9651187be35e55ac869e5e47774e149d08c91bc082399abfe1ce1176d1593"
+  "hash": "adaab90c492c1a3376eee053388361db8fd6a22e0b0b08244f27c96a7b597b5a"
 }

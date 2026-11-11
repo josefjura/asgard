@@ -1,6 +1,5 @@
 ---
 source: src/views/batches.rs
-assertion_line: 1002
 expression: "super::batch_row(&planned_pilsner()).into_string().replace(\"><\", \">\\n<\")"
 ---
 <li class="batch">
@@ -8,8 +7,7 @@ expression: "super::batch_row(&planned_pilsner()).into_string().replace(\"><\", 
 <span class="batch-number">#12</span>
 <span class="batch-main">
 <span class="batch-name">Únětický Vzor 10.7°</span>
-<span class="batch-meta">Added by Josef · <time datetime="2026-10-24T18:05">24 October 2026</time>
-</span>
+<span class="batch-meta">Waiting for a slot</span>
 </span>
 <span class="stage planned">Planned</span>
 <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">

@@ -1,0 +1,19 @@
+---
+source: src/views/batches.rs
+expression: "super::batch_row(&slotted_pilsner()).into_string().replace(\"><\", \">\\n<\")"
+---
+<li class="batch">
+<a class="batch-link" href="/batches/12">
+<span class="batch-number">#12</span>
+<span class="batch-main">
+<span class="batch-name">Únětický Vzor 10.7°</span>
+<span class="batch-meta">Brewing on <time datetime="2026-11-21">Sat 21 Nov</time>
+</span>
+</span>
+<span class="stage planned">Planned</span>
+<svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+<path d="M6 3l5 5-5 5">
+</path>
+</svg>
+</a>
+</li>

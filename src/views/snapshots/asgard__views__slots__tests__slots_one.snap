@@ -13,6 +13,7 @@ expression: "slots_section(&one(), &empty_plan_form()).into_string().replace(\">
 <span class="slot-batch">Nothing chosen yet</span>
 </span>
 <span class="slot-actions">
+<a class="button secondary small" href="/batches/slots/3#slot-batch">Pick a Batch</a>
 <a class="button secondary small" href="/batches/slots/3">Move</a>
 <form method="post" action="/batches/slots/3/cancel" hx-post="/batches/slots/3/cancel" hx-confirm="Cancel the slot on Sat 21 Nov? The day is no longer set aside for brewing.">
 <button class="button danger small" type="submit">Cancel</button>

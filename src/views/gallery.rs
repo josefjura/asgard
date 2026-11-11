@@ -628,7 +628,8 @@ fn batches_pages() -> Vec<Fixture> {
         height: BATCHES_HEIGHT,
     });
     let rows = [
-        ("Planned", planned_pilsner()),
+        ("Planned, waiting for a slot", planned_pilsner()),
+        ("Planned, with a slot", batches::fixtures::slotted_pilsner()),
         ("In the fermenter, long name", long()),
         ("Bottled", pilsner()),
     ]
@@ -689,10 +690,14 @@ fn batches_pages() -> Vec<Fixture> {
         .collect()
 }
 
-/// The Brewing slots section with no slot, one and several, and with a refused plan; the page a
-/// slot is moved on, filled in and refused; and the page once a slot is gone.
+/// The Brewing slots section with no slot, one, several and one in each state, and with a
+/// refused plan; the slot's page with nothing chosen, with a Batch, without Planned Batches,
+/// asking "Did you brew?", with a refused link and with a refused move; and the page once a slot
+/// is gone.
 fn slot_pages() -> Vec<Fixture> {
-    use slots::fixtures::{REFUSED, TODAY, one, several};
+    use slots::fixtures::{
+        LINK_REFUSED, REFUSED, TODAY, asking, every_state, linked, one, planned, several,
+    };
 
     let empty_plan = slots::plan_form("", None, TODAY);
     let (value, message) = REFUSED;
@@ -701,6 +706,7 @@ fn slot_pages() -> Vec<Fixture> {
         ("No slot", Vec::new(), &empty_plan),
         ("One slot", one(), &empty_plan),
         ("Several slots", several(), &empty_plan),
+        ("Every state", every_state(), &empty_plan),
         ("Plan refused", one(), &refused_plan),
     ]
     .map(|(state, list, plan)| Fixture {
@@ -712,30 +718,50 @@ fn slot_pages() -> Vec<Fixture> {
         ),
         height: SLOTS_HEIGHT,
     });
-    let slot = &one()[0];
+    let free = one().remove(0);
+    let planned = planned();
+    let refused_move = slots::move_form(
+        free.id,
+        "2026-11-10",
+        Some("Pick today or a later date."),
+        TODAY,
+    );
     let moves = [
+        ("Nothing chosen", free.clone(), &planned[..], None, None),
+        ("With a Batch", linked(), &planned[..], None, None),
+        ("No Planned Batch", free.clone(), &[][..], None, None),
+        ("Did you brew?", asking(), &planned[..], None, None),
         (
-            "Filled in",
-            slots::move_form(slot.id, "2026-11-21", None, TODAY),
+            "Link refused",
+            free.clone(),
+            &planned[..],
+            Some(LINK_REFUSED),
+            None,
         ),
         (
             "Move refused",
-            slots::move_form(
-                slot.id,
-                "2026-11-10",
-                Some("Pick today or a later date."),
-                TODAY,
-            ),
+            free,
+            &planned[..],
+            None,
+            Some(&refused_move),
         ),
     ]
-    .map(|(state, form)| Fixture {
-        component: "Move a Brewing slot",
-        state: state.to_owned(),
-        document: slots::move_page(slot.date, &form),
-        height: PAGE_HEIGHT,
+    .map(|(state, slot, planned, link_problem, move_form)| {
+        let filled_in = slots::move_form(slot.id, &slot.date.to_string(), None, TODAY);
+        Fixture {
+            component: "Brewing slot page",
+            state: state.to_owned(),
+            document: slots::slot_page(
+                &slot,
+                planned,
+                link_problem,
+                move_form.unwrap_or(&filled_in),
+            ),
+            height: PAGE_HEIGHT,
+        }
     });
     let gone = Fixture {
-        component: "Move a Brewing slot",
+        component: "Brewing slot page",
         state: "Slot gone".to_owned(),
         document: slots::gone_page(),
         height: PAGE_HEIGHT,
@@ -754,17 +780,25 @@ fn batch_pages() -> Vec<Fixture> {
     let with_recipe = [
         (
             "Bottled, with a Recipe",
-            batches::batch_page(&pilsner(), Some(&attached())),
+            batches::batch_page(
+                &pilsner(),
+                Some(&attached()),
+                &batches::SlotChoice::default(),
+            ),
             RECIPE_PAGE_HEIGHT,
         ),
         (
             "Planned, with Recipe targets",
-            batches::batch_page(&bare(), Some(&attached())),
+            batches::batch_page(&bare(), Some(&attached()), &batches::SlotChoice::default()),
             RECIPE_PAGE_HEIGHT,
         ),
         (
             "Recipe unreadable",
-            batches::batch_page(&bare(), Some(&AttachedRecipe::Unreadable)),
+            batches::batch_page(
+                &bare(),
+                Some(&AttachedRecipe::Unreadable),
+                &batches::SlotChoice::default(),
+            ),
             BATCH_PAGE_HEIGHT,
         ),
     ]
@@ -807,14 +841,20 @@ fn batch_pages() -> Vec<Fixture> {
     let stages = [
         (
             "Planned, with Notes, edited",
-            batches::batch_page(&planned_pilsner(), None),
+            batches::batch_page(&planned_pilsner(), None, &batches::SlotChoice::default()),
         ),
         (
             "In the fermenter, FG read early",
-            batches::batch_page(&fermenting_pilsner(), None),
+            batches::batch_page(&fermenting_pilsner(), None, &batches::SlotChoice::default()),
         ),
-        ("Bottled, with ABV", batches::batch_page(&pilsner(), None)),
-        ("Without Notes", batches::batch_page(&bare(), None)),
+        (
+            "Bottled, with ABV",
+            batches::batch_page(&pilsner(), None, &batches::SlotChoice::default()),
+        ),
+        (
+            "Without Notes",
+            batches::batch_page(&bare(), None, &batches::SlotChoice::default()),
+        ),
         ("Gone", batches::gone_page(bare().number)),
     ]
     .map(|(state, document)| Fixture {
@@ -825,10 +865,42 @@ fn batch_pages() -> Vec<Fixture> {
     });
     stages
         .into_iter()
+        .chain(slotted_batch_pages())
         .chain(with_recipe)
         .chain(viewers)
         .chain([upload])
         .collect()
+}
+
+/// A Planned Batch's page waiting with free slots to pick, on a slot with others free to move
+/// to, and with a refused link.
+fn slotted_batch_pages() -> [Fixture; 3] {
+    use batches::fixtures::{planned_pilsner, slotted_pilsner};
+
+    let free = slots::fixtures::free();
+    let choice = batches::SlotChoice {
+        free: &free,
+        problem: None,
+    };
+    let refused = batches::SlotChoice {
+        free: &free,
+        problem: Some("That slot is gone: someone cancelled it. Pick another."),
+    };
+    [
+        (
+            "Planned, waiting with free slots",
+            planned_pilsner(),
+            choice,
+        ),
+        ("Planned, with a slot", slotted_pilsner(), choice),
+        ("Planned, slot link refused", planned_pilsner(), refused),
+    ]
+    .map(|(state, batch, slots)| Fixture {
+        component: "Batch page",
+        state: state.to_owned(),
+        document: batches::batch_page(&batch, None, &slots),
+        height: BATCH_PAGE_HEIGHT,
+    })
 }
 
 /// A Batch's Brew day and Bottling forms empty, filled in and refused, as htmx swaps them into
@@ -1395,6 +1467,8 @@ mod tests {
             "Bottling page",
             "Recipe viewer",
             "Recipe upload",
+            "Brewing slots",
+            "Brewing slot page",
         ] {
             assert!(
                 html.contains(&format!("<h2>{component}</h2>")),
@@ -1406,7 +1480,20 @@ mod tests {
             "With a log",
             "Later page",
             "Form with errors",
-            "Planned",
+            "Planned, waiting for a slot",
+            "Planned, with a slot",
+            "Planned, waiting with free slots",
+            "Planned, slot link refused",
+            "No slot",
+            "Every state",
+            "Plan refused",
+            "Nothing chosen",
+            "With a Batch",
+            "No Planned Batch",
+            "Did you brew?",
+            "Link refused",
+            "Move refused",
+            "Slot gone",
             "In the fermenter, long name",
             "Bottled",
             "Planned, with Notes, edited",

@@ -1,15 +1,19 @@
 //! Brewing slots: dates the Crew has set aside for brewing, before or after it knows what to
-//! brew. Any Member plans a slot, moves it or cancels it.
+//! brew. Any Member plans a slot, moves it or cancels it, and links a Planned Batch to it.
 //!
 //! A slot is a calendar date in the Crew's time zone, with no time of day. There is at most one
-//! slot per date, and none is planned or moved to a date before today.
+//! slot per date, and none is planned or moved to a date before today. A slot holds at most one
+//! Batch and a Batch is on at most one slot; only a Planned Batch is linked or unlinked.
+//!
+//! A slot's [`SlotState`] follows from its date and its Batch and is never stored. Recording a
+//! Brew day on a Batch without a slot links it to a free slot on its brew date.
 //!
 //! A newly planned slot is announced to the rest of the Crew as [`SlotPlanned`]; moving or
 //! cancelling one is not.
 
 use jiff::civil::Date;
 
-use super::Batches;
+use super::{BatchName, BatchNumber, Batches};
 use crate::domain::clock::unix_seconds;
 use crate::domain::members::{MemberId, everyone_but, parse_date};
 
@@ -30,11 +34,57 @@ impl SlotId {
     }
 }
 
+/// Where a Brewing slot is. It follows from the slot's date and its Batch, so no Member sets it
+/// and it is never stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlotState {
+    /// Today or later, and its Batch, if it has one, isn't brewed yet.
+    Upcoming,
+    /// The date has passed and no Batch was recorded as brewed on it: the Crew is asked whether
+    /// it brewed.
+    DidYouBrew,
+    /// Its Batch is brewed. A done slot isn't shown.
+    Done,
+}
+
+impl SlotState {
+    /// The state of a slot on `date` when it's `today`, whose Batch is `brewed` or not.
+    #[must_use]
+    pub fn of(date: Date, today: Date, brewed: bool) -> Self {
+        if brewed {
+            Self::Done
+        } else if date < today {
+            Self::DidYouBrew
+        } else {
+            Self::Upcoming
+        }
+    }
+}
+
+/// The Batch on a slot, as the slot shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlotBatch {
+    pub number: BatchNumber,
+    pub name: BatchName,
+}
+
 /// A date the Crew has set aside for brewing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Slot {
     pub id: SlotId,
     pub date: Date,
+    /// The Batch brewed that day, or None while nothing is chosen.
+    pub batch: Option<SlotBatch>,
+    pub state: SlotState,
+}
+
+/// A Planned Batch, as a slot offers it to be brewed, with the date of the slot it's on now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlannedBatch {
+    pub number: BatchNumber,
+    pub name: BatchName,
+    /// The date of the slot it's on, or None while it waits for one.
+    pub slot: Option<Date>,
 }
 
 /// A Member planned a Brewing slot, for the rest of the Crew to hear about so they keep the day
@@ -73,6 +123,22 @@ pub enum MoveError {
     Date(#[from] SlotError),
 }
 
+/// Why a Batch couldn't be linked to a slot or unlinked from one.
+#[derive(Debug, thiserror::Error)]
+pub enum LinkError {
+    /// There's no such slot: it never existed, or a Member cancelled it.
+    #[error("no such Brewing slot")]
+    SlotNotFound,
+    /// There's no such Batch: it never existed, or a Member deleted it.
+    #[error("no such Batch")]
+    BatchNotFound,
+    /// The Batch is brewed already, so its slot is done.
+    #[error("the Batch is brewed already")]
+    NotPlanned,
+    #[error("database error")]
+    Database(#[from] sqlx::Error),
+}
+
 impl From<sqlx::Error> for MoveError {
     fn from(err: sqlx::Error) -> Self {
         Self::Date(SlotError::Database(err))
@@ -106,12 +172,33 @@ fn taken_on<T>(result: Result<T, sqlx::Error>, date: Date) -> Result<T, SlotErro
     }
 }
 
-/// A slot as it is stored. Its date was checked when it was stored.
-fn slot_of(id: i64, date: &str) -> Result<Slot, sqlx::Error> {
-    Ok(Slot {
-        id: SlotId(id),
-        date: parse_date(date)?,
-    })
+/// A slot as it is read back from the database, with its Batch's name and brew date.
+struct SlotRow {
+    id: i64,
+    date: String,
+    batch_number: Option<i64>,
+    batch_name: Option<String>,
+    brew_date: Option<String>,
+}
+
+impl SlotRow {
+    /// The slot as it is `today`. Its date and its Batch's name were checked when they were
+    /// stored.
+    fn slot(self, today: Date) -> Result<Slot, sqlx::Error> {
+        let date = parse_date(&self.date)?;
+        Ok(Slot {
+            id: SlotId(self.id),
+            date,
+            batch: self
+                .batch_number
+                .zip(self.batch_name)
+                .map(|(number, name)| SlotBatch {
+                    number: BatchNumber(number),
+                    name: BatchName(name),
+                }),
+            state: SlotState::of(date, today, self.brew_date.is_some()),
+        })
+    }
 }
 
 impl Batches {
@@ -191,46 +278,180 @@ impl Batches {
     ///
     /// Returns a database error.
     pub async fn slot(&self, id: SlotId) -> Result<Option<Slot>, sqlx::Error> {
-        sqlx::query!(
-            r#"SELECT id AS "id!", date FROM brewing_slots WHERE id = ?"#,
+        let today = self.clock.today();
+        sqlx::query_as!(
+            SlotRow,
+            r#"SELECT brewing_slots.id AS "id!", brewing_slots.date,
+                      brewing_slots.batch_number AS "batch_number?",
+                      batches.name AS "batch_name?", batches.brew_date AS "brew_date?"
+               FROM brewing_slots
+               LEFT JOIN batches ON batches.number = brewing_slots.batch_number
+               WHERE brewing_slots.id = ?"#,
             id.0
         )
         .fetch_optional(&self.db)
         .await?
-        .map(|row| slot_of(row.id, &row.date))
+        .map(|row| row.slot(today))
         .transpose()
     }
 
-    /// The upcoming slots, soonest first: those dated today or later whose Batch, if they have
-    /// one, isn't brewed yet.
+    /// The slots that aren't done, by date: first those whose date has passed with nothing
+    /// brewed, which ask "Did you brew?", then the upcoming ones, soonest first.
     ///
     /// # Errors
     ///
     /// Returns a database error.
-    pub async fn upcoming_slots(&self) -> Result<Vec<Slot>, sqlx::Error> {
-        let today = self.clock.today().to_string();
-        sqlx::query!(
-            r#"SELECT brewing_slots.id AS "id!", brewing_slots.date
+    pub async fn open_slots(&self) -> Result<Vec<Slot>, sqlx::Error> {
+        let today = self.clock.today();
+        sqlx::query_as!(
+            SlotRow,
+            r#"SELECT brewing_slots.id AS "id!", brewing_slots.date,
+                      brewing_slots.batch_number AS "batch_number?",
+                      batches.name AS "batch_name?", batches.brew_date AS "brew_date?"
                FROM brewing_slots
                LEFT JOIN batches ON batches.number = brewing_slots.batch_number
-               WHERE brewing_slots.date >= ? AND batches.brew_date IS NULL
+               WHERE batches.brew_date IS NULL
                ORDER BY brewing_slots.date"#,
-            today,
         )
         .fetch_all(&self.db)
         .await?
         .into_iter()
-        .map(|row| slot_of(row.id, &row.date))
+        .map(|row| row.slot(today))
         .collect()
+    }
+
+    /// The Planned Batches, newest first, each with the date of the slot it's on, if any: what a
+    /// slot can be given to brew.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error.
+    pub async fn planned_batches(&self) -> Result<Vec<PlannedBatch>, sqlx::Error> {
+        sqlx::query!(
+            r#"SELECT batches.number AS "number!", batches.name,
+                      brewing_slots.date AS "slot_date?"
+               FROM batches
+               LEFT JOIN brewing_slots ON brewing_slots.batch_number = batches.number
+               WHERE batches.brew_date IS NULL AND batches.bottling_date IS NULL
+               ORDER BY batches.number DESC"#,
+        )
+        .fetch_all(&self.db)
+        .await?
+        .into_iter()
+        .map(|row| {
+            Ok(PlannedBatch {
+                number: BatchNumber(row.number),
+                // Checked when it was stored.
+                name: BatchName(row.name),
+                slot: row.slot_date.as_deref().map(parse_date).transpose()?,
+            })
+        })
+        .collect()
+    }
+
+    /// Links the Planned Batch `number` to the slot `id`, to be brewed that day. A Batch on
+    /// another slot moves here, leaving that slot with nothing chosen, and a Batch this slot had
+    /// before waits for a slot again.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LinkError::SlotNotFound`] or [`LinkError::BatchNotFound`] if either is gone,
+    /// [`LinkError::NotPlanned`] if the Batch is brewed already, or a database error.
+    pub async fn link(&self, id: SlotId, number: BatchNumber) -> Result<(), LinkError> {
+        let mut tx = self.db.begin().await?;
+        let batch = sqlx::query!("SELECT brew_date FROM batches WHERE number = ?", number.0)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(LinkError::BatchNotFound)?;
+        if batch.brew_date.is_some() {
+            return Err(LinkError::NotPlanned);
+        }
+        // Off its old slot first: a Batch is on one slot at most.
+        sqlx::query!(
+            "UPDATE brewing_slots SET batch_number = NULL WHERE batch_number = ?",
+            number.0
+        )
+        .execute(&mut *tx)
+        .await?;
+        let done = sqlx::query!(
+            "UPDATE brewing_slots SET batch_number = ? WHERE id = ?",
+            number.0,
+            id.0
+        )
+        .execute(&mut *tx)
+        .await?;
+        if done.rows_affected() == 0 {
+            return Err(LinkError::SlotNotFound);
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Takes the Batch off the slot `id`, which then has nothing chosen. A slot with nothing
+    /// chosen stays that way.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LinkError::SlotNotFound`] if there's no slot `id`, [`LinkError::NotPlanned`] if
+    /// its Batch is brewed already, or a database error.
+    pub async fn unlink_slot(&self, id: SlotId) -> Result<(), LinkError> {
+        let mut tx = self.db.begin().await?;
+        let slot = sqlx::query!(
+            r#"SELECT batches.brew_date AS "brew_date?"
+               FROM brewing_slots
+               LEFT JOIN batches ON batches.number = brewing_slots.batch_number
+               WHERE brewing_slots.id = ?"#,
+            id.0
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(LinkError::SlotNotFound)?;
+        if slot.brew_date.is_some() {
+            return Err(LinkError::NotPlanned);
+        }
+        sqlx::query!(
+            "UPDATE brewing_slots SET batch_number = NULL WHERE id = ?",
+            id.0
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Takes the Planned Batch `number` off its slot, to wait for another. A Batch without a slot
+    /// stays without one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LinkError::BatchNotFound`] if there's no Batch `number`,
+    /// [`LinkError::NotPlanned`] if it's brewed already, or a database error.
+    pub async fn unlink_batch(&self, number: BatchNumber) -> Result<(), LinkError> {
+        let mut tx = self.db.begin().await?;
+        let batch = sqlx::query!("SELECT brew_date FROM batches WHERE number = ?", number.0)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(LinkError::BatchNotFound)?;
+        if batch.brew_date.is_some() {
+            return Err(LinkError::NotPlanned);
+        }
+        sqlx::query!(
+            "UPDATE brewing_slots SET batch_number = NULL WHERE batch_number = ?",
+            number.0
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
     }
 }
 
 /// Slots for the gallery and the snapshots.
 #[cfg(any(test, debug_assertions))]
 pub mod fixtures {
-    use super::{Slot, SlotId};
+    use super::{BatchName, BatchNumber, Slot, SlotBatch, SlotId, SlotState};
 
-    /// The slot `id` on `date` (`2026-11-21`).
+    /// The upcoming slot `id` on `date` (`2026-11-21`), with nothing chosen.
     ///
     /// # Panics
     ///
@@ -240,6 +461,31 @@ pub mod fixtures {
         Slot {
             id: SlotId(id),
             date: date.parse().expect("fixture dates are valid"),
+            batch: None,
+            state: SlotState::Upcoming,
+        }
+    }
+
+    /// `slot`, with the Batch `number` called `name` chosen for it.
+    ///
+    /// # Panics
+    ///
+    /// If the fixture's name is invalid, which is a bug in the fixtures.
+    #[must_use]
+    pub fn with_batch(mut slot: Slot, number: i64, name: &str) -> Slot {
+        slot.batch = Some(SlotBatch {
+            number: BatchNumber(number),
+            name: BatchName::parse(name).expect("fixture names are valid"),
+        });
+        slot
+    }
+
+    /// `slot`, with its date passed and nothing brewed on it.
+    #[must_use]
+    pub fn passed(slot: Slot) -> Slot {
+        Slot {
+            state: SlotState::DidYouBrew,
+            ..slot
         }
     }
 }
@@ -253,10 +499,13 @@ mod tests {
     use sqlx::SqlitePool;
     use tokio::sync::broadcast;
 
-    use super::{MoveError, SlotError, SlotId, SlotPlanned, check_date};
-    use crate::domain::batches::Batches;
+    use super::{
+        LinkError, MoveError, PlannedBatch, SlotError, SlotId, SlotPlanned, SlotState, check_date,
+    };
+    use crate::domain::batches::{BatchName, BatchNumber, Batches, BrewDay, NewBatch, Notes};
     use crate::domain::channel::Channel;
     use crate::domain::clock::ManualClock;
+    use crate::domain::members::MemberId;
     use crate::domain::members::fixtures::add_member;
 
     /// 2026-11-11T22:30:00Z: 23:30 in Prague, on Wednesday 11 November.
@@ -284,7 +533,7 @@ mod tests {
 
     async fn dates(batches: &Batches) -> Vec<Date> {
         batches
-            .upcoming_slots()
+            .open_slots()
             .await
             .unwrap()
             .into_iter()
@@ -411,16 +660,305 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn a_slot_whose_date_has_passed_is_no_longer_upcoming(db: SqlitePool) {
+    async fn a_slot_whose_date_has_passed_with_nothing_brewed_asks_did_you_brew(db: SqlitePool) {
         let josef = add_member(&db, "Josef", true).await;
         let (batches, clock) = service(db);
-        batches.plan_slot(josef, date(2026, 11, 11)).await.unwrap();
         batches.plan_slot(josef, date(2026, 11, 12)).await.unwrap();
+        let passed = batches.plan_slot(josef, date(2026, 11, 11)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+        batches.link(passed, pils).await.unwrap();
 
         // Half an hour later it's Thursday in Prague.
         clock.advance(Duration::from_mins(30));
 
-        assert_eq!(dates(&batches).await, [date(2026, 11, 12)]);
+        let open = batches.open_slots().await.unwrap();
+        let states: Vec<_> = open.iter().map(|slot| (slot.date, slot.state)).collect();
+        assert_eq!(
+            states,
+            [
+                (date(2026, 11, 11), SlotState::DidYouBrew),
+                (date(2026, 11, 12), SlotState::Upcoming),
+            ],
+            "the passed slot first"
+        );
+        assert_eq!(open[0].batch.as_ref().unwrap().number, pils);
+    }
+
+    #[test]
+    fn a_slots_state_follows_from_its_date_and_whether_its_batch_is_brewed() {
+        let today = date(2026, 11, 11);
+        let yesterday = date(2026, 11, 10);
+        let later = date(2026, 11, 22);
+
+        assert_eq!(SlotState::of(today, today, false), SlotState::Upcoming);
+        assert_eq!(SlotState::of(later, today, false), SlotState::Upcoming);
+        assert_eq!(
+            SlotState::of(yesterday, today, false),
+            SlotState::DidYouBrew
+        );
+        assert_eq!(SlotState::of(yesterday, today, true), SlotState::Done);
+        assert_eq!(SlotState::of(today, today, true), SlotState::Done);
+        assert_eq!(SlotState::of(later, today, true), SlotState::Done);
+    }
+
+    async fn add_batch(batches: &Batches, by: MemberId, name: &str) -> BatchNumber {
+        let batch = NewBatch {
+            name: BatchName::parse(name).unwrap(),
+            notes: Notes::default(),
+        };
+        batches.add(by, &batch, None).await.unwrap()
+    }
+
+    async fn brew(batches: &Batches, by: MemberId, number: BatchNumber, on: Option<Date>) {
+        let brew_day = BrewDay {
+            date: on,
+            ..BrewDay::default()
+        };
+        batches
+            .record_brew_day(number, by, &brew_day)
+            .await
+            .unwrap();
+    }
+
+    /// The number of the Batch on the slot `id`, if any.
+    async fn batch_on(batches: &Batches, id: SlotId) -> Option<BatchNumber> {
+        let slot = batches.slot(id).await.unwrap().unwrap();
+        slot.batch.map(|batch| batch.number)
+    }
+
+    #[sqlx::test]
+    async fn a_linked_batch_and_slot_show_each_other(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 22)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+        assert_eq!(batches.get(pils).await.unwrap().slot, None);
+        assert_eq!(batch_on(&batches, slot).await, None);
+
+        batches.link(slot, pils).await.unwrap();
+
+        let shown = batches.slot(slot).await.unwrap().unwrap();
+        let on_it = shown.batch.unwrap();
+        assert_eq!((on_it.number, on_it.name.as_str()), (pils, "Pils"));
+        assert_eq!(shown.state, SlotState::Upcoming);
+        assert_eq!(
+            batches.get(pils).await.unwrap().slot,
+            Some(date(2026, 11, 22))
+        );
+        assert_eq!(
+            batches.page(1).await.unwrap().batches[0].slot,
+            Some(date(2026, 11, 22))
+        );
+    }
+
+    #[sqlx::test]
+    async fn linking_a_batch_on_another_slot_moves_it_and_replaces_the_slots_batch(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db);
+        let first = batches.plan_slot(josef, date(2026, 11, 22)).await.unwrap();
+        let second = batches.plan_slot(josef, date(2026, 11, 29)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+        let stout = add_batch(&batches, josef, "Stout").await;
+        batches.link(first, pils).await.unwrap();
+        batches.link(second, stout).await.unwrap();
+
+        batches.link(second, pils).await.unwrap();
+
+        assert_eq!(batch_on(&batches, first).await, None);
+        assert_eq!(batch_on(&batches, second).await, Some(pils));
+        assert_eq!(batches.get(stout).await.unwrap().slot, None);
+        assert_eq!(
+            batches.get(pils).await.unwrap().slot,
+            Some(date(2026, 11, 29))
+        );
+
+        batches.link(second, pils).await.unwrap();
+        assert_eq!(batch_on(&batches, second).await, Some(pils), "linked again");
+    }
+
+    #[sqlx::test]
+    async fn either_side_unlinks(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 22)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+
+        batches.link(slot, pils).await.unwrap();
+        batches.unlink_slot(slot).await.unwrap();
+        assert_eq!(batch_on(&batches, slot).await, None);
+        assert_eq!(batches.get(pils).await.unwrap().slot, None);
+        batches.unlink_slot(slot).await.unwrap();
+
+        batches.link(slot, pils).await.unwrap();
+        batches.unlink_batch(pils).await.unwrap();
+        assert_eq!(batch_on(&batches, slot).await, None);
+        batches.unlink_batch(pils).await.unwrap();
+    }
+
+    #[sqlx::test]
+    async fn only_a_planned_batch_is_linked_or_unlinked(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 22)).await.unwrap();
+        let other = batches.plan_slot(josef, date(2026, 11, 29)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+        batches.link(slot, pils).await.unwrap();
+        brew(&batches, josef, pils, Some(date(2026, 11, 22))).await;
+
+        assert!(matches!(
+            batches.link(other, pils).await,
+            Err(LinkError::NotPlanned)
+        ));
+        assert!(matches!(
+            batches.unlink_batch(pils).await,
+            Err(LinkError::NotPlanned)
+        ));
+        assert!(matches!(
+            batches.unlink_slot(slot).await,
+            Err(LinkError::NotPlanned)
+        ));
+        assert_eq!(batch_on(&batches, slot).await, Some(pils));
+        assert_eq!(batch_on(&batches, other).await, None);
+    }
+
+    #[sqlx::test]
+    async fn a_slot_or_batch_that_isnt_there_cant_be_linked_or_unlinked(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 22)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+        let missing_slot = SlotId::from_client(999);
+        let missing_batch = BatchNumber::from_client(999);
+
+        assert!(matches!(
+            batches.link(missing_slot, pils).await,
+            Err(LinkError::SlotNotFound)
+        ));
+        assert!(matches!(
+            batches.link(slot, missing_batch).await,
+            Err(LinkError::BatchNotFound)
+        ));
+        assert!(matches!(
+            batches.unlink_slot(missing_slot).await,
+            Err(LinkError::SlotNotFound)
+        ));
+        assert!(matches!(
+            batches.unlink_batch(missing_batch).await,
+            Err(LinkError::BatchNotFound)
+        ));
+    }
+
+    #[sqlx::test]
+    async fn a_refused_link_leaves_the_batch_on_its_old_slot(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 22)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+        batches.link(slot, pils).await.unwrap();
+
+        batches
+            .link(SlotId::from_client(999), pils)
+            .await
+            .unwrap_err();
+
+        assert_eq!(batch_on(&batches, slot).await, Some(pils));
+    }
+
+    #[sqlx::test]
+    async fn brewing_on_a_free_slots_date_links_the_batch_and_the_slot_is_done(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 22)).await.unwrap();
+        batches.plan_slot(josef, date(2026, 11, 29)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+
+        brew(&batches, josef, pils, Some(date(2026, 11, 22))).await;
+
+        assert_eq!(batch_on(&batches, slot).await, Some(pils));
+        assert_eq!(
+            batches.slot(slot).await.unwrap().unwrap().state,
+            SlotState::Done
+        );
+        assert_eq!(dates(&batches).await, [date(2026, 11, 29)]);
+    }
+
+    #[sqlx::test]
+    async fn brewing_links_nothing_if_the_batch_has_a_slot_or_the_slot_a_batch(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db);
+        let taken = batches.plan_slot(josef, date(2026, 11, 22)).await.unwrap();
+        let free = batches.plan_slot(josef, date(2026, 11, 29)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+        let stout = add_batch(&batches, josef, "Stout").await;
+        let ale = add_batch(&batches, josef, "Ale").await;
+        batches.link(taken, pils).await.unwrap();
+
+        // Stout is brewed on the day Pils was planned for, and Pils a week later on the free
+        // slot's day. Ale is brewed on no slot's day.
+        brew(&batches, josef, stout, Some(date(2026, 11, 22))).await;
+        brew(&batches, josef, pils, Some(date(2026, 11, 29))).await;
+        brew(&batches, josef, ale, Some(date(2026, 11, 23))).await;
+
+        assert_eq!(batch_on(&batches, taken).await, Some(pils));
+        assert_eq!(batch_on(&batches, free).await, None);
+        assert_eq!(batches.get(stout).await.unwrap().slot, None);
+        assert_eq!(batches.get(ale).await.unwrap().slot, None);
+    }
+
+    #[sqlx::test]
+    async fn clearing_the_brew_date_opens_the_slot_again(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 22)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+        brew(&batches, josef, pils, Some(date(2026, 11, 22))).await;
+
+        brew(&batches, josef, pils, None).await;
+
+        assert_eq!(batch_on(&batches, slot).await, Some(pils));
+        assert_eq!(dates(&batches).await, [date(2026, 11, 22)]);
+    }
+
+    #[sqlx::test]
+    async fn deleting_a_linked_batch_leaves_its_slot_with_nothing_chosen(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 22)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+        batches.link(slot, pils).await.unwrap();
+
+        batches.delete(pils).await.unwrap();
+
+        assert_eq!(batch_on(&batches, slot).await, None);
+        assert_eq!(dates(&batches).await, [date(2026, 11, 22)]);
+    }
+
+    #[sqlx::test]
+    async fn the_planned_batches_newest_first_with_their_slots(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 22)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+        let brewed = add_batch(&batches, josef, "Brewed").await;
+        let stout = add_batch(&batches, josef, "Stout").await;
+        batches.link(slot, pils).await.unwrap();
+        brew(&batches, josef, brewed, Some(date(2026, 11, 1))).await;
+
+        assert_eq!(
+            batches.planned_batches().await.unwrap(),
+            [
+                PlannedBatch {
+                    number: stout,
+                    name: BatchName::parse("Stout").unwrap(),
+                    slot: None,
+                },
+                PlannedBatch {
+                    number: pils,
+                    name: BatchName::parse("Pils").unwrap(),
+                    slot: Some(date(2026, 11, 22)),
+                },
+            ]
+        );
     }
 
     #[sqlx::test]

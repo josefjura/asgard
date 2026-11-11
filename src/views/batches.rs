@@ -11,17 +11,20 @@ use maud::{Markup, html};
 
 use crate::domain::batches::{
     AttachedRecipe, Batch, BatchNumber, BatchPage, Bottling, BrewDay, NAME_MAX, NOTES_MAX, Percent,
-    RecipeSummary, Stage, StyleSummary, Targets, Volume,
+    RecipeSummary, Slot, Stage, StyleSummary, Targets, Volume,
 };
 use crate::views::delete::{Deletion, delete_section};
 use crate::views::finance::problem;
 use crate::views::icon::chevron;
 use crate::views::layout::shell;
 use crate::views::nav::{Place, Tab};
+use crate::views::slots::{slot_day, unlink_button};
 use crate::views::time::{field_time, shown_time};
 
 /// Where a Batch's links and forms lead. The routes in `web::batches` match on the same paths.
 pub mod paths {
+    use jiff::civil::Date;
+
     use crate::domain::batches::BatchNumber;
     use crate::views::nav::Tab;
 
@@ -47,6 +50,25 @@ pub mod paths {
     #[must_use]
     pub fn brew_day(number: BatchNumber) -> String {
         format!("{}/brew-day", batch(number))
+    }
+
+    /// The Batch `number`'s Brew day form on a page of its own, with `date` as the brew date
+    /// until it has one: where a slot whose day passed leads.
+    #[must_use]
+    pub fn brew_day_on(number: BatchNumber, date: Date) -> String {
+        format!("{}?date={date}", brew_day(number))
+    }
+
+    /// Where the form that links the Batch `number` to a slot posts.
+    #[must_use]
+    pub fn slot(number: BatchNumber) -> String {
+        format!("{}/slot", batch(number))
+    }
+
+    /// Where the button that takes the Batch `number` off its slot posts.
+    #[must_use]
+    pub fn unlink_slot(number: BatchNumber) -> String {
+        format!("{}/unlink", slot(number))
     }
 
     /// The Batch `number`'s Bottling form, which posts back to the same path.
@@ -232,11 +254,10 @@ fn batch_list(log: &BatchPage) -> Markup {
     }
 }
 
-/// A Batch in the log: its number, name and Stage, and when it was brewed and bottled, or who
-/// added it on which day until it's brewed. It leads to the Batch's own page.
+/// A Batch in the log: its number, name and Stage, and when it was brewed and bottled, or the
+/// day of its Brewing slot until it's brewed. It leads to the Batch's own page.
 #[must_use]
 pub fn batch_row(batch: &Batch) -> Markup {
-    let added = batch.added_at.crew_time();
     html! {
         li.batch {
             a.batch-link href=(paths::batch(batch.number)) {
@@ -250,14 +271,24 @@ pub fn batch_row(batch: &Batch) -> Markup {
                                 " · Bottled " (day_time(bottled))
                             }
                         } @else {
-                            "Added by " (batch.added_by) " · "
-                            time datetime=(field_time(added)) { (day(added.date())) }
+                            (slot_line(batch.slot))
                         }
                     }
                 }
                 (stage_badge(batch.stage()))
                 (chevron())
             }
+        }
+    }
+}
+
+/// When a Planned Batch is brewed: on the day of its Brewing `slot`, or it waits for one.
+fn slot_line(slot: Option<Date>) -> Markup {
+    html! {
+        @if let Some(on) = slot {
+            "Brewing on " time datetime=(on) { (slot_day(on)) }
+        } @else {
+            "Waiting for a slot"
         }
     }
 }
@@ -276,13 +307,27 @@ pub fn stage_badge(stage: Stage) -> Markup {
     }
 }
 
-/// A Batch's own page: its number, name, Stage, Brew day, Bottling, `recipe` and Notes.
+/// The Brewing slots a Planned Batch's page offers, and why linking one was refused, if it was.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SlotChoice<'a> {
+    /// The upcoming slots with nothing chosen, soonest first.
+    pub free: &'a [Slot],
+    pub problem: Option<&'a str>,
+}
+
+/// A Batch's own page: its number, name, Stage, Brewing slot, Brew day, Bottling, `recipe` and
+/// Notes.
 ///
-/// Brew day and Bottling show the Recipe's targets beside what was measured, and Bottling what's
-/// worked out from OG and FG. The Notes keep their line breaks, and at the foot are who added and
-/// last edited it when, and the way to its edit page.
+/// A Planned Batch shows the day of its slot, or that it waits for one, with the way to link it
+/// to one of the free slots in `slots`. Brew day and Bottling show the Recipe's targets beside
+/// what was measured, and Bottling what's worked out from OG and FG. The Notes keep their line
+/// breaks, and at the foot are who added and last edited it when, and the way to its edit page.
 #[must_use]
-pub fn batch_page(batch: &Batch, recipe: Option<&AttachedRecipe>) -> Markup {
+pub fn batch_page(
+    batch: &Batch,
+    recipe: Option<&AttachedRecipe>,
+    slots: &SlotChoice<'_>,
+) -> Markup {
     let added = batch.added_at.crew_time();
     let targets = recipe.and_then(AttachedRecipe::targets);
     shell(
@@ -291,6 +336,9 @@ pub fn batch_page(batch: &Batch, recipe: Option<&AttachedRecipe>) -> Markup {
             p.batch-eyebrow { "Batch " (number_label(batch.number)) }
             h1.batch-title { (batch.name.as_str()) }
             (stage_badge(batch.stage()))
+            @if batch.stage() == Stage::Planned {
+                (slot_section(batch, slots))
+            }
             (brew_day_section(batch, targets))
             (bottling_section(batch, targets))
             (recipe_section(batch.number, recipe))
@@ -318,6 +366,51 @@ pub fn batch_page(batch: &Batch, recipe: Option<&AttachedRecipe>) -> Markup {
             }
         },
     )
+}
+
+/// A Planned Batch's Brewing slot: the day it's brewed with Unlink, or that it waits for a
+/// slot, and the form that links it to one of the free slots, saying what was refused beneath.
+fn slot_section(batch: &Batch, slots: &SlotChoice<'_>) -> Markup {
+    let action = paths::slot(batch.number);
+    let id = "link-slot";
+    let problem_id = format!("{id}-problem");
+    let refused = slots.problem.is_some();
+    html! {
+        section.section.narrow aria-labelledby="slot-heading" {
+            h2 #slot-heading { "Brewing slot" }
+            div.slot-chosen {
+                p.batch-slot { (slot_line(batch.slot)) }
+                @if batch.slot.is_some() {
+                    (unlink_button(&paths::unlink_slot(batch.number)))
+                }
+            }
+            @if slots.free.is_empty() {
+                p.muted {
+                    "No free slot to "
+                    @if batch.slot.is_some() { "move it to" } @else { "brew it on" }
+                    ". Plan one in the " a href=(Tab::Batches.href()) { "Batches tab" } "."
+                }
+            } @else {
+                form.entry-form.slot-form method="post" action=(action) {
+                    div.field {
+                        label for=(id) {
+                            @if batch.slot.is_some() { "Move to" } @else { "Brew on" }
+                        }
+                        select #(id) name="slot" required
+                            aria-invalid=[refused.then_some("true")]
+                            aria-describedby=[refused.then_some(&problem_id)] {
+                            option value="" { "Pick a free slot" }
+                            @for slot in slots.free {
+                                option value=(slot.id.get()) { (slot_day(slot.date)) }
+                            }
+                        }
+                        (problem(&problem_id, slots.problem))
+                    }
+                    button.button type="submit" { "Link slot" }
+                }
+            }
+        }
+    }
 }
 
 /// The Batch page's Brew day: the brew date, OG and Volume recorded, the Recipe's target OG
@@ -922,7 +1015,7 @@ pub mod fixtures {
         BatchProblems, BatchValues, BottlingProblems, BottlingValues, BrewDayProblems,
         BrewDayValues,
     };
-    use crate::domain::batches::fixtures::{batch, bottled, brewed, edited as edited_by};
+    use crate::domain::batches::fixtures::{batch, bottled, brewed, edited as edited_by, slotted};
     use crate::domain::batches::{Batch, BatchPage, NAME_MAX, NOTES_MAX};
 
     /// A Bottled Batch with every number in and Notes over several lines, edited since it was
@@ -950,6 +1043,12 @@ pub mod fixtures {
             "Šimon",
             "2026-10-26T20:30",
         )
+    }
+
+    /// The Pilsner before its Brew day, to be brewed on the slot on Saturday 21 November.
+    #[must_use]
+    pub fn slotted_pilsner() -> Batch {
+        slotted(planned_pilsner(), "2026-11-21")
     }
 
     /// The Pilsner in the fermenter, with an FG read before Bottling.
@@ -1093,7 +1192,7 @@ mod tests {
 
     use super::fixtures::{
         bare, empty, fermenting_pilsner, later_page, log, long, pilsner, planned_pilsner, refused,
-        refused_bottling, refused_brew_day, refused_edit,
+        refused_bottling, refused_brew_day, refused_edit, slotted_pilsner,
     };
     use super::*;
     use crate::domain::batches::recipe_fixtures;
@@ -1158,12 +1257,12 @@ mod tests {
 
     #[test]
     fn batch_page_with_notes_edited() {
-        assert_html_snapshot!(batch_page(&pilsner(), None));
+        assert_html_snapshot!(batch_page(&pilsner(), None, &SlotChoice::default()));
     }
 
     #[test]
     fn batch_page_without_notes() {
-        assert_html_snapshot!(batch_page(&bare(), None));
+        assert_html_snapshot!(batch_page(&bare(), None, &SlotChoice::default()));
     }
 
     #[test]
@@ -1221,12 +1320,83 @@ mod tests {
         assert!(html.contains(r#"<span class="batch-number">#12</span>"#));
         assert!(html.contains("Únětický Vzor 10.7°"));
         assert!(html.contains(r#"<span class="stage planned">Planned</span>"#));
+        assert!(html.contains("Waiting for a slot"), "{html}");
+    }
+
+    #[test]
+    fn a_planned_row_shows_the_day_of_its_slot() {
+        let html = super::batch_row(&slotted_pilsner()).into_string();
+
         assert!(
-            html.contains(
-                r#"Added by Josef · <time datetime="2026-10-24T18:05">24 October 2026</time>"#
-            ),
+            html.contains(r#"Brewing on <time datetime="2026-11-21">Sat 21 Nov</time>"#),
             "{html}"
         );
+        assert!(!html.contains("Waiting for a slot"));
+    }
+
+    #[test]
+    fn batch_row_with_a_slot() {
+        assert_html_snapshot!(super::batch_row(&slotted_pilsner()));
+    }
+
+    #[test]
+    fn batch_page_with_a_slot() {
+        let free = crate::views::slots::fixtures::free();
+        let slots = SlotChoice {
+            free: &free,
+            problem: None,
+        };
+        assert_html_snapshot!(batch_page(&slotted_pilsner(), None, &slots));
+    }
+
+    #[test]
+    fn batch_page_waiting_with_a_refused_link() {
+        let free = crate::views::slots::fixtures::free();
+        let slots = SlotChoice {
+            free: &free,
+            problem: Some("That slot is gone: someone cancelled it. Pick another."),
+        };
+        assert_html_snapshot!(batch_page(&planned_pilsner(), None, &slots));
+    }
+
+    #[test]
+    fn a_planned_batch_page_links_to_a_free_slot_or_unlinks() {
+        let free = crate::views::slots::fixtures::free();
+        let slots = SlotChoice {
+            free: &free,
+            problem: None,
+        };
+
+        let waiting = batch_page(&planned_pilsner(), None, &slots).into_string();
+        assert!(waiting.contains("Waiting for a slot"), "{waiting}");
+        assert!(waiting.contains(r#"action="/batches/12/slot""#));
+        assert!(waiting.contains(r#"<option value="5">Wed 11 Nov</option>"#));
+        assert!(!waiting.contains("Unlink"));
+
+        let slotted = batch_page(&slotted_pilsner(), None, &slots).into_string();
+        assert!(slotted.contains("Brewing on"), "{slotted}");
+        assert!(slotted.contains(r#"action="/batches/12/slot/unlink""#));
+        assert!(slotted.contains("Move to"));
+
+        let none_free = batch_page(&planned_pilsner(), None, &SlotChoice::default()).into_string();
+        assert!(
+            none_free.contains("No free slot to brew it on."),
+            "{none_free}"
+        );
+        assert!(!none_free.contains(r#"action="/batches/12/slot""#));
+    }
+
+    #[test]
+    fn a_brewed_batch_page_has_no_slot_section() {
+        let free = crate::views::slots::fixtures::free();
+        let slots = SlotChoice {
+            free: &free,
+            problem: None,
+        };
+        let html = batch_page(&fermenting_pilsner(), None, &slots).into_string();
+
+        assert!(!html.contains("Brewing slot"), "{html}");
+        assert!(!html.contains("Waiting for a slot"));
     }
 
     #[test]
@@ -1250,7 +1420,7 @@ mod tests {
 
     #[test]
     fn a_bottled_batch_shows_its_numbers_with_abv_and_attenuation() {
-        let html = batch_page(&pilsner(), None).into_string();
+        let html = batch_page(&pilsner(), None, &SlotChoice::default()).into_string();
 
         assert!(
             html.contains(r#"<span class="stage bottled">Bottled</span>"#),
@@ -1269,7 +1439,7 @@ mod tests {
 
     #[test]
     fn a_planned_batch_has_nothing_recorded_yet() {
-        let html = batch_page(&bare(), None).into_string();
+        let html = batch_page(&bare(), None, &SlotChoice::default()).into_string();
 
         assert!(html.contains("Not brewed yet."), "{html}");
         assert!(html.contains("Not bottled yet."));
@@ -1348,12 +1518,16 @@ mod tests {
 
     #[test]
     fn batch_page_planned() {
-        assert_html_snapshot!(batch_page(&planned_pilsner(), None));
+        assert_html_snapshot!(batch_page(&planned_pilsner(), None, &SlotChoice::default()));
     }
 
     #[test]
     fn batch_page_in_the_fermenter_with_an_early_fg() {
-        assert_html_snapshot!(batch_page(&fermenting_pilsner(), None));
+        assert_html_snapshot!(batch_page(
+            &fermenting_pilsner(),
+            None,
+            &SlotChoice::default()
+        ));
     }
 
     #[test]
@@ -1400,7 +1574,7 @@ mod tests {
 
     #[test]
     fn the_batch_page_keeps_line_breaks_and_says_who_added_and_edited_it() {
-        let html = batch_page(&pilsner(), None).into_string();
+        let html = batch_page(&pilsner(), None, &SlotChoice::default()).into_string();
 
         assert!(html.contains("Batch #12"), "{html}");
         assert!(html.contains(
@@ -1415,7 +1589,7 @@ mod tests {
 
     #[test]
     fn a_batch_never_edited_has_no_edited_line() {
-        let html = batch_page(&bare(), None).into_string();
+        let html = batch_page(&bare(), None, &SlotChoice::default()).into_string();
 
         assert!(html.contains("No Notes yet."), "{html}");
         assert!(!html.contains("Edited by"), "{html}");
@@ -1447,7 +1621,11 @@ mod tests {
 
     #[test]
     fn batch_page_with_a_recipe() {
-        assert_html_snapshot!(batch_page(&pilsner(), Some(&recipe_fixtures::attached())));
+        assert_html_snapshot!(batch_page(
+            &pilsner(),
+            Some(&recipe_fixtures::attached()),
+            &SlotChoice::default()
+        ));
     }
 
     #[test]
@@ -1491,7 +1669,12 @@ mod tests {
 
     #[test]
     fn the_batch_page_puts_the_recipes_targets_beside_what_was_measured() {
-        let html = batch_page(&pilsner(), Some(&recipe_fixtures::attached())).into_string();
+        let html = batch_page(
+            &pilsner(),
+            Some(&recipe_fixtures::attached()),
+            &SlotChoice::default(),
+        )
+        .into_string();
 
         assert!(html.contains(
             r#"<dt>OG</dt><dd><span class="measured">1.050</span> <span class="target">target 1.043</span></dd>"#
@@ -1507,7 +1690,12 @@ mod tests {
 
     #[test]
     fn a_planned_batch_with_a_recipe_shows_the_targets_still_to_measure() {
-        let html = batch_page(&bare(), Some(&recipe_fixtures::attached())).into_string();
+        let html = batch_page(
+            &bare(),
+            Some(&recipe_fixtures::attached()),
+            &SlotChoice::default(),
+        )
+        .into_string();
 
         assert!(html.contains("Not brewed yet."), "{html}");
         assert!(html.contains(
@@ -1519,7 +1707,7 @@ mod tests {
 
     #[test]
     fn a_batch_without_a_recipe_offers_to_attach_one() {
-        let html = batch_page(&bare(), None).into_string();
+        let html = batch_page(&bare(), None, &SlotChoice::default()).into_string();
 
         assert!(html.contains("No Recipe yet."), "{html}");
         assert!(html.contains(
@@ -1531,7 +1719,12 @@ mod tests {
 
     #[test]
     fn an_unreadable_recipe_says_it_is_attached() {
-        let html = batch_page(&bare(), Some(&AttachedRecipe::Unreadable)).into_string();
+        let html = batch_page(
+            &bare(),
+            Some(&AttachedRecipe::Unreadable),
+            &SlotChoice::default(),
+        )
+        .into_string();
 
         assert!(
             html.contains("A Recipe file is attached, but it can't be read."),

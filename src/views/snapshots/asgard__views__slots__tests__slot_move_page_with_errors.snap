@@ -1,6 +1,6 @@
 ---
 source: src/views/slots.rs
-expression: "move_page(slot.date, &form).into_string().replace(\"><\", \">\\n<\")"
+expression: "slot_page(slot, &planned(), None, &form).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -43,8 +43,26 @@ expression: "move_page(slot.date, &form).into_string().replace(\"><\", \">\\n<\"
 </a>
 </header>
 <main class="shell-main">
-<h1>Move the slot on <time datetime="2026-11-21">Sat 21 Nov</time>
+<h1>Brewing slot on <time datetime="2026-11-21">Sat 21 Nov</time>
 </h1>
+<section class="section narrow" id="slot-batch" aria-labelledby="slot-batch-heading">
+<h2 id="slot-batch-heading">What's brewed</h2>
+<p class="muted">Nothing chosen yet.</p>
+<form class="entry-form slot-form" method="post" action="/batches/slots/3/batch">
+<div class="field">
+<label for="link-batch">Batch</label>
+<select id="link-batch" name="batch" required>
+<option value="">Pick a Planned Batch</option>
+<option value="15">#15 Winter Stout</option>
+<option value="14">#14 Vzor 10° · on Sat 21 Nov</option>
+<option value="10">#10 Hoppy Lager · on Sat 5 Dec</option>
+</select>
+</div>
+<button class="button" type="submit">Link Batch</button>
+</form>
+</section>
+<section class="section narrow" aria-labelledby="move-heading">
+<h2 id="move-heading">Move</h2>
 <p class="muted">Pick the day the Crew brews instead.</p>
 <form class="entry-form slot-form" id="move-slot" method="post" action="/batches/slots/3" hx-post="/batches/slots/3" hx-swap="outerHTML">
 <div class="field">
@@ -57,6 +75,7 @@ expression: "move_page(slot.date, &form).into_string().replace(\"><\", \">\\n<\"
 <a class="button secondary" href="/batches">Back</a>
 </div>
 </form>
+</section>
 </main>
 <nav class="tabs" aria-label="Sections">
 <a class="tab" href="/">
