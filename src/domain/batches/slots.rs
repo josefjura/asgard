@@ -3,12 +3,15 @@
 //!
 //! A slot is a calendar date in the Crew's time zone, with no time of day. There is at most one
 //! slot per date, and none is planned or moved to a date before today.
+//!
+//! A newly planned slot is announced to the rest of the Crew as [`SlotPlanned`]; moving or
+//! cancelling one is not.
 
 use jiff::civil::Date;
 
 use super::Batches;
 use crate::domain::clock::unix_seconds;
-use crate::domain::members::{MemberId, parse_date};
+use crate::domain::members::{MemberId, everyone_but, parse_date};
 
 /// Which Brewing slot: the one a form or link names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -32,6 +35,18 @@ impl SlotId {
 pub struct Slot {
     pub id: SlotId,
     pub date: Date,
+}
+
+/// A Member planned a Brewing slot, for the rest of the Crew to hear about so they keep the day
+/// free.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlotPlanned {
+    pub slot: SlotId,
+    pub date: Date,
+    /// The Member who planned it.
+    pub planned_by: MemberId,
+    /// Every Member except the one who planned it, in id order.
+    pub notify: Vec<MemberId>,
 }
 
 /// Why a slot couldn't be planned or moved to a date.
@@ -100,7 +115,8 @@ fn slot_of(id: i64, date: &str) -> Result<Slot, sqlx::Error> {
 }
 
 impl Batches {
-    /// Plans a slot on `date` on behalf of `planned_by`, now.
+    /// Plans a slot on `date` on behalf of `planned_by`, now, and announces it to the rest of the
+    /// Crew.
     ///
     /// # Errors
     ///
@@ -123,7 +139,15 @@ impl Batches {
             .await,
             date,
         )?;
-        Ok(SlotId(id))
+        let slot = SlotId(id);
+        let notify = everyone_but(&self.db, planned_by).await?;
+        self.events.emit(SlotPlanned {
+            slot,
+            date,
+            planned_by,
+            notify,
+        });
+        Ok(slot)
     }
 
     /// Moves the slot `id` to `date`. Moving it to the date it's on changes nothing.
@@ -222,13 +246,16 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::identity;
     use std::time::{Duration, SystemTime};
 
     use jiff::civil::{Date, date};
     use sqlx::SqlitePool;
+    use tokio::sync::broadcast;
 
-    use super::{MoveError, SlotError, SlotId, check_date};
+    use super::{MoveError, SlotError, SlotId, SlotPlanned, check_date};
     use crate::domain::batches::Batches;
+    use crate::domain::channel::Channel;
     use crate::domain::clock::ManualClock;
     use crate::domain::members::fixtures::add_member;
 
@@ -238,8 +265,21 @@ mod tests {
     }
 
     fn service(db: SqlitePool) -> (Batches, ManualClock) {
+        let (batches, clock, _) = announcing(db);
+        (batches, clock)
+    }
+
+    /// The service, its clock, and the slots it announces as planned.
+    fn announcing(db: SqlitePool) -> (Batches, ManualClock, broadcast::Receiver<SlotPlanned>) {
         let clock = ManualClock::starting_at(wednesday_night());
-        (Batches::new(db, clock.clock()), clock)
+        let channel = Channel::new();
+        let planned = channel.subscribe();
+        let batches = Batches::new(db, clock.clock(), channel.emitter(identity));
+        (batches, clock, planned)
+    }
+
+    fn emitted(planned: &mut broadcast::Receiver<SlotPlanned>) -> Vec<SlotPlanned> {
+        std::iter::from_fn(|| planned.try_recv().ok()).collect()
     }
 
     async fn dates(batches: &Batches) -> Vec<Date> {
@@ -381,5 +421,47 @@ mod tests {
         clock.advance(Duration::from_mins(30));
 
         assert_eq!(dates(&batches).await, [date(2026, 11, 12)]);
+    }
+
+    #[sqlx::test]
+    async fn a_planned_slot_is_announced_to_everyone_but_its_planner(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let simon = add_member(&db, "Šimon", false).await;
+        let (batches, _, mut planned) = announcing(db);
+
+        let slot = batches.plan_slot(ondra, date(2026, 11, 22)).await.unwrap();
+
+        assert_eq!(
+            emitted(&mut planned),
+            [SlotPlanned {
+                slot,
+                date: date(2026, 11, 22),
+                planned_by: ondra,
+                notify: vec![josef, simon],
+            }]
+        );
+    }
+
+    #[sqlx::test]
+    async fn moving_cancelling_or_a_refused_plan_announces_nothing(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        add_member(&db, "Ondra", false).await;
+        let (batches, _, mut planned) = announcing(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 22)).await.unwrap();
+        emitted(&mut planned);
+
+        batches.move_slot(slot, date(2026, 11, 29)).await.unwrap();
+        batches
+            .plan_slot(josef, date(2026, 11, 29))
+            .await
+            .unwrap_err();
+        batches
+            .plan_slot(josef, date(2026, 11, 10))
+            .await
+            .unwrap_err();
+        batches.cancel_slot(slot).await.unwrap();
+
+        assert_eq!(emitted(&mut planned), []);
     }
 }

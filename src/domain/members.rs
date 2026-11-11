@@ -278,6 +278,27 @@ pub async fn insert(
     }
 }
 
+/// Every Member except `actor`, in id order: who hears about what `actor` just did.
+///
+/// # Errors
+///
+/// Returns a database error.
+pub(in crate::domain) async fn everyone_but(
+    db: &SqlitePool,
+    actor: MemberId,
+) -> Result<Vec<MemberId>, sqlx::Error> {
+    let actor = actor.get();
+    Ok(sqlx::query_scalar!(
+        r#"SELECT id AS "id!" FROM members WHERE id != ? ORDER BY id"#,
+        actor
+    )
+    .fetch_all(db)
+    .await?
+    .into_iter()
+    .map(MemberId)
+    .collect())
+}
+
 pub(in crate::domain) fn parse_date(value: &str) -> Result<Date, sqlx::Error> {
     value
         .parse()

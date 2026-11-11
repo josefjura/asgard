@@ -99,7 +99,11 @@ impl AppState {
                 events.emitter(Event::AsapItemAdded),
             ),
             quotes: Quotes::new(db.clone(), clock.clone()),
-            batches: Batches::new(db.clone(), clock.clone()),
+            batches: Batches::new(
+                db.clone(),
+                clock.clone(),
+                events.emitter(Event::SlotPlanned),
+            ),
             vapid_public_key: vapid_public_key.into(),
             events,
             public_origin: PublicOrigin::of(public_url),

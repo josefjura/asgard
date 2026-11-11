@@ -116,6 +116,7 @@ mod tests {
     use crate::domain::auth::SessionId;
     use crate::domain::auth::fixtures::add_session;
     use crate::domain::auth::passkey_fixtures::add_passkey;
+    use crate::domain::batches::Batches;
     use crate::domain::channel::{Channel, Emitter};
     use crate::domain::clock::ManualClock;
     use crate::domain::finance::money::Amount;
@@ -134,6 +135,7 @@ mod tests {
         subscriptions: PushSubscriptions,
         finance: Finance,
         shopping: Shopping,
+        batches: Batches,
         due: Emitter<ReminderDue>,
         channel: Channel<Event>,
     }
@@ -158,6 +160,11 @@ mod tests {
                     db.clone(),
                     april.clock(),
                     channel.emitter(Event::AsapItemAdded),
+                ),
+                batches: Batches::new(
+                    db.clone(),
+                    april.clock(),
+                    channel.emitter(Event::SlotPlanned),
                 ),
                 subscriptions: PushSubscriptions::new(db, clock.clock()),
                 due: channel.emitter(Event::ReminderDue),
@@ -467,6 +474,64 @@ mod tests {
 
         add_item(&crew, ondra, "Saaz", ItemUrgency::NextBrewday).await;
         add_item(&crew, ondra, "Caps", ItemUrgency::NiceToHave).await;
+
+        assert_eq!(drain(&mut pushes).await, []);
+    }
+
+    #[sqlx::test]
+    async fn a_planned_slot_reaches_everyone_but_whoever_planned_it(db: SqlitePool) {
+        let crew = Crew::new(db.clone());
+        let josef = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        let simon = add_member(&db, "Šimon", false).await;
+        crew.subscribe(&db, josef, "josef-laptop").await;
+        crew.subscribe(&db, josef, "josef-phone").await;
+        crew.subscribe(&db, ondra, "ondra").await;
+        crew.subscribe(&db, simon, "simon").await;
+        let (sender, mut pushes) = FakeSender::delivering();
+        crew.notify_with(sender);
+
+        crew.batches
+            .plan_slot(ondra, date(2026, 4, 18))
+            .await
+            .unwrap();
+
+        let expected = Notification {
+            title: "Brew day planned".to_owned(),
+            body: "Sat 18 Apr, planned by Ondra".to_owned(),
+            opens: Opens::Batches,
+            urgency: Urgency::Normal,
+        };
+        assert_eq!(
+            drain(&mut pushes).await,
+            [
+                sent("josef-laptop", &expected),
+                sent("josef-phone", &expected),
+                sent("simon", &expected),
+            ]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_moved_or_cancelled_slot_reaches_nobody(db: SqlitePool) {
+        let crew = Crew::new(db.clone());
+        let josef = add_member(&db, "Josef", true).await;
+        let ondra = add_member(&db, "Ondra", false).await;
+        crew.subscribe(&db, josef, "josef").await;
+        crew.subscribe(&db, ondra, "ondra").await;
+        let slot = crew
+            .batches
+            .plan_slot(ondra, date(2026, 4, 18))
+            .await
+            .unwrap();
+        let (sender, mut pushes) = FakeSender::delivering();
+        crew.notify_with(sender);
+
+        crew.batches
+            .move_slot(slot, date(2026, 4, 25))
+            .await
+            .unwrap();
+        crew.batches.cancel_slot(slot).await.unwrap();
 
         assert_eq!(drain(&mut pushes).await, []);
     }
