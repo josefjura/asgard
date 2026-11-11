@@ -417,7 +417,7 @@ fn reminder_pages() -> Vec<Fixture> {
 /// unfolded; the Item form empty, refused, editing and with its edit refused; and the page an
 /// Item is edited on without htmx.
 fn shopping_pages() -> Vec<Fixture> {
-    use shopping::fixtures::{bought, long, open, refused};
+    use shopping::fixtures::{bought, open, refused};
     use shopping::{Purpose, editing_row};
 
     let empty = shopping::form(
@@ -430,18 +430,7 @@ fn shopping_pages() -> Vec<Fixture> {
     let edited = &open()[2];
     let editing = shopping::edit_form(edited);
     let edit_refused = shopping::form(Purpose::Edit(edited.id), values, &problems);
-    let tabs = [
-        ("Nothing to buy", &empty, Vec::new(), Vec::new()),
-        ("Every Urgency", &empty, open(), bought()),
-        ("Long names and notes", &empty, long(), Vec::new()),
-        ("Refused", &refused, open(), bought()),
-    ]
-    .map(|(state, form, open, bought)| Fixture {
-        component: "Shopping tab",
-        state: state.to_owned(),
-        document: shopping::page(form, &open, &bought),
-        height: SHOPPING_HEIGHT,
-    });
+    let tabs = shopping_tabs(&empty, &refused);
     let rows = [
         (
             "Open, with a link in its note",
@@ -498,6 +487,40 @@ fn shopping_pages() -> Vec<Fixture> {
         .chain(forms)
         .chain([edit_page])
         .collect()
+}
+
+/// The Shopping tab with nothing to buy; with every Urgency, the next brew day unplanned, planned
+/// with no Batch and planned with one; with long names and notes; and with `refused` in place of
+/// the `empty` form.
+fn shopping_tabs(empty: &Markup, refused: &Markup) -> [Fixture; 6] {
+    use shopping::fixtures::{bought, long, no_slot, open, slot_with_batch, slot_without_batch};
+
+    [
+        ("Nothing to buy", empty, Vec::new(), no_slot(), Vec::new()),
+        ("Every Urgency", empty, open(), no_slot(), bought()),
+        (
+            "Next brewday, no Batch",
+            empty,
+            open(),
+            slot_without_batch(),
+            bought(),
+        ),
+        (
+            "Next brewday with a Batch",
+            empty,
+            open(),
+            slot_with_batch(),
+            bought(),
+        ),
+        ("Long names and notes", empty, long(), no_slot(), Vec::new()),
+        ("Refused", refused, open(), no_slot(), bought()),
+    ]
+    .map(|(state, form, open, next, bought)| Fixture {
+        component: "Shopping tab",
+        state: state.to_owned(),
+        document: shopping::page(form, &open, &next, &bought),
+        height: SHOPPING_HEIGHT,
+    })
 }
 
 /// The Quotes tab empty, with a collection, and searched with and without matches; the random-Quote card with a Quote, a multi-line

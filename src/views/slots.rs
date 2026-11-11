@@ -146,7 +146,8 @@ pub fn slot_row(slot: &Slot) -> Markup {
 }
 
 /// A Batch as a slot names it: `#14 Vzor 10°`.
-fn batch_label(batch: &SlotBatch) -> String {
+#[must_use]
+pub fn batch_label(batch: &SlotBatch) -> String {
     format!("{} {}", number_label(batch.number), batch.name.as_str())
 }
 

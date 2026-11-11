@@ -335,6 +335,20 @@ impl Batches {
         Ok(slots)
     }
 
+    /// The next brew day: the soonest upcoming slot, with its Batch if one is chosen, or None
+    /// while no slot is upcoming. A slot whose date has passed, or whose Batch is brewed, is
+    /// never the next one.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error.
+    pub async fn next_slot(&self) -> Result<Option<Slot>, sqlx::Error> {
+        let slots = self.open_slots().await?;
+        Ok(slots
+            .into_iter()
+            .find(|slot| slot.state == SlotState::Upcoming))
+    }
+
     /// The Planned Batches, newest first, each with the date of the slot it's on, if any: what a
     /// slot can be given to brew.
     ///
@@ -886,6 +900,34 @@ mod tests {
             .map(|slot| slot.date)
             .collect();
         assert_eq!(free, [date(2026, 11, 29)]);
+    }
+
+    #[sqlx::test]
+    async fn the_next_slot_is_the_soonest_upcoming_one(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, clock) = service(db);
+        assert_eq!(batches.next_slot().await.unwrap(), None, "nothing planned");
+
+        let passing = batches.plan_slot(josef, date(2026, 11, 11)).await.unwrap();
+        let done = batches.plan_slot(josef, date(2026, 11, 12)).await.unwrap();
+        let next = batches.plan_slot(josef, date(2026, 11, 22)).await.unwrap();
+        batches.plan_slot(josef, date(2026, 11, 29)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+        batches.link(done, pils).await.unwrap();
+        brew(&batches, josef, pils, Some(date(2026, 11, 11))).await;
+        let stout = add_batch(&batches, josef, "Stout").await;
+        batches.link(next, stout).await.unwrap();
+        assert_eq!(
+            batches.next_slot().await.unwrap().map(|slot| slot.id),
+            Some(passing),
+            "today is next"
+        );
+
+        clock.advance(Duration::from_mins(30));
+
+        let slot = batches.next_slot().await.unwrap().expect("a next slot");
+        assert_eq!(slot.id, next, "neither the passed nor the done slot");
+        assert_eq!(slot.batch.map(|batch| batch.number), Some(stout));
     }
 
     #[sqlx::test]

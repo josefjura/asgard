@@ -18,7 +18,7 @@ use crate::domain::shopping::{
 };
 use crate::views;
 use crate::views::nav::Tab;
-use crate::views::shopping::{Fold, ItemProblems, ItemValues, Purpose, row_id};
+use crate::views::shopping::{Fold, ItemProblems, ItemValues, NextBrewday, Purpose, row_id};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -91,7 +91,8 @@ async fn add(
         return Ok(back_to_tab());
     }
     let open = state.shopping.open().await?;
-    Ok(fresh(views::shopping::added(&empty_form(), &open)).into_response())
+    let next = next_brewday(&state).await?;
+    Ok(fresh(views::shopping::added(&empty_form(), &open, &next)).into_response())
 }
 
 /// The open Item `id` in its edit form, for any Member to edit or delete: in its row for htmx,
@@ -184,7 +185,8 @@ async fn open_list(state: &AppState, htmx: bool) -> Result<Response, AppError> {
         return Ok(back_to_tab());
     }
     let open = state.shopping.open().await?;
-    Ok(fresh(views::shopping::open_items(&open)).into_response())
+    let next = next_brewday(state).await?;
+    Ok(fresh(views::shopping::open_items(&open, &next)).into_response())
 }
 
 /// Marks the open Item `id` bought by the Member. htmx gets the open list without it and Recently
@@ -226,8 +228,9 @@ async fn changed_lists(state: &AppState, htmx: bool, fold: Fold) -> Result<Respo
         return Ok(back_to_tab());
     }
     let open = state.shopping.open().await?;
+    let next = next_brewday(state).await?;
     let bought = state.shopping.recently_bought().await?;
-    Ok(fresh(views::shopping::changed_lists(&open, &bought, fold)).into_response())
+    Ok(fresh(views::shopping::changed_lists(&open, &next, &bought, fold)).into_response())
 }
 
 /// The Item as typed, or what is wrong with each field.
@@ -265,11 +268,22 @@ fn empty_form() -> Markup {
     )
 }
 
-/// The Shopping tab around `form`, with every open Item and those bought lately.
+/// The Shopping tab around `form`, with every open Item, the next brew day, and those bought
+/// lately.
 async fn page(state: &AppState, form: &Markup) -> Result<Markup, AppError> {
     let open = state.shopping.open().await?;
+    let next = next_brewday(state).await?;
     let bought = state.shopping.recently_bought().await?;
-    Ok(views::shopping::page(form, &open, &bought))
+    Ok(views::shopping::page(form, &open, &next, &bought))
+}
+
+/// The next brew day, from the Batches service: the Shopping service knows nothing of Brewing
+/// slots.
+async fn next_brewday(state: &AppState) -> Result<NextBrewday, AppError> {
+    Ok(NextBrewday {
+        slot: state.batches.next_slot().await?,
+        today: state.batches.today(),
+    })
 }
 
 fn name_message(err: NameError) -> String {
@@ -290,7 +304,13 @@ mod tests {
     use axum::http::{Method, Response, StatusCode};
     use sqlx::SqlitePool;
 
+    use std::time::Duration;
+
+    use jiff::civil::{Date, date};
+
+    use crate::domain::batches::{BatchName, BatchNumber, BrewDay, NewBatch, Notes, SlotId};
     use crate::domain::events::Event;
+    use crate::domain::members::MemberId;
     use crate::domain::shopping::{NAME_MAX, NOTE_MAX};
     use crate::web::htmx::{HX_REDIRECT, HX_REQUEST, HX_RETARGET};
     use crate::web::test_support::{PUBLIC_ORIGIN, TestApp, body_text, post_form, request};
@@ -419,6 +439,98 @@ mod tests {
             r#"<time datetime="2026-01-01T01:00">Thursday 1 January 2026, 01:00</time> · Ondra"#
         ));
         assert!(!html.contains("Nothing to buy."));
+    }
+
+    // The Next brewday heading. The test app's clock starts on Thursday 1 January 2026 in
+    // Prague.
+
+    /// The Member the first sign-in makes.
+    const JOSEF: MemberId = MemberId::from_client(1);
+
+    /// The Next brewday heading in `html`, from its text to its end.
+    fn next_heading(html: &str) -> &str {
+        let start = html
+            .find(r#"<h2 id="urgency-next-brewday">"#)
+            .unwrap_or_else(|| panic!("no Next brewday heading in {html}"));
+        let rest = &html[start + r#"<h2 id="urgency-next-brewday">"#.len()..];
+        &rest[..rest.find("</h2>").unwrap()]
+    }
+
+    async fn plan(app: &TestApp, day: Date) -> SlotId {
+        app.state.batches.plan_slot(JOSEF, day).await.unwrap()
+    }
+
+    async fn add_batch(app: &TestApp, name: &str) -> BatchNumber {
+        let batch = NewBatch {
+            name: BatchName::parse(name).unwrap(),
+            notes: Notes::default(),
+        };
+        app.state.batches.add(JOSEF, &batch, None).await.unwrap()
+    }
+
+    #[sqlx::test]
+    async fn with_no_slot_upcoming_next_brewday_is_a_plain_heading(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        add(&app, &cookie, &[("name", "Saaz")]).await;
+
+        assert_eq!(next_heading(&tab(&app, &cookie).await), "Next brewday");
+    }
+
+    #[sqlx::test]
+    async fn next_brewday_names_the_next_slots_day(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, date(2026, 1, 17)).await;
+        plan(&app, date(2026, 1, 10)).await;
+
+        let added = add(&app, &cookie, &[("name", "Saaz")]).await;
+
+        let heading = r#"Next brewday · <time datetime="2026-01-10">Sat 10 Jan</time>"#;
+        assert_eq!(next_heading(&added), heading, "in the list htmx swaps in");
+        assert_eq!(next_heading(&tab(&app, &cookie).await), heading);
+    }
+
+    #[sqlx::test]
+    async fn next_brewday_names_the_next_slots_day_and_batch(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        let slot = plan(&app, date(2026, 1, 2)).await;
+        let pils = add_batch(&app, "Pils").await;
+        app.state.batches.link(slot, pils).await.unwrap();
+        add(&app, &cookie, &[("name", "Saaz")]).await;
+
+        assert_eq!(
+            next_heading(&tab(&app, &cookie).await),
+            r#"Next brewday · <time datetime="2026-01-02">tomorrow</time> · #1 Pils"#
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_done_or_passed_slot_is_never_the_next_brewday(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        let done = plan(&app, date(2026, 1, 3)).await;
+        plan(&app, date(2026, 1, 2)).await;
+        plan(&app, date(2026, 1, 10)).await;
+        let pils = add_batch(&app, "Pils").await;
+        app.state.batches.link(done, pils).await.unwrap();
+        add(&app, &cookie, &[("name", "Saaz")]).await;
+        app.clock.advance(Duration::from_hours(48));
+        let brew_day = BrewDay {
+            date: Some(date(2026, 1, 3)),
+            ..BrewDay::default()
+        };
+        app.state
+            .batches
+            .record_brew_day(pils, JOSEF, &brew_day)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            next_heading(&tab(&app, &cookie).await),
+            r#"Next brewday · <time datetime="2026-01-10">Sat 10 Jan</time>"#
+        );
     }
 
     #[sqlx::test]

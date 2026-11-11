@@ -1,14 +1,17 @@
 //! The Shopping tab: the form a Member adds an Item with, the open Items grouped by Urgency, and
 //! those bought lately.
 
+use jiff::civil::Date;
 use maud::{Markup, html};
 
+use crate::domain::batches::Slot;
 use crate::domain::shopping::{
     BoughtItem, ItemId, ItemNote, NAME_MAX, NOTE_MAX, OpenItem, RECENTLY_BOUGHT_FOR, Urgency,
 };
 use crate::views::finance::problem;
 use crate::views::layout::shell;
 use crate::views::nav::{Place, Tab};
+use crate::views::slots::{batch_label, slot_day};
 use crate::views::time::{field_time, shown_time};
 
 /// The id of the open list, which adding, editing, deleting, buying and undoing swap in afresh.
@@ -117,10 +120,47 @@ const fn label(urgency: Urgency) -> &'static str {
     }
 }
 
-/// The Shopping tab: `form` to add an Item above every `open` one, grouped by Urgency, and the
-/// Items `bought` lately, folded away beneath.
+/// The next brew day, as the Next brewday heading names it: the soonest upcoming Brewing slot,
+/// if any is, and the day it is now.
+#[derive(Debug, Clone)]
+pub struct NextBrewday {
+    pub slot: Option<Slot>,
+    pub today: Date,
+}
+
+/// The heading over the Items of `urgency`. Next brewday names the day of the `next` slot and
+/// its Batch, if it has them: `Next brewday · Sat 21 Nov · #14 Vzor 10°`.
+fn urgency_heading(urgency: Urgency, next: &NextBrewday) -> Markup {
+    let slot = next
+        .slot
+        .as_ref()
+        .filter(|_| urgency == Urgency::NextBrewday);
+    html! {
+        (label(urgency))
+        @if let Some(slot) = slot {
+            " · " time datetime=(slot.date) { (brew_day(slot.date, next.today)) }
+            @if let Some(batch) = &slot.batch {
+                " · " (batch_label(batch))
+            }
+        }
+    }
+}
+
+/// `date` as a brew day is named when it's `today`: `today`, `tomorrow`, or `Sat 21 Nov`.
+fn brew_day(date: Date, today: Date) -> String {
+    if date == today {
+        "today".to_owned()
+    } else if today.tomorrow().is_ok_and(|tomorrow| tomorrow == date) {
+        "tomorrow".to_owned()
+    } else {
+        slot_day(date)
+    }
+}
+
+/// The Shopping tab: `form` to add an Item above every `open` one, grouped by Urgency under
+/// headings that name the `next` brew day, and the Items `bought` lately, folded away beneath.
 #[must_use]
-pub fn page(form: &Markup, open: &[OpenItem], bought: &[BoughtItem]) -> Markup {
+pub fn page(form: &Markup, open: &[OpenItem], next: &NextBrewday, bought: &[BoughtItem]) -> Markup {
     shell(
         Place::Tab(Tab::Shopping),
         &html! {
@@ -129,41 +169,48 @@ pub fn page(form: &Markup, open: &[OpenItem], bought: &[BoughtItem]) -> Markup {
                 h2 #new-item { "Add an Item" }
                 (form)
             }
-            (open_list(open, false))
+            (open_list(open, next, false))
             (recently_bought_section(bought, Fold::Folded, false))
         },
     )
 }
 
 /// What htmx swaps in once an Item is marked bought or back: the `open` list in place of the old
-/// one, and Recently bought out of band, folded as `fold`.
+/// one, with the `next` brew day, and Recently bought out of band, folded as `fold`.
 #[must_use]
-pub fn changed_lists(open: &[OpenItem], bought: &[BoughtItem], fold: Fold) -> Markup {
+pub fn changed_lists(
+    open: &[OpenItem],
+    next: &NextBrewday,
+    bought: &[BoughtItem],
+    fold: Fold,
+) -> Markup {
     html! {
-        (open_list(open, false))
+        (open_list(open, next, false))
         (recently_bought_section(bought, fold, true))
     }
 }
 
-/// What htmx swaps in once an Item is edited or deleted: the `open` list in place of the old one.
+/// What htmx swaps in once an Item is edited or deleted: the `open` list in place of the old one,
+/// with the `next` brew day.
 #[must_use]
-pub fn open_items(open: &[OpenItem]) -> Markup {
-    open_list(open, false)
+pub fn open_items(open: &[OpenItem], next: &NextBrewday) -> Markup {
+    open_list(open, next, false)
 }
 
 /// What htmx swaps in once an Item is added: `form` emptied for the next one, and the open list
-/// with the new Item in its group.
+/// with the new Item in its group and the `next` brew day.
 #[must_use]
-pub fn added(form: &Markup, open: &[OpenItem]) -> Markup {
+pub fn added(form: &Markup, open: &[OpenItem], next: &NextBrewday) -> Markup {
     html! {
         (form)
-        (open_list(open, true))
+        (open_list(open, next, true))
     }
 }
 
-/// Every `open` Item, most urgent first, under a heading for each Urgency that has any; or a
-/// message saying there's nothing to buy. Swapped in out of band if `out_of_band`.
-fn open_list(open: &[OpenItem], out_of_band: bool) -> Markup {
+/// Every `open` Item, most urgent first, under a heading for each Urgency that has any, Next
+/// brewday naming the `next` brew day; or a message saying there's nothing to buy. Swapped in
+/// out of band if `out_of_band`.
+fn open_list(open: &[OpenItem], next: &NextBrewday, out_of_band: bool) -> Markup {
     html! {
         div #(OPEN_ITEMS_ID) hx-swap-oob=[out_of_band.then_some("true")] {
             @if open.is_empty() {
@@ -174,7 +221,7 @@ fn open_list(open: &[OpenItem], out_of_band: bool) -> Markup {
                 @if !items.is_empty() {
                     @let heading = format!("urgency-{}", urgency.key());
                     section.section aria-labelledby=(heading) {
-                        h2 #(heading) { (label(urgency)) }
+                        h2 #(heading) { (urgency_heading(urgency, next)) }
                         ul.item-list {
                             @for item in items {
                                 (item_row(item))
@@ -482,9 +529,38 @@ fn edit_actions(id: ItemId) -> Markup {
 /// Open Items in every group and a refused form, for the gallery and the snapshots.
 #[cfg(any(test, debug_assertions))]
 pub mod fixtures {
-    use super::{ItemProblems, ItemValues};
+    use super::{ItemProblems, ItemValues, NextBrewday};
+    use crate::domain::batches::slot_fixtures::slot;
     use crate::domain::shopping::fixtures::{bought as bought_item, open as item};
     use crate::domain::shopping::{BoughtItem, OpenItem, Urgency};
+    use crate::views::slots::fixtures::{TODAY, linked};
+
+    /// No Brewing slot is upcoming.
+    #[must_use]
+    pub const fn no_slot() -> NextBrewday {
+        NextBrewday {
+            slot: None,
+            today: TODAY,
+        }
+    }
+
+    /// The next brew day is Saturday 21 November, with nothing chosen to brew.
+    #[must_use]
+    pub fn slot_without_batch() -> NextBrewday {
+        NextBrewday {
+            slot: Some(slot(3, "2026-11-21")),
+            today: TODAY,
+        }
+    }
+
+    /// The next brew day is Saturday 21 November, brewing #14 Vzor 10°.
+    #[must_use]
+    pub fn slot_with_batch() -> NextBrewday {
+        NextBrewday {
+            slot: Some(linked()),
+            today: TODAY,
+        }
+    }
 
     /// Three Items bought lately, newest first.
     #[must_use]
@@ -591,7 +667,9 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
-    use super::fixtures::{bought, long, open, refused};
+    use super::fixtures::{
+        bought, long, no_slot, open, refused, slot_with_batch, slot_without_batch,
+    };
     use super::*;
     use crate::domain::shopping::fixtures::open as item;
     use crate::views::assert_html_snapshot;
@@ -606,17 +684,78 @@ mod tests {
 
     #[test]
     fn shopping_empty() {
-        assert_html_snapshot!(page(&empty_form(), &[], &[]));
+        assert_html_snapshot!(page(&empty_form(), &[], &no_slot(), &[]));
     }
 
     #[test]
     fn shopping_all_groups() {
-        assert_html_snapshot!(page(&empty_form(), &open(), &bought()));
+        assert_html_snapshot!(page(&empty_form(), &open(), &no_slot(), &bought()));
+    }
+
+    #[test]
+    fn next_brewday_without_a_slot() {
+        assert_html_snapshot!(open_items(&open(), &no_slot()));
+    }
+
+    #[test]
+    fn next_brewday_on_a_slot_without_a_batch() {
+        assert_html_snapshot!(open_items(&open(), &slot_without_batch()));
+    }
+
+    #[test]
+    fn next_brewday_on_a_slot_with_a_batch() {
+        assert_html_snapshot!(open_items(&open(), &slot_with_batch()));
+    }
+
+    /// The text of the Next brewday heading in `html`.
+    fn next_heading(html: &str) -> &str {
+        let start = html.find(r#"<h2 id="urgency-next-brewday">"#).unwrap();
+        let rest = &html[start..];
+        &rest[..rest.find("</h2>").unwrap()]
+    }
+
+    #[test]
+    fn next_brewday_names_the_slots_day_and_batch() {
+        let with = open_items(&open(), &slot_with_batch()).into_string();
+        assert!(next_heading(&with).ends_with(
+            r#">Next brewday · <time datetime="2026-11-21">Sat 21 Nov</time> · #14 Vzor 10°"#
+        ));
+
+        let without = open_items(&open(), &slot_without_batch()).into_string();
+        assert!(
+            next_heading(&without)
+                .ends_with(r#">Next brewday · <time datetime="2026-11-21">Sat 21 Nov</time>"#)
+        );
+
+        let none = open_items(&open(), &no_slot()).into_string();
+        assert!(next_heading(&none).ends_with(">Next brewday"));
+    }
+
+    #[test]
+    fn only_the_next_brewday_heading_names_the_slot() {
+        let html = open_items(&open(), &slot_with_batch()).into_string();
+
+        assert!(html.contains(r#"<h2 id="urgency-asap">ASAP</h2>"#));
+        assert!(html.contains(r#"<h2 id="urgency-nice-to-have">Nice to have</h2>"#));
+        let form = empty_form().into_string();
+        assert!(!form.contains("Sat 21 Nov"));
+    }
+
+    #[test]
+    fn a_brew_day_today_or_tomorrow_says_so() {
+        let today = jiff::civil::date(2026, 11, 11);
+
+        assert_eq!(brew_day(today, today), "today");
+        assert_eq!(brew_day(jiff::civil::date(2026, 11, 12), today), "tomorrow");
+        assert_eq!(
+            brew_day(jiff::civil::date(2026, 11, 13), today),
+            "Fri 13 Nov"
+        );
     }
 
     #[test]
     fn shopping_long_names_and_notes() {
-        assert_html_snapshot!(page(&empty_form(), &long(), &[]));
+        assert_html_snapshot!(page(&empty_form(), &long(), &no_slot(), &[]));
     }
 
     #[test]
@@ -664,7 +803,7 @@ mod tests {
 
     #[test]
     fn recently_bought_is_folded_away_on_the_tab() {
-        let html = page(&empty_form(), &open(), &bought()).into_string();
+        let html = page(&empty_form(), &open(), &no_slot(), &bought()).into_string();
 
         assert!(html.contains(r#"<details class="section recently-bought" id="recently-bought">"#));
         assert!(html.contains(r#"<h2>Recently bought</h2> <span class="count">(3)</span>"#));
@@ -682,14 +821,14 @@ mod tests {
 
     #[test]
     fn buying_swaps_in_the_open_list_and_recently_bought_out_of_band() {
-        let html = changed_lists(&open(), &bought(), Fold::Folded).into_string();
+        let html = changed_lists(&open(), &no_slot(), &bought(), Fold::Folded).into_string();
 
         assert!(html.starts_with(r#"<div id="open-items">"#), "{html}");
         assert!(html.contains(
             r#"<details class="section recently-bought" id="recently-bought" hx-swap-oob="true">"#
         ));
 
-        let html = changed_lists(&open(), &bought(), Fold::Unfolded).into_string();
+        let html = changed_lists(&open(), &no_slot(), &bought(), Fold::Unfolded).into_string();
 
         assert!(
             html.contains(r#"id="recently-bought" open hx-swap-oob="true">"#),
@@ -795,13 +934,13 @@ mod tests {
             "2026-10-20T08:00",
             "Josef",
         )];
-        let html = page(&empty_form(), &only_later, &[]).into_string();
+        let html = page(&empty_form(), &only_later, &no_slot(), &[]).into_string();
 
         assert!(html.contains(r#"<h2 id="urgency-nice-to-have">Nice to have</h2>"#));
         assert!(!html.contains("urgency-asap"));
         assert!(!html.contains("Nothing to buy"));
 
-        let html = page(&empty_form(), &open(), &[]).into_string();
+        let html = page(&empty_form(), &open(), &no_slot(), &[]).into_string();
         let asap = html.find(">ASAP</h2>").unwrap();
         let next = html.find(">Next brewday</h2>").unwrap();
         let nice = html.find(">Nice to have</h2>").unwrap();
@@ -819,7 +958,7 @@ mod tests {
 
     #[test]
     fn an_empty_list_says_theres_nothing_to_buy() {
-        let html = page(&empty_form(), &[], &[]).into_string();
+        let html = page(&empty_form(), &[], &no_slot(), &[]).into_string();
 
         assert!(html.contains("Nothing to buy."));
     }
@@ -846,7 +985,7 @@ mod tests {
 
     #[test]
     fn editing_and_deleting_swap_in_the_open_list() {
-        let html = open_items(&open()).into_string();
+        let html = open_items(&open(), &no_slot()).into_string();
 
         assert!(html.starts_with(r#"<div id="open-items">"#), "{html}");
         assert!(!html.contains("recently-bought"));
@@ -854,7 +993,7 @@ mod tests {
 
     #[test]
     fn adding_swaps_in_the_open_list_out_of_band() {
-        let html = added(&empty_form(), &open()).into_string();
+        let html = added(&empty_form(), &open(), &no_slot()).into_string();
 
         assert!(html.starts_with("<form "));
         assert!(html.contains(r#"<div id="open-items" hx-swap-oob="true">"#));
