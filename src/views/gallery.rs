@@ -489,8 +489,8 @@ fn shopping_pages() -> Vec<Fixture> {
         .collect()
 }
 
-/// The Shopping tab with nothing to buy; with every Urgency, the next brew day unplanned, planned
-/// with no Batch and planned with one; with long names and notes; and with `refused` in place of
+/// The Shopping tab with nothing to buy; with every Urgency, no Brewing slot upcoming, the next
+/// one with no Batch and with one; with long names and notes; and with `refused` in place of
 /// the `empty` form.
 fn shopping_tabs(empty: &Markup, refused: &Markup) -> [Fixture; 6] {
     use shopping::fixtures::{bought, long, no_slot, open, slot_with_batch, slot_without_batch};

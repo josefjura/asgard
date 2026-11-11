@@ -268,7 +268,7 @@ fn empty_form() -> Markup {
     )
 }
 
-/// The Shopping tab around `form`, with every open Item, the next brew day, and those bought
+/// The Shopping tab around `form`, with every open Item, the next Brewing slot, and those bought
 /// lately.
 async fn page(state: &AppState, form: &Markup) -> Result<Markup, AppError> {
     let open = state.shopping.open().await?;
@@ -277,7 +277,7 @@ async fn page(state: &AppState, form: &Markup) -> Result<Markup, AppError> {
     Ok(views::shopping::page(form, &open, &next, &bought))
 }
 
-/// The next brew day, from the Batches service: the Shopping service knows nothing of Brewing
+/// The next Brewing slot, from the Batches service: the Shopping service knows nothing of Brewing
 /// slots.
 async fn next_brewday(state: &AppState) -> Result<NextBrewday, AppError> {
     Ok(NextBrewday {

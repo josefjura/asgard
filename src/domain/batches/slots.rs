@@ -335,7 +335,7 @@ impl Batches {
         Ok(slots)
     }
 
-    /// The next brew day: the soonest upcoming slot, with its Batch if one is chosen, or None
+    /// The next Brewing slot: the soonest upcoming one, with its Batch if one is chosen, or None
     /// while no slot is upcoming. A slot whose date has passed, or whose Batch is brewed, is
     /// never the next one.
     ///

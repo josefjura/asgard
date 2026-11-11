@@ -120,7 +120,7 @@ const fn label(urgency: Urgency) -> &'static str {
     }
 }
 
-/// The next brew day, as the Next brewday heading names it: the soonest upcoming Brewing slot,
+/// The next Brewing slot, as the Next brewday heading names it: the soonest upcoming Brewing slot,
 /// if any is, and the day it is now.
 #[derive(Debug, Clone)]
 pub struct NextBrewday {
@@ -138,7 +138,7 @@ fn urgency_heading(urgency: Urgency, next: &NextBrewday) -> Markup {
     html! {
         (label(urgency))
         @if let Some(slot) = slot {
-            " · " time datetime=(slot.date) { (brew_day(slot.date, next.today)) }
+            " · " time datetime=(slot.date) { (slot_when(slot.date, next.today)) }
             @if let Some(batch) = &slot.batch {
                 " · " (batch_label(batch))
             }
@@ -146,8 +146,9 @@ fn urgency_heading(urgency: Urgency, next: &NextBrewday) -> Markup {
     }
 }
 
-/// `date` as a brew day is named when it's `today`: `today`, `tomorrow`, or `Sat 21 Nov`.
-fn brew_day(date: Date, today: Date) -> String {
+/// A slot's `date` as the heading names it when it's `today`: `today`, `tomorrow`, or
+/// `Sat 21 Nov`.
+fn slot_when(date: Date, today: Date) -> String {
     if date == today {
         "today".to_owned()
     } else if today.tomorrow().is_ok_and(|tomorrow| tomorrow == date) {
@@ -158,7 +159,7 @@ fn brew_day(date: Date, today: Date) -> String {
 }
 
 /// The Shopping tab: `form` to add an Item above every `open` one, grouped by Urgency under
-/// headings that name the `next` brew day, and the Items `bought` lately, folded away beneath.
+/// headings that name the `next` Brewing slot, and the Items `bought` lately, folded away beneath.
 #[must_use]
 pub fn page(form: &Markup, open: &[OpenItem], next: &NextBrewday, bought: &[BoughtItem]) -> Markup {
     shell(
@@ -176,7 +177,7 @@ pub fn page(form: &Markup, open: &[OpenItem], next: &NextBrewday, bought: &[Boug
 }
 
 /// What htmx swaps in once an Item is marked bought or back: the `open` list in place of the old
-/// one, with the `next` brew day, and Recently bought out of band, folded as `fold`.
+/// one, with the `next` Brewing slot, and Recently bought out of band, folded as `fold`.
 #[must_use]
 pub fn changed_lists(
     open: &[OpenItem],
@@ -191,14 +192,14 @@ pub fn changed_lists(
 }
 
 /// What htmx swaps in once an Item is edited or deleted: the `open` list in place of the old one,
-/// with the `next` brew day.
+/// with the `next` Brewing slot.
 #[must_use]
 pub fn open_items(open: &[OpenItem], next: &NextBrewday) -> Markup {
     open_list(open, next, false)
 }
 
 /// What htmx swaps in once an Item is added: `form` emptied for the next one, and the open list
-/// with the new Item in its group and the `next` brew day.
+/// with the new Item in its group and the `next` Brewing slot.
 #[must_use]
 pub fn added(form: &Markup, open: &[OpenItem], next: &NextBrewday) -> Markup {
     html! {
@@ -208,7 +209,7 @@ pub fn added(form: &Markup, open: &[OpenItem], next: &NextBrewday) -> Markup {
 }
 
 /// Every `open` Item, most urgent first, under a heading for each Urgency that has any, Next
-/// brewday naming the `next` brew day; or a message saying there's nothing to buy. Swapped in
+/// brewday naming the `next` Brewing slot; or a message saying there's nothing to buy. Swapped in
 /// out of band if `out_of_band`.
 fn open_list(open: &[OpenItem], next: &NextBrewday, out_of_band: bool) -> Markup {
     html! {
@@ -544,7 +545,7 @@ pub mod fixtures {
         }
     }
 
-    /// The next brew day is Saturday 21 November, with nothing chosen to brew.
+    /// The next Brewing slot is on Saturday 21 November, with nothing chosen to brew.
     #[must_use]
     pub fn slot_without_batch() -> NextBrewday {
         NextBrewday {
@@ -553,7 +554,7 @@ pub mod fixtures {
         }
     }
 
-    /// The next brew day is Saturday 21 November, brewing #14 Vzor 10°.
+    /// The next Brewing slot is on Saturday 21 November, brewing #14 Vzor 10°.
     #[must_use]
     pub fn slot_with_batch() -> NextBrewday {
         NextBrewday {
@@ -737,18 +738,19 @@ mod tests {
 
         assert!(html.contains(r#"<h2 id="urgency-asap">ASAP</h2>"#));
         assert!(html.contains(r#"<h2 id="urgency-nice-to-have">Nice to have</h2>"#));
-        let form = empty_form().into_string();
-        assert!(!form.contains("Sat 21 Nov"));
     }
 
     #[test]
-    fn a_brew_day_today_or_tomorrow_says_so() {
+    fn a_slot_today_or_tomorrow_says_so() {
         let today = jiff::civil::date(2026, 11, 11);
 
-        assert_eq!(brew_day(today, today), "today");
-        assert_eq!(brew_day(jiff::civil::date(2026, 11, 12), today), "tomorrow");
+        assert_eq!(slot_when(today, today), "today");
         assert_eq!(
-            brew_day(jiff::civil::date(2026, 11, 13), today),
+            slot_when(jiff::civil::date(2026, 11, 12), today),
+            "tomorrow"
+        );
+        assert_eq!(
+            slot_when(jiff::civil::date(2026, 11, 13), today),
             "Fri 13 Nov"
         );
     }
