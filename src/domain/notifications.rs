@@ -5,6 +5,7 @@ use std::future::Future;
 
 use serde::Serialize;
 
+use super::batches::SlotPlanned;
 use super::events::Event;
 use super::finance::{ChangedEntry, EntryAction, FinanceEvent};
 use super::members::{MemberId, MemberName};
@@ -18,6 +19,7 @@ pub enum Opens {
     Finance,
     Shopping,
     Reminders,
+    Batches,
 }
 
 impl Opens {
@@ -28,6 +30,7 @@ impl Opens {
             Self::Finance => "/",
             Self::Shopping => "/shopping",
             Self::Reminders => "/reminders",
+            Self::Batches => "/batches",
         }
     }
 }
@@ -135,6 +138,21 @@ impl Notification {
         }
     }
 
+    /// A newly planned Brewing slot: which day and who planned it, as `crew` names them now, so
+    /// the rest of the Crew keeps the day free. Not urgent: the day is ahead.
+    fn slot_planned(planned: &SlotPlanned, crew: &[MemberName]) -> Self {
+        Self {
+            title: "Brew day planned".to_owned(),
+            body: format!(
+                "{}, planned by {}",
+                planned.date.strftime("%a %-d %b"),
+                name_in(crew, planned.planned_by)
+            ),
+            opens: Opens::Batches,
+            urgency: Urgency::Normal,
+        }
+    }
+
     fn reminder(due: &ReminderDue) -> Self {
         let text = due.text.as_str();
         Self {
@@ -187,6 +205,10 @@ impl Delivery {
             Event::AsapItemAdded(added) => vec![Self {
                 notification: Notification::asap(added, crew),
                 to: added.notify.clone(),
+            }],
+            Event::SlotPlanned(planned) => vec![Self {
+                notification: Notification::slot_planned(planned, crew),
+                to: planned.notify.clone(),
             }],
         }
     }
@@ -342,6 +364,7 @@ mod tests {
     use jiff::civil::date;
 
     use super::*;
+    use crate::domain::batches::SlotId;
     use crate::domain::finance::money::Amount;
     use crate::domain::finance::{Description, ExpenseId, NewExpense, NewPayment, PaymentId};
     use crate::domain::members::DisplayName;
@@ -647,6 +670,47 @@ mod tests {
 
         assert_eq!(payload["url"], "/shopping");
         assert_eq!(payload["body"], "CO₂ · added by Josef");
+    }
+
+    fn slot_planned(day: jiff::civil::Date, planned_by: MemberId, notify: &[MemberId]) -> Event {
+        Event::SlotPlanned(SlotPlanned {
+            slot: SlotId::from_client(1),
+            date: day,
+            planned_by,
+            notify: notify.to_vec(),
+        })
+    }
+
+    #[test]
+    fn a_planned_slot_tells_the_rest_of_the_crew_the_day_and_who_planned_it() {
+        assert_eq!(
+            Delivery::for_event(
+                &slot_planned(date(2026, 11, 21), ONDRA, &[JOSEF, SIMON]),
+                &crew()
+            ),
+            [Delivery {
+                notification: Notification {
+                    title: "Brew day planned".to_owned(),
+                    body: "Sat 21 Nov, planned by Ondra".to_owned(),
+                    opens: Opens::Batches,
+                    urgency: Urgency::Normal,
+                },
+                to: vec![JOSEF, SIMON],
+            }]
+        );
+    }
+
+    #[test]
+    fn a_planned_slot_opens_the_batches_tab() {
+        let notification =
+            Delivery::for_event(&slot_planned(date(2026, 12, 6), SIMON, &[JOSEF]), &crew())
+                .remove(0)
+                .notification;
+
+        let payload: serde_json::Value = serde_json::from_slice(&notification.payload()).unwrap();
+
+        assert_eq!(payload["url"], "/batches");
+        assert_eq!(payload["body"], "Sun 6 Dec, planned by Šimon");
     }
 
     #[test]

@@ -142,6 +142,7 @@ mod tests {
             (Opens::Finance, Tab::Finance),
             (Opens::Shopping, Tab::Shopping),
             (Opens::Reminders, Tab::Reminders),
+            (Opens::Batches, Tab::Batches),
         ] {
             assert_eq!(opens.path(), tab.href());
         }

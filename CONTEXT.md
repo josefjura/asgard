@@ -160,7 +160,7 @@ A common due time the Reminder form fills in with one tap, worked out from now i
 _Avoid_: preset, shortcut
 
 **Notification**:
-A push message shown on a Member's subscribed device, telling them about a due Reminder, an Expense or Payment that involves them, or an *ASAP* Item. Tapping it opens the tab it is about.
+A push message shown on a Member's subscribed device, telling them about a due Reminder, an Expense or Payment that involves them, an *ASAP* Item, or a Brewing slot another Member just planned. Tapping it opens the tab it is about.
 _Avoid_: alert, message
 
 ## Quotes

@@ -949,6 +949,7 @@ mod tests {
     use crate::domain::batches::{
         BatchName, NAME_MAX, NOTES_MAX, NewBatch, Notes, PAGE_SIZE, RECIPE_MAX_BYTES,
     };
+    use crate::domain::events::Event;
     use crate::web::htmx::{HX_REDIRECT, HX_REQUEST};
     use crate::web::test_support::{PUBLIC_ORIGIN, TestApp, body_text, post_form, request};
 
@@ -2572,6 +2573,27 @@ mod tests {
             slot_dates(&page(&app, &cookie, "/batches").await),
             ["2026-01-10", "2026-01-17"]
         );
+    }
+
+    #[sqlx::test]
+    async fn only_planning_a_slot_is_announced(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let ondra = app.sign_in_new_member("Ondra").await;
+        let mut events = app.state.events.subscribe();
+
+        plan(&app, &ondra, "2026-01-10").await;
+        post_slot(&app, &josef, "/batches/slots/1", "2026-01-17", true).await;
+        slot_refused(&app, &josef, "/batches/slots", "2026-01-17", true).await;
+        post_slot(&app, &josef, "/batches/slots/1/cancel", "", true).await;
+
+        let emitted: Vec<Event> = std::iter::from_fn(|| events.try_recv().ok()).collect();
+        let [Event::SlotPlanned(planned)] = emitted.as_slice() else {
+            panic!("one slot announced: {emitted:?}");
+        };
+        assert_eq!(planned.date.to_string(), "2026-01-10");
+        assert_eq!(planned.notify.len(), 1, "everyone but Ondra");
+        assert_ne!(planned.notify[0], planned.planned_by);
     }
 
     #[sqlx::test]

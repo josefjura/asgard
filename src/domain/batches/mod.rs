@@ -4,12 +4,13 @@
 //! Brewing slots, the dates set aside for brewing, live here too, since they only exist for
 //! Batches.
 //!
-//! Batches emit no events and send no notifications. Any Member may add, edit or delete any
-//! Batch; nothing here checks who added it.
+//! The only event is a newly planned Brewing slot; Batches themselves send no notifications. Any
+//! Member may add, edit or delete any Batch; nothing here checks who added it.
 
 use jiff::civil::{Date, DateTime};
 use sqlx::SqlitePool;
 
+use crate::domain::channel::Emitter;
 use crate::domain::clock::{Clock, crew_time_of_unix_seconds, unix_seconds};
 use crate::domain::members::{DisplayName, MemberId, parse_date};
 
@@ -26,7 +27,7 @@ pub use recipe::{
     Minutes, RECIPE_MAX_BYTES, Range, Recipe, RecipeError, RecipeSummary, StyleSummary, Targets,
     YeastLine,
 };
-pub use slots::{MoveError, Slot, SlotError, SlotId};
+pub use slots::{MoveError, Slot, SlotError, SlotId, SlotPlanned};
 
 /// Brewing slots for the gallery and the snapshots.
 #[cfg(any(test, debug_assertions))]
@@ -325,12 +326,13 @@ pub struct BatchPage {
 pub struct Batches {
     db: SqlitePool,
     clock: Clock,
+    events: Emitter<SlotPlanned>,
 }
 
 impl Batches {
     #[must_use]
-    pub const fn new(db: SqlitePool, clock: Clock) -> Self {
-        Self { db, clock }
+    pub const fn new(db: SqlitePool, clock: Clock, events: Emitter<SlotPlanned>) -> Self {
+        Self { db, clock, events }
     }
 
     /// Adds `batch` with its `recipe`, if it has one, on behalf of `added_by`, now, with the
@@ -752,7 +754,11 @@ mod tests {
 
     fn service(db: SqlitePool) -> (super::Batches, ManualClock) {
         let clock = ManualClock::starting_at(saturday_morning());
-        let batches = super::Batches::new(db, clock.clock());
+        let batches = super::Batches::new(
+            db,
+            clock.clock(),
+            crate::domain::channel::Channel::new().emitter(std::convert::identity),
+        );
         (batches, clock)
     }
 
