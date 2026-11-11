@@ -53,14 +53,14 @@ pub enum MoveError {
     /// There's no such slot: it never existed, or a Member cancelled it.
     #[error("no such Brewing slot")]
     NotFound,
-    /// The date it would move to was refused.
+    /// The date it would move to was refused, or the database failed.
     #[error(transparent)]
-    Refused(#[from] SlotError),
+    Date(#[from] SlotError),
 }
 
 impl From<sqlx::Error> for MoveError {
     fn from(err: sqlx::Error) -> Self {
-        Self::Refused(SlotError::Database(err))
+        Self::Date(SlotError::Database(err))
     }
 }
 
@@ -78,12 +78,25 @@ pub fn check_date(date: Date, today: Date) -> Result<(), SlotError> {
 }
 
 /// `result` of writing a slot onto `date`, with a clash with another slot's date told as
-/// [`SlotError::Taken`].
+/// [`SlotError::Taken`]. A clash on any other unique column, such as the slot's Batch, stays a
+/// database error.
 fn taken_on<T>(result: Result<T, sqlx::Error>, date: Date) -> Result<T, SlotError> {
     match result {
-        Err(sqlx::Error::Database(err)) if err.is_unique_violation() => Err(SlotError::Taken(date)),
+        Err(sqlx::Error::Database(err))
+            if err.is_unique_violation() && err.message().contains("brewing_slots.date") =>
+        {
+            Err(SlotError::Taken(date))
+        }
         other => Ok(other?),
     }
+}
+
+/// A slot as it is stored. Its date was checked when it was stored.
+fn slot_of(id: i64, date: &str) -> Result<Slot, sqlx::Error> {
+    Ok(Slot {
+        id: SlotId(id),
+        date: parse_date(date)?,
+    })
 }
 
 impl Batches {
@@ -117,7 +130,7 @@ impl Batches {
     ///
     /// # Errors
     ///
-    /// Returns [`MoveError::NotFound`] if there's no slot `id`, or [`MoveError::Refused`] with
+    /// Returns [`MoveError::NotFound`] if there's no slot `id`, or [`MoveError::Date`] with
     /// [`SlotError::Past`] for a date before today, [`SlotError::Taken`] if another slot is on
     /// `date`, or a database error.
     pub async fn move_slot(&self, id: SlotId, date: Date) -> Result<(), MoveError> {
@@ -160,12 +173,7 @@ impl Batches {
         )
         .fetch_optional(&self.db)
         .await?
-        .map(|row| {
-            Ok(Slot {
-                id: SlotId(row.id),
-                date: parse_date(&row.date)?,
-            })
-        })
+        .map(|row| slot_of(row.id, &row.date))
         .transpose()
     }
 
@@ -188,12 +196,7 @@ impl Batches {
         .fetch_all(&self.db)
         .await?
         .into_iter()
-        .map(|row| {
-            Ok(Slot {
-                id: SlotId(row.id),
-                date: parse_date(&row.date)?,
-            })
-        })
+        .map(|row| slot_of(row.id, &row.date))
         .collect()
     }
 }
@@ -329,11 +332,11 @@ mod tests {
 
         assert!(matches!(
             batches.move_slot(moved, date(2026, 11, 29)).await,
-            Err(MoveError::Refused(SlotError::Taken(day))) if day == date(2026, 11, 29)
+            Err(MoveError::Date(SlotError::Taken(day))) if day == date(2026, 11, 29)
         ));
         assert!(matches!(
             batches.move_slot(moved, date(2026, 11, 10)).await,
-            Err(MoveError::Refused(SlotError::Past))
+            Err(MoveError::Date(SlotError::Past))
         ));
         assert_eq!(
             batches.slot(moved).await.unwrap().unwrap().date,

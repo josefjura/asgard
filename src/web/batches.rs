@@ -892,7 +892,7 @@ async fn move_slot(
                 return Ok(go_to(htmx, Tab::Batches.href()));
             }
             Err(MoveError::NotFound) => return Ok(slot_gone(htmx, id)),
-            Err(MoveError::Refused(err)) => slot_message(err)?,
+            Err(MoveError::Date(err)) => slot_message(err)?,
         },
         Err(message) => message,
     };

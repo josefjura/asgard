@@ -1,7 +1,8 @@
 //! The Batches tab, the Crew's brewery log.
 //!
-//! The Brewing slots at the top (see `views::slots`), the form a Member adds a Batch with, every Batch newest first, each Batch's own page with its
-//! Brew day, Bottling and Recipe, and the page it's edited or deleted on.
+//! The Brewing slots at the top (see `views::slots`), the form a Member adds a Batch with, every
+//! Batch newest first, each Batch's own page with its Brew day, Bottling and Recipe, and the page
+//! it's edited or deleted on.
 
 use std::fmt::Display;
 
