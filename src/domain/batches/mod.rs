@@ -27,7 +27,9 @@ pub use recipe::{
     Minutes, RECIPE_MAX_BYTES, Range, Recipe, RecipeError, RecipeSummary, StyleSummary, Targets,
     YeastLine,
 };
-pub use slots::{MoveError, Slot, SlotError, SlotId, SlotPlanned};
+pub use slots::{
+    LinkError, MoveError, PlannedBatch, Slot, SlotBatch, SlotError, SlotId, SlotPlanned, SlotState,
+};
 
 /// Brewing slots for the gallery and the snapshots.
 #[cfg(any(test, debug_assertions))]
@@ -229,6 +231,8 @@ pub struct Batch {
     pub edited: Option<Edited>,
     pub brew_day: BrewDay,
     pub bottling: Bottling,
+    /// The date of the Brewing slot it's brewed on, or None while it waits for one.
+    pub slot: Option<Date>,
 }
 
 impl Batch {
@@ -266,6 +270,7 @@ struct BatchRow {
     volume: Option<i64>,
     bottling_date: Option<String>,
     fg: Option<i64>,
+    slot_date: Option<String>,
 }
 
 impl TryFrom<BatchRow> for Batch {
@@ -285,6 +290,7 @@ impl TryFrom<BatchRow> for Batch {
             }),
             brew_day: brew_day(row.brew_date.as_deref(), row.og, row.volume)?,
             bottling: bottling(row.bottling_date.as_deref(), row.fg)?,
+            slot: row.slot_date.as_deref().map(parse_date).transpose()?,
         })
     }
 }
@@ -386,10 +392,11 @@ impl Batches {
                       added.display_name AS added_by, batches.added_at,
                       edited.display_name AS "edited_by?", batches.edited_at,
                       batches.brew_date, batches.og, batches.volume, batches.bottling_date,
-                      batches.fg
+                      batches.fg, brewing_slots.date AS "slot_date?"
                FROM batches
                JOIN members AS added ON added.id = batches.added_by
                LEFT JOIN members AS edited ON edited.id = batches.edited_by
+               LEFT JOIN brewing_slots ON brewing_slots.batch_number = batches.number
                ORDER BY batches.number DESC
                LIMIT ? OFFSET ?"#,
             limit,
@@ -419,10 +426,11 @@ impl Batches {
                       added.display_name AS added_by, batches.added_at,
                       edited.display_name AS "edited_by?", batches.edited_at,
                       batches.brew_date, batches.og, batches.volume, batches.bottling_date,
-                      batches.fg
+                      batches.fg, brewing_slots.date AS "slot_date?"
                FROM batches
                JOIN members AS added ON added.id = batches.added_by
                LEFT JOIN members AS edited ON edited.id = batches.edited_by
+               LEFT JOIN brewing_slots ON brewing_slots.batch_number = batches.number
                WHERE batches.number = ?"#,
             number.0,
         )
@@ -440,6 +448,9 @@ impl Batches {
 
     /// Records `new` as the Batch `number`'s Brew day in place of what it had, edited by
     /// `edited_by` now. A missing value clears the one recorded.
+    ///
+    /// A Batch without a slot that is brewed on the date of a slot with nothing chosen is linked
+    /// to that slot, so the plan follows what was brewed.
     ///
     /// # Errors
     ///
@@ -477,6 +488,18 @@ impl Batches {
         )
         .execute(&mut *tx)
         .await?;
+        if let Some(brew_date) = brew_date {
+            sqlx::query!(
+                "UPDATE brewing_slots SET batch_number = ?
+                 WHERE date = ? AND batch_number IS NULL
+                   AND NOT EXISTS (SELECT 1 FROM brewing_slots WHERE batch_number = ?)",
+                number.0,
+                brew_date,
+                number.0,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
         tx.commit().await?;
         Ok(())
     }
@@ -676,6 +699,20 @@ pub mod fixtures {
             edited: None,
             brew_day: BrewDay::default(),
             bottling: Bottling::default(),
+            slot: None,
+        }
+    }
+
+    /// `batch`, to be brewed on the slot on `on` (`2026-11-21`).
+    ///
+    /// # Panics
+    ///
+    /// If the fixture's date is invalid, which is a bug in the fixtures.
+    #[must_use]
+    pub fn slotted(batch: Batch, on: &str) -> Batch {
+        Batch {
+            slot: Some(on.parse().expect("fixture dates are valid")),
+            ..batch
         }
     }
 

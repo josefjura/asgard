@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT brew_date FROM batches WHERE number = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "brew_date",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "d720893d161047f2c83c46c6067befa5e87e74f4243c05b3275a5eaeb8159907"
+}

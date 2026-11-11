@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE brewing_slots SET batch_number = NULL WHERE batch_number = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "3bc142043694e9b00d9b7184aa944f9f7c8baa358bb50fb59d7ea2aca489b904"
+}

@@ -1,6 +1,6 @@
 ---
 source: src/views/slots.rs
-expression: "move_page(slot.date, &form).into_string().replace(\"><\", \">\\n<\")"
+expression: "page_of(&one()[0], &[], None).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -43,8 +43,15 @@ expression: "move_page(slot.date, &form).into_string().replace(\"><\", \">\\n<\"
 </a>
 </header>
 <main class="shell-main">
-<h1>Move the slot on <time datetime="2026-11-21">Sat 21 Nov</time>
+<h1>Brewing slot on <time datetime="2026-11-21">Sat 21 Nov</time>
 </h1>
+<section class="section narrow" id="slot-batch" aria-labelledby="slot-batch-heading">
+<h2 id="slot-batch-heading">What's brewed</h2>
+<p class="muted">Nothing chosen yet.</p>
+<p class="muted">No Planned Batch to brew. Add one to the log first.</p>
+</section>
+<section class="section narrow" aria-labelledby="move-heading">
+<h2 id="move-heading">Move</h2>
 <p class="muted">Pick the day the Crew brews instead.</p>
 <form class="entry-form slot-form" id="move-slot" method="post" action="/batches/slots/3" hx-post="/batches/slots/3" hx-swap="outerHTML">
 <div class="field">
@@ -56,6 +63,7 @@ expression: "move_page(slot.date, &form).into_string().replace(\"><\", \">\\n<\"
 <a class="button secondary" href="/batches">Back</a>
 </div>
 </form>
+</section>
 </main>
 <nav class="tabs" aria-label="Sections">
 <a class="tab" href="/">

@@ -19,14 +19,14 @@ use super::{AppError, AppState};
 
 use crate::domain::batches::{
     Batch, BatchError, BatchName, BatchNumber, Bottling, BrewDay, FG_MAX, FG_MIN, Gravity,
-    GravityError, MoveError, NAME_MAX, NOTES_MAX, NameError, NewBatch, Notes, NotesError, OG_MAX,
-    OG_MIN, RECIPE_MAX_BYTES, Recipe, RecipeError, RecordError, RuleError, SlotError, SlotId,
-    VOLUME_MAX, Volume, VolumeError,
+    GravityError, LinkError, MoveError, NAME_MAX, NOTES_MAX, NameError, NewBatch, Notes,
+    NotesError, OG_MAX, OG_MIN, RECIPE_MAX_BYTES, Recipe, RecipeError, RecordError, RuleError,
+    SlotError, SlotId, VOLUME_MAX, Volume, VolumeError,
 };
 use crate::views;
 use crate::views::batches::{
     BatchProblems, BatchValues, BottlingProblems, BottlingValues, BrewDayProblems, BrewDayValues,
-    Purpose, paths,
+    Purpose, SlotChoice, paths,
 };
 use crate::views::nav::Tab;
 use crate::views::slots::{self as slot_views, slot_day};
@@ -61,9 +61,13 @@ pub fn routes() -> Router<AppState> {
             post(attach_recipe).layer(DefaultBodyLimit::max(UPLOAD_LIMIT)),
         )
         .route("/batches/{number}/recipe/delete", post(remove_recipe))
+        .route("/batches/{number}/slot", post(link_batch))
+        .route("/batches/{number}/slot/unlink", post(unlink_batch))
         .route("/batches/slots", post(plan_slot))
         .route("/batches/slots/{id}", get(slot_page).post(move_slot))
         .route("/batches/slots/{id}/cancel", post(cancel_slot))
+        .route("/batches/slots/{id}/batch", post(link_slot))
+        .route("/batches/slots/{id}/unlink", post(unlink_slot))
 }
 
 /// Which page of the log to show. Missing means the first.
@@ -165,12 +169,95 @@ async fn batch(
 ) -> Result<Response, AppError> {
     let number = BatchNumber::from_client(number);
     Ok(match found(&state, htmx, number).await? {
-        Ok(batch) => {
-            let recipe = state.batches.recipe(number).await?;
-            fresh(views::batches::batch_page(&batch, recipe.as_ref())).into_response()
-        }
+        Ok(batch) => fresh(batch_page(&state, &batch, None).await?).into_response(),
         Err(gone) => gone,
     })
+}
+
+/// The Batch's own page, with its Recipe and the free slots it can be linked to, saying
+/// `link_problem` beneath the slot form.
+async fn batch_page(
+    state: &AppState,
+    batch: &Batch,
+    link_problem: Option<&str>,
+) -> Result<Markup, AppError> {
+    let recipe = state.batches.recipe(batch.number).await?;
+    let free = state.batches.free_slots().await?;
+    let slots = SlotChoice {
+        free: &free,
+        problem: link_problem,
+    };
+    Ok(views::batches::batch_page(batch, recipe.as_ref(), &slots))
+}
+
+#[derive(Deserialize)]
+struct LinkSlotForm {
+    #[serde(default)]
+    slot: String,
+}
+
+/// Links the Batch `number` to the slot picked in the form, moving it off any slot it was on,
+/// and goes to its page. A refused pick says why on the Batch's page.
+async fn link_batch(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(number): Path<i64>,
+    Form(input): Form<LinkSlotForm>,
+) -> Result<Response, AppError> {
+    let number = BatchNumber::from_client(number);
+    let message = match input.slot.trim().parse() {
+        Ok(id) => match state.batches.link(SlotId::from_client(id), number).await {
+            Ok(()) => {
+                tracing::info!(
+                    member = member.id.get(),
+                    batch = number.get(),
+                    slot = id,
+                    "a Member linked a Batch to a Brewing slot"
+                );
+                return Ok(go_to(htmx, &paths::batch(number)));
+            }
+            Err(LinkError::BatchNotFound) => return Ok(gone(htmx, number)),
+            // Its page shows it's brewed, with no slot to pick.
+            Err(LinkError::NotPlanned) => return Ok(go_to(htmx, &paths::batch(number))),
+            Err(LinkError::SlotNotFound) => {
+                "That slot is gone: someone cancelled it. Pick another."
+            }
+            Err(LinkError::SlotDone) => "That slot's Batch is brewed already. Pick another.",
+            Err(LinkError::Database(err)) => return Err(err.into()),
+        },
+        Err(_) => "Pick a slot to brew it on.",
+    };
+    Ok(match found(&state, htmx, number).await? {
+        Ok(batch) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            fresh(batch_page(&state, &batch, Some(message)).await?),
+        )
+            .into_response(),
+        Err(gone) => gone,
+    })
+}
+
+/// Takes the Batch `number` off its slot and goes to its page, where it waits for a slot.
+async fn unlink_batch(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(number): Path<i64>,
+) -> Result<Response, AppError> {
+    let number = BatchNumber::from_client(number);
+    match state.batches.unlink_batch(number).await {
+        Ok(()) => tracing::info!(
+            member = member.id.get(),
+            batch = number.get(),
+            "a Member took a Batch off its Brewing slot"
+        ),
+        Err(LinkError::BatchNotFound) => return Ok(gone(htmx, number)),
+        // Its page shows it's brewed, with no slot to unlink.
+        Err(LinkError::NotPlanned | LinkError::SlotNotFound | LinkError::SlotDone) => {}
+        Err(LinkError::Database(err)) => return Err(err.into()),
+    }
+    Ok(go_to(htmx, &paths::batch(number)))
 }
 
 /// Attaches the uploaded Recipe to the Batch `number`, in place of any it had, and goes to its
@@ -442,18 +529,30 @@ async fn delete(
     Ok(go_to(htmx, Tab::Batches.href()))
 }
 
-/// The Batch `number`'s Brew day form, filled in with what it has and today as the brew date
-/// until it has one: in place of its Brew day section for htmx, on a page of its own otherwise.
+/// Which brew date the Brew day form starts at. Missing or unreadable means today.
+#[derive(Deserialize)]
+struct BrewDayQuery {
+    date: Option<String>,
+}
+
+/// The Batch `number`'s Brew day form, filled in with what it has and, until it has a brew date,
+/// the date asked for or today: in place of its Brew day section for htmx, on a page of its own
+/// otherwise. A slot whose day passed asks for its date.
 async fn brew_day_form(
     State(state): State<AppState>,
     Member(_): Member,
     Htmx(htmx): Htmx,
     Path(number): Path<i64>,
+    Query(query): Query<BrewDayQuery>,
 ) -> Result<Response, AppError> {
     let number = BatchNumber::from_client(number);
+    let start = query
+        .date
+        .and_then(|date| date.parse::<Date>().ok())
+        .unwrap_or_else(|| state.batches.today());
     Ok(match found(&state, htmx, number).await? {
         Ok(batch) => {
-            let values = BrewDayValues::of(&batch, state.batches.today());
+            let values = BrewDayValues::of(&batch, start);
             let form = views::batches::brew_day_form(number, &values, &BrewDayProblems::default());
             numbers_form(htmx, StatusCode::OK, number, form)
         }
@@ -791,7 +890,7 @@ async fn page(
     form: &Markup,
     page_number: usize,
 ) -> Result<Markup, AppError> {
-    let slots = state.batches.upcoming_slots().await?;
+    let slots = state.batches.open_slots().await?;
     let log = state.batches.page(page_number).await?;
     Ok(views::batches::page(
         &slot_views::slots_section(&slots, plan),
@@ -868,7 +967,8 @@ async fn slot_page(
         return Ok(slot_gone(htmx, id));
     };
     let form = slot_views::move_form(id, &slot.date.to_string(), None, state.batches.today());
-    Ok(fresh(slot_views::move_page(slot.date, &form)).into_response())
+    let planned = state.batches.planned_batches().await?;
+    Ok(fresh(slot_views::slot_page(&slot, &planned, None, &form)).into_response())
 }
 
 /// Moves the slot `id` to the date in the form and goes back to the tab. A refused date shows
@@ -901,12 +1001,90 @@ async fn move_slot(
         return Ok(slot_gone(htmx, id));
     };
     let form = slot_views::move_form(id, &input.date, Some(&message), state.batches.today());
+    let planned = state.batches.planned_batches().await?;
     Ok(fragment_or_page(
         htmx,
         StatusCode::UNPROCESSABLE_ENTITY,
         form,
-        |form| slot_views::move_page(slot.date, form),
+        |form| slot_views::slot_page(&slot, &planned, None, form),
     ))
+}
+
+#[derive(Deserialize)]
+struct LinkBatchForm {
+    #[serde(default)]
+    batch: String,
+}
+
+/// Links the Batch picked in the form to the slot `id`, moving it off any slot it was on and
+/// taking off any Batch the slot had, and goes back to the tab. A refused pick says why on the
+/// slot's page.
+async fn link_slot(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+    Form(input): Form<LinkBatchForm>,
+) -> Result<Response, AppError> {
+    let id = SlotId::from_client(id);
+    let message = match input.batch.trim().parse() {
+        Ok(number) => match state
+            .batches
+            .link(id, BatchNumber::from_client(number))
+            .await
+        {
+            Ok(()) => {
+                tracing::info!(
+                    member = member.id.get(),
+                    batch = number,
+                    slot = id.get(),
+                    "a Member linked a Batch to a Brewing slot"
+                );
+                return Ok(go_to(htmx, Tab::Batches.href()));
+            }
+            Err(LinkError::SlotNotFound) => return Ok(slot_gone(htmx, id)),
+            // Its Batch is brewed, so the slot is done and no longer shown.
+            Err(LinkError::SlotDone) => return Ok(go_to(htmx, Tab::Batches.href())),
+            Err(LinkError::BatchNotFound) => {
+                "That Batch is gone: someone deleted it. Pick another."
+            }
+            Err(LinkError::NotPlanned) => "That Batch is brewed already. Pick a Planned Batch.",
+            Err(LinkError::Database(err)) => return Err(err.into()),
+        },
+        Err(_) => "Pick a Batch to brew that day.",
+    };
+    let Some(slot) = state.batches.slot(id).await? else {
+        return Ok(slot_gone(htmx, id));
+    };
+    let form = slot_views::move_form(id, &slot.date.to_string(), None, state.batches.today());
+    let planned = state.batches.planned_batches().await?;
+    Ok((
+        StatusCode::UNPROCESSABLE_ENTITY,
+        fresh(slot_views::slot_page(&slot, &planned, Some(message), &form)),
+    )
+        .into_response())
+}
+
+/// Takes the Batch off the slot `id`, which then has nothing chosen, and goes back to the tab.
+async fn unlink_slot(
+    State(state): State<AppState>,
+    Member(member): Member,
+    Htmx(htmx): Htmx,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let id = SlotId::from_client(id);
+    match state.batches.unlink_slot(id).await {
+        Ok(()) => tracing::info!(
+            member = member.id.get(),
+            slot = id.get(),
+            "a Member took the Batch off a Brewing slot"
+        ),
+        Err(LinkError::SlotNotFound) => return Ok(slot_gone(htmx, id)),
+        // Its Batch is brewed, so the slot is done and no longer shown.
+        Err(LinkError::NotPlanned | LinkError::BatchNotFound | LinkError::SlotDone) => {}
+        Err(LinkError::Database(err)) => return Err(err.into()),
+    }
+    Ok(go_to(htmx, Tab::Batches.href()))
 }
 
 /// Cancels the slot `id` for good and goes back to the tab. A slot already gone stays gone.
@@ -2505,17 +2683,444 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn a_slot_whose_date_has_passed_is_no_longer_shown(db: SqlitePool) {
+    async fn a_passed_slot_with_nothing_brewed_asks_did_you_brew_and_leads_to_the_brew_day(
+        db: SqlitePool,
+    ) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-02").await;
+        plan(&app, &cookie, "2026-01-01").await;
+        add(&app, &cookie, "Pils", "").await;
+
+        app.clock.advance(std::time::Duration::from_hours(24));
+
+        let tab = page(&app, &cookie, "/batches").await;
+        assert_eq!(
+            slot_dates(&tab),
+            ["2026-01-01", "2026-01-02"],
+            "passed first"
+        );
+        assert_eq!(tab.matches("Did you brew?").count(), 1, "{tab}");
+        assert!(tab.contains(r#"href="/batches/slots/2">Pick the Batch</a>"#));
+
+        let slot = page(&app, &cookie, "/batches/slots/2").await;
+        assert!(slot.contains("Did you brew?"), "{slot}");
+        assert!(slot.contains(r#"href="/batches/1/brew-day?date=2026-01-01""#));
+
+        let form = page(&app, &cookie, "/batches/1/brew-day?date=2026-01-01").await;
+        assert!(form.contains(r#"value="2026-01-01""#), "{form}");
+        let today = page(&app, &cookie, "/batches/1/brew-day?date=nonsense").await;
+        assert!(today.contains(r#"value="2026-01-02""#), "{today}");
+
+        recorded(&app, &cookie, 1, "brew-day", &[("brew_date", "2026-01-01")]).await;
+        assert_eq!(
+            slot_dates(&page(&app, &cookie, "/batches").await),
+            ["2026-01-02"],
+            "the slot is done"
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_passed_slot_with_a_batch_picks_it_straight_to_its_brew_day(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-01").await;
+        add(&app, &cookie, "Pils", "").await;
+        link_slot(&app, &cookie, 1, "1").await;
+
+        app.clock.advance(std::time::Duration::from_hours(24));
+
+        let tab = page(&app, &cookie, "/batches").await;
+        assert!(tab.contains("Did you brew?"), "{tab}");
+        assert!(
+            tab.contains(r#"href="/batches/1/brew-day?date=2026-01-01">Pick the Batch</a>"#),
+            "{tab}"
+        );
+        assert!(!tab.contains("Unlink"));
+    }
+
+    #[sqlx::test]
+    async fn a_passed_slot_is_moved_or_cancelled_like_any_other(db: SqlitePool) {
         let app = TestApp::new(db);
         let cookie = app.sign_in_new_admin("Josef").await;
         plan(&app, &cookie, "2026-01-01").await;
         plan(&app, &cookie, "2026-01-02").await;
+        app.clock.advance(std::time::Duration::from_hours(48));
 
-        app.clock.advance(std::time::Duration::from_hours(24));
+        let response = post_slot(&app, &cookie, "/batches/slots/1", "2026-01-10", true).await;
+        assert_eq!(response.headers()[HX_REDIRECT], "/batches");
+        post_slot(&app, &cookie, "/batches/slots/2/cancel", "", true).await;
+
+        let tab = page(&app, &cookie, "/batches").await;
+        assert_eq!(slot_dates(&tab), ["2026-01-10"]);
+        assert!(!tab.contains("Did you brew?"), "{tab}");
+    }
+
+    #[sqlx::test]
+    async fn a_done_slot_cant_be_given_another_batch(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-10").await;
+        add(&app, &cookie, "Pils", "").await;
+        add(&app, &cookie, "Stout", "").await;
+        recorded(&app, &cookie, 1, "brew-day", &[("brew_date", "2026-01-10")]).await;
+
+        posted(
+            &app,
+            &cookie,
+            "/batches/slots/1/batch",
+            &[("batch", "2")],
+            "/batches",
+        )
+        .await;
+        let html = link_refused(&app, &cookie, "/batches/2/slot", &[("slot", "1")]).await;
+        assert!(
+            html.contains("That slot's Batch is brewed already."),
+            "{html}"
+        );
+
+        assert!(
+            page(&app, &cookie, "/batches/2")
+                .await
+                .contains("Waiting for a slot")
+        );
+        let slot = page(&app, &cookie, "/batches/slots/1").await;
+        assert!(slot.contains("#1 Pils</a>"), "{slot}");
+    }
+
+    /// Posts `pairs` to `uri` as a plain form, expecting a redirect to `to`.
+    async fn posted(app: &TestApp, cookie: &str, uri: &str, pairs: &[(&str, &str)], to: &str) {
+        let response = post_form(app, uri, cookie, &fields(pairs), false, PUBLIC_ORIGIN).await;
+        let status = response.status();
+        let location = response.headers().get(LOCATION).cloned();
+        assert_eq!(
+            status,
+            StatusCode::SEE_OTHER,
+            "{}",
+            body_text(response).await
+        );
+        assert_eq!(location.unwrap(), to, "{uri}");
+    }
+
+    /// Links the Batch `number` to the slot `id` from the slot's page.
+    async fn link_slot(app: &TestApp, cookie: &str, id: i64, number: &str) {
+        let uri = format!("/batches/slots/{id}/batch");
+        posted(app, cookie, &uri, &[("batch", number)], "/batches").await;
+    }
+
+    /// Links the Batch `number` to the slot `id` from the Batch's page.
+    async fn link_batch(app: &TestApp, cookie: &str, number: i64, id: &str) {
+        let uri = format!("/batches/{number}/slot");
+        let to = format!("/batches/{number}");
+        posted(app, cookie, &uri, &[("slot", id)], &to).await;
+    }
+
+    /// Posts a link form, expecting it refused, and answers with the page that came back.
+    async fn link_refused(
+        app: &TestApp,
+        cookie: &str,
+        uri: &str,
+        pairs: &[(&str, &str)],
+    ) -> String {
+        let response = post_form(app, uri, cookie, &fields(pairs), false, PUBLIC_ORIGIN).await;
+        let status = response.status();
+        let body = body_text(response).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        body
+    }
+
+    #[sqlx::test]
+    async fn any_member_links_a_batch_from_the_slot_and_unlinks_it(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let ondra = app.sign_in_new_member("Ondra").await;
+        plan(&app, &josef, "2026-01-10").await;
+        add(&app, &josef, "Pils", "").await;
+
+        let slot = page(&app, &ondra, "/batches/slots/1").await;
+        assert!(
+            slot.contains(r#"action="/batches/slots/1/batch""#),
+            "{slot}"
+        );
+        assert!(slot.contains(r#"<option value="1">#1 Pils</option>"#));
+        link_slot(&app, &ondra, 1, "1").await;
+
+        let tab = page(&app, &josef, "/batches").await;
+        assert!(tab.contains(r#"<a href="/batches/1">#1 Pils</a>"#), "{tab}");
+        assert!(!tab.contains("Nothing chosen yet"));
+        assert!(tab.contains("Brewing on <time datetime=\"2026-01-10\">Sat 10 Jan</time>"));
+        let batch = page(&app, &josef, "/batches/1").await;
+        assert!(batch.contains("Brewing on"), "{batch}");
+
+        posted(&app, &josef, "/batches/slots/1/unlink", &[], "/batches").await;
+        let tab = page(&app, &josef, "/batches").await;
+        assert!(tab.contains("Nothing chosen yet"), "{tab}");
+        assert!(tab.contains("Waiting for a slot"));
+    }
+
+    #[sqlx::test]
+    async fn any_member_links_from_the_batch_page_moves_it_and_unlinks_it(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let josef = app.sign_in_new_admin("Josef").await;
+        let simon = app.sign_in_new_member("Šimon").await;
+        plan(&app, &josef, "2026-01-10").await;
+        plan(&app, &josef, "2026-01-17").await;
+        add(&app, &josef, "Pils", "").await;
+
+        let waiting = page(&app, &simon, "/batches/1").await;
+        assert!(waiting.contains("Waiting for a slot"), "{waiting}");
+        assert!(waiting.contains(r#"<option value="1">Sat 10 Jan</option>"#));
+        assert!(waiting.contains(r#"<option value="2">Sat 17 Jan</option>"#));
+        link_batch(&app, &simon, 1, "1").await;
+
+        let slotted = page(&app, &simon, "/batches/1").await;
+        assert!(
+            slotted.contains(r#"Brewing on <time datetime="2026-01-10">Sat 10 Jan</time>"#),
+            "{slotted}"
+        );
+        assert!(
+            !slotted.contains(r#"<option value="1">"#),
+            "its own slot isn't free"
+        );
+        link_batch(&app, &simon, 1, "2").await;
+
+        let tab = page(&app, &josef, "/batches").await;
+        assert_eq!(tab.matches("Nothing chosen yet").count(), 1, "{tab}");
+        assert!(tab.contains("Brewing on <time datetime=\"2026-01-17\">"));
+
+        posted(&app, &simon, "/batches/1/slot/unlink", &[], "/batches/1").await;
+        assert!(
+            page(&app, &simon, "/batches/1")
+                .await
+                .contains("Waiting for a slot")
+        );
+        assert_eq!(
+            page(&app, &josef, "/batches")
+                .await
+                .matches("Nothing chosen yet")
+                .count(),
+            2
+        );
+    }
+
+    #[sqlx::test]
+    async fn picking_a_batch_for_a_slot_with_one_puts_the_old_one_back_to_waiting(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-10").await;
+        add(&app, &cookie, "Pils", "").await;
+        add(&app, &cookie, "Stout", "").await;
+        link_slot(&app, &cookie, 1, "1").await;
+
+        let slot = page(&app, &cookie, "/batches/slots/1").await;
+        assert!(slot.contains("Brew instead"), "{slot}");
+        assert!(
+            !slot.contains(r#"<option value="1">"#),
+            "not the one it has"
+        );
+        link_slot(&app, &cookie, 1, "2").await;
+
+        assert!(
+            page(&app, &cookie, "/batches/1")
+                .await
+                .contains("Waiting for a slot")
+        );
+        assert!(
+            page(&app, &cookie, "/batches")
+                .await
+                .contains("#2 Stout</a>")
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_refused_link_says_why_on_the_page_it_came_from(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-10").await;
+        plan(&app, &cookie, "2026-01-17").await;
+        add(&app, &cookie, "Brewed", "").await;
+        add(&app, &cookie, "Gone", "").await;
+        add(&app, &cookie, "Pils", "").await;
+        recorded(&app, &cookie, 1, "brew-day", &[("brew_date", "2026-01-01")]).await;
+        delete(&app, &cookie, 2, true).await;
+        post_slot(&app, &cookie, "/batches/slots/2/cancel", "", true).await;
+
+        for (pairs, message) in [
+            (&[("batch", "")][..], "Pick a Batch to brew that day."),
+            (&[("batch", "1")][..], "That Batch is brewed already."),
+            (
+                &[("batch", "2")][..],
+                "That Batch is gone: someone deleted it.",
+            ),
+        ] {
+            let html = link_refused(&app, &cookie, "/batches/slots/1/batch", pairs).await;
+            assert!(html.contains(message), "{message}: {html}");
+            assert!(html.contains("Brewing slot on"), "the slot's page");
+        }
+
+        for (id, message) in [
+            ("", "Pick a slot to brew it on."),
+            ("2", "That slot is gone: someone cancelled it."),
+        ] {
+            let html = link_refused(&app, &cookie, "/batches/3/slot", &[("slot", id)]).await;
+            assert!(html.contains(message), "{message}: {html}");
+            assert!(html.contains(r#"aria-invalid="true""#), "the Batch's page");
+        }
+
+        // A brewed Batch's page shows it's brewed, with no slot to pick.
+        posted(
+            &app,
+            &cookie,
+            "/batches/1/slot",
+            &[("slot", "1")],
+            "/batches/1",
+        )
+        .await;
+        assert!(
+            !page(&app, &cookie, "/batches/1")
+                .await
+                .contains("Brewing slot")
+        );
+        assert!(
+            page(&app, &cookie, "/batches")
+                .await
+                .contains("Nothing chosen yet")
+        );
+    }
+
+    #[sqlx::test]
+    async fn links_to_a_slot_or_batch_thats_gone_say_so(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-10").await;
+        add(&app, &cookie, "Pils", "").await;
+        post_slot(&app, &cookie, "/batches/slots/1/cancel", "", true).await;
+        delete(&app, &cookie, 1, true).await;
+
+        for uri in ["/batches/slots/1/batch", "/batches/slots/1/unlink"] {
+            let response = post_form(
+                &app,
+                uri,
+                &cookie,
+                &fields(&[("batch", "1")]),
+                false,
+                PUBLIC_ORIGIN,
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
+            assert!(body_text(response).await.contains("This slot is gone"));
+        }
+        for uri in ["/batches/1/slot", "/batches/1/slot/unlink"] {
+            let response = post_form(
+                &app,
+                uri,
+                &cookie,
+                &fields(&[("slot", "1")]),
+                false,
+                PUBLIC_ORIGIN,
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
+        }
+    }
+
+    #[sqlx::test]
+    async fn brewing_on_a_free_slots_day_links_it_and_the_slot_is_done(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-10").await;
+        plan(&app, &cookie, "2026-01-17").await;
+        add(&app, &cookie, "Pils", "").await;
+
+        recorded(&app, &cookie, 1, "brew-day", &[("brew_date", "2026-01-10")]).await;
 
         assert_eq!(
             slot_dates(&page(&app, &cookie, "/batches").await),
-            ["2026-01-02"]
+            ["2026-01-17"]
+        );
+        recorded(&app, &cookie, 1, "brew-day", &[("brew_date", "")]).await;
+        let tab = page(&app, &cookie, "/batches").await;
+        assert_eq!(
+            slot_dates(&tab),
+            ["2026-01-10", "2026-01-17"],
+            "planned again"
+        );
+        assert!(tab.contains("#1 Pils</a>"), "{tab}");
+    }
+
+    #[sqlx::test]
+    async fn deleting_a_linked_batch_leaves_its_slot_with_nothing_chosen(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-10").await;
+        add(&app, &cookie, "Pils", "").await;
+        link_slot(&app, &cookie, 1, "1").await;
+
+        delete(&app, &cookie, 1, true).await;
+
+        let tab = page(&app, &cookie, "/batches").await;
+        assert_eq!(slot_dates(&tab), ["2026-01-10"]);
+        assert!(tab.contains("Nothing chosen yet"), "{tab}");
+    }
+
+    #[sqlx::test]
+    async fn signed_out_links_redirect_to_sign_in(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-10").await;
+        add(&app, &cookie, "Pils", "").await;
+
+        for (uri, pairs) in [
+            ("/batches/slots/1/batch", &[("batch", "1")][..]),
+            ("/batches/slots/1/unlink", &[][..]),
+            ("/batches/1/slot", &[("slot", "1")][..]),
+            ("/batches/1/slot/unlink", &[][..]),
+        ] {
+            let response = post_form(&app, uri, "", &fields(pairs), false, PUBLIC_ORIGIN).await;
+            assert_eq!(response.status(), StatusCode::SEE_OTHER, "{uri}");
+            assert_eq!(response.headers()[LOCATION], "/sign-in");
+        }
+        assert!(
+            page(&app, &cookie, "/batches")
+                .await
+                .contains("Nothing chosen yet")
+        );
+    }
+
+    #[sqlx::test]
+    async fn link_posts_from_another_origin_are_refused(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-10").await;
+        add(&app, &cookie, "Pils", "").await;
+
+        for uri in ["/batches/slots/1/batch", "/batches/1/slot"] {
+            let response = post_form(
+                &app,
+                uri,
+                &cookie,
+                &fields(&[("batch", "1"), ("slot", "1")]),
+                false,
+                "https://evil.example",
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{uri}");
+        }
+        assert!(
+            page(&app, &cookie, "/batches")
+                .await
+                .contains("Nothing chosen yet")
+        );
+
+        link_slot(&app, &cookie, 1, "1").await;
+        for uri in ["/batches/slots/1/unlink", "/batches/1/slot/unlink"] {
+            let response = post_form(&app, uri, &cookie, &[], false, "https://evil.example").await;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{uri}");
+        }
+        assert!(
+            page(&app, &cookie, "/batches")
+                .await
+                .contains("#1 Pils</a>")
         );
     }
 
@@ -2528,7 +3133,7 @@ mod tests {
         plan(&app, &josef, "2026-01-17").await;
 
         let form = page(&app, &simon, "/batches/slots/1").await;
-        assert!(form.contains("Move the slot on"), "{form}");
+        assert!(form.contains("Brewing slot on"), "{form}");
         assert!(form.contains(r#"value="2026-01-10""#));
         assert!(form.contains(r#"min="2026-01-01""#));
 
@@ -2562,7 +3167,7 @@ mod tests {
 
         let past = slot_refused(&app, &cookie, "/batches/slots/1", "2025-12-31", false).await;
         assert!(past.contains("<!DOCTYPE"), "the slot's page");
-        assert!(past.contains("Move the slot on"), "{past}");
+        assert!(past.contains("Brewing slot on"), "{past}");
         assert!(past.contains("Pick today or a later date."));
         assert!(past.contains(r#"value="2025-12-31""#));
 

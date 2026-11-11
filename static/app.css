@@ -1251,13 +1251,59 @@ p.batch-meta {
   font-size: var(--text-small);
 }
 
+.slot-batch a {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* A slot whose day passed with nothing brewed: its question in the accent, above its Batch. */
+.slot-ask {
+  color: var(--accent);
+  font-size: var(--text-small);
+  font-weight: 600;
+}
+
 .slot-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
-.slot-actions form {
+.slot-actions form,
+.slot-chosen form {
   margin: 0;
+}
+
+/* The Batch a slot has, or the slot a Batch is on, with Unlink beside it. */
+.slot-chosen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.slot-chosen p {
+  margin: 0;
+}
+
+.slot-chosen > a {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* The Planned Batches a passed slot asks about, each a link to its Brew day form. */
+.slot-picks {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.slot-picks a {
+  font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 /* The date and its button on one line where they fit; the problem under the date wraps the

@@ -1,6 +1,6 @@
 ---
 source: src/views/batches.rs
-expression: "batch_page(&bare(), None).into_string().replace(\"><\", \">\\n<\")"
+expression: "batch_page(&bare(), None,\n&SlotChoice::default()).into_string().replace(\"><\", \">\\n<\")"
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -46,6 +46,13 @@ expression: "batch_page(&bare(), None).into_string().replace(\"><\", \">\\n<\")"
 <p class="batch-eyebrow">Batch #11</p>
 <h1 class="batch-title">Stout</h1>
 <span class="stage planned">Planned</span>
+<section class="section narrow" aria-labelledby="slot-heading">
+<h2 id="slot-heading">Brewing slot</h2>
+<div class="slot-chosen">
+<p class="batch-slot">Waiting for a slot</p>
+</div>
+<p class="muted">No free slot to brew it on. Plan one in the <a href="/batches">Batches tab</a>.</p>
+</section>
 <section class="section narrow" id="brew-day" aria-labelledby="brew-day-heading">
 <h2 id="brew-day-heading">Brew day</h2>
 <p class="muted">Not brewed yet.</p>
