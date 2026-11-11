@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT date FROM brewing_slots WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "date",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9411278b1b300f5c8feb1300b87aa891fc8f1e98892b4a0f3e12ff43c305f60c"
+}

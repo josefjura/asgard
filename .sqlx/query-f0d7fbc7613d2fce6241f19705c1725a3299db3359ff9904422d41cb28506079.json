@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE brewing_slots SET reminder_id = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "f0d7fbc7613d2fce6241f19705c1725a3299db3359ff9904422d41cb28506079"
+}

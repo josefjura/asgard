@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE brewing_slots SET batch_number = ?\n                   WHERE date = ? AND batch_number IS NULL\n                     AND NOT EXISTS (SELECT 1 FROM brewing_slots WHERE batch_number = ?)\n                   RETURNING id AS \"id!\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "da7b5b9efbc3e6b07c37bf42a09a66b74d105034dc145eb08e0f389f9b16190e"
+}

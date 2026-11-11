@@ -89,7 +89,20 @@ impl DueAt {
             return Err(DueAtError);
         }
         let time: DateTime = input.parse().map_err(|_| DueAtError)?;
-        unix_seconds_at_crew_time(time).map(Self).ok_or(DueAtError)
+        Self::at_crew_time(time).ok_or(DueAtError)
+    }
+
+    /// The instant the clock in the Crew's time zone shows `time`, read as
+    /// [`unix_seconds_at_crew_time`] reads it, or None past the edge of jiff's range.
+    #[must_use]
+    pub fn at_crew_time(time: DateTime) -> Option<Self> {
+        unix_seconds_at_crew_time(time).map(Self)
+    }
+
+    /// The instant, as Unix seconds.
+    #[must_use]
+    pub const fn unix_seconds(self) -> i64 {
+        self.0
     }
 
     /// The date and time it shows on the clock in the Crew's time zone.
@@ -401,6 +414,22 @@ impl Reminders {
         creator: MemberId,
         reminder: &NewReminder,
     ) -> Result<ReminderId, ReminderError> {
+        let id = self
+            .create_on(&mut *self.db.acquire().await?, creator, reminder)
+            .await?;
+        self.changed.notify_one();
+        Ok(id)
+    }
+
+    /// Creates `reminder` as [`create`](Self::create) does, on `conn`, as part of another
+    /// service's transaction. The ticker isn't told: call [`announce_change`](Self::announce_change)
+    /// once it is committed.
+    pub(in crate::domain) async fn create_on(
+        &self,
+        conn: &mut SqliteConnection,
+        creator: MemberId,
+        reminder: &NewReminder,
+    ) -> Result<ReminderId, ReminderError> {
         let now = unix_seconds(self.clock.now());
         if reminder.due_at.0 <= now {
             return Err(ReminderError::NotInFuture);
@@ -413,9 +442,8 @@ impl Reminders {
             created_by,
             now,
         )
-        .execute(&self.db)
+        .execute(conn)
         .await?;
-        self.changed.notify_one();
         Ok(ReminderId(done.last_insert_rowid()))
     }
 
@@ -448,6 +476,21 @@ impl Reminders {
     /// Returns [`ReminderError::NotInFuture`] unless it would be due after now,
     /// [`ReminderError::NotFound`] unless `id` is pending, or a database error.
     pub async fn edit(&self, id: ReminderId, reminder: &NewReminder) -> Result<(), ReminderError> {
+        self.edit_on(&mut *self.db.acquire().await?, id, reminder)
+            .await?;
+        self.changed.notify_one();
+        Ok(())
+    }
+
+    /// Changes the pending Reminder `id` as [`edit`](Self::edit) does, on `conn`, as part of
+    /// another service's transaction. The ticker isn't told: call
+    /// [`announce_change`](Self::announce_change) once it is committed.
+    pub(in crate::domain) async fn edit_on(
+        &self,
+        conn: &mut SqliteConnection,
+        id: ReminderId,
+        reminder: &NewReminder,
+    ) -> Result<(), ReminderError> {
         if reminder.due_at.0 <= unix_seconds(self.clock.now()) {
             return Err(ReminderError::NotInFuture);
         }
@@ -457,13 +500,34 @@ impl Reminders {
             reminder.due_at.0,
             id.0,
         )
-        .execute(&self.db)
+        .execute(conn)
         .await?;
         if done.rows_affected() == 0 {
             return Err(ReminderError::NotFound);
         }
-        self.changed.notify_one();
         Ok(())
+    }
+
+    /// Deletes the Reminder `id` on `conn` if it is still pending, as part of another service's
+    /// transaction; a sent Reminder stays. The ticker isn't told: call
+    /// [`announce_change`](Self::announce_change) once it is committed.
+    pub(in crate::domain) async fn delete_pending_on(
+        conn: &mut SqliteConnection,
+        id: ReminderId,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            "DELETE FROM reminders WHERE id = ? AND sent_at IS NULL",
+            id.0
+        )
+        .execute(conn)
+        .await?;
+        Ok(())
+    }
+
+    /// Tells the ticker Reminders changed in a transaction another service committed, so it works
+    /// out again when the next one is due.
+    pub(in crate::domain) fn announce_change(&self) {
+        self.changed.notify_one();
     }
 
     /// Deletes the Reminder `id`, pending or sent.

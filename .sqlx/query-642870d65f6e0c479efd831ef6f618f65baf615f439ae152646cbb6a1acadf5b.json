@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT brewing_slots.date, brewing_slots.created_by,\n                      reminders.id AS \"pending?\",\n                      batches.number AS \"batch_number?\", batches.name AS \"batch_name?\"\n               FROM brewing_slots\n               LEFT JOIN reminders\n                 ON reminders.id = brewing_slots.reminder_id AND reminders.sent_at IS NULL\n               LEFT JOIN batches ON batches.number = brewing_slots.batch_number\n               WHERE brewing_slots.id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "date",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_by",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "pending?",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "batch_number?",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "batch_name?",
+        "ordinal": 4,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "642870d65f6e0c479efd831ef6f618f65baf615f439ae152646cbb6a1acadf5b"
+}
