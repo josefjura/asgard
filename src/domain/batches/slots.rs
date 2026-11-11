@@ -135,6 +135,9 @@ pub enum LinkError {
     /// The Batch is brewed already, so its slot is done.
     #[error("the Batch is brewed already")]
     NotPlanned,
+    /// The slot's own Batch is brewed, so the slot is done and keeps it.
+    #[error("the Brewing slot is done")]
+    SlotDone,
     #[error("database error")]
     Database(#[from] sqlx::Error),
 }
@@ -320,6 +323,18 @@ impl Batches {
         .collect()
     }
 
+    /// The upcoming slots with nothing chosen, soonest first: those a Planned Batch can be
+    /// linked to from its page.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error.
+    pub async fn free_slots(&self) -> Result<Vec<Slot>, sqlx::Error> {
+        let mut slots = self.open_slots().await?;
+        slots.retain(|slot| slot.state == SlotState::Upcoming && slot.batch.is_none());
+        Ok(slots)
+    }
+
     /// The Planned Batches, newest first, each with the date of the slot it's on, if any: what a
     /// slot can be given to brew.
     ///
@@ -356,7 +371,8 @@ impl Batches {
     /// # Errors
     ///
     /// Returns [`LinkError::SlotNotFound`] or [`LinkError::BatchNotFound`] if either is gone,
-    /// [`LinkError::NotPlanned`] if the Batch is brewed already, or a database error.
+    /// [`LinkError::NotPlanned`] if the Batch is brewed already, [`LinkError::SlotDone`] if the
+    /// slot's own Batch is, or a database error.
     pub async fn link(&self, id: SlotId, number: BatchNumber) -> Result<(), LinkError> {
         let mut tx = self.db.begin().await?;
         let batch = sqlx::query!("SELECT brew_date FROM batches WHERE number = ?", number.0)
@@ -365,6 +381,19 @@ impl Batches {
             .ok_or(LinkError::BatchNotFound)?;
         if batch.brew_date.is_some() {
             return Err(LinkError::NotPlanned);
+        }
+        let slot = sqlx::query!(
+            r#"SELECT batches.brew_date AS "brew_date?"
+               FROM brewing_slots
+               LEFT JOIN batches ON batches.number = brewing_slots.batch_number
+               WHERE brewing_slots.id = ?"#,
+            id.0
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(LinkError::SlotNotFound)?;
+        if slot.brew_date.is_some() {
+            return Err(LinkError::SlotDone);
         }
         // Off its old slot first: a Batch is on one slot at most.
         sqlx::query!(
@@ -819,6 +848,44 @@ mod tests {
         ));
         assert_eq!(batch_on(&batches, slot).await, Some(pils));
         assert_eq!(batch_on(&batches, other).await, None);
+    }
+
+    #[sqlx::test]
+    async fn a_done_slot_keeps_its_brewed_batch(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, _) = service(db);
+        let slot = batches.plan_slot(josef, date(2026, 11, 22)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+        let stout = add_batch(&batches, josef, "Stout").await;
+        brew(&batches, josef, pils, Some(date(2026, 11, 22))).await;
+
+        assert!(matches!(
+            batches.link(slot, stout).await,
+            Err(LinkError::SlotDone)
+        ));
+        assert_eq!(batch_on(&batches, slot).await, Some(pils));
+        assert_eq!(batches.free_slots().await.unwrap(), []);
+    }
+
+    #[sqlx::test]
+    async fn free_slots_are_upcoming_with_nothing_chosen(db: SqlitePool) {
+        let josef = add_member(&db, "Josef", true).await;
+        let (batches, clock) = service(db);
+        batches.plan_slot(josef, date(2026, 11, 11)).await.unwrap();
+        let taken = batches.plan_slot(josef, date(2026, 11, 22)).await.unwrap();
+        batches.plan_slot(josef, date(2026, 11, 29)).await.unwrap();
+        let pils = add_batch(&batches, josef, "Pils").await;
+        batches.link(taken, pils).await.unwrap();
+        clock.advance(Duration::from_mins(30));
+
+        let free: Vec<Date> = batches
+            .free_slots()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|slot| slot.date)
+            .collect();
+        assert_eq!(free, [date(2026, 11, 29)]);
     }
 
     #[sqlx::test]

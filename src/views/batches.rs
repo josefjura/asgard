@@ -385,6 +385,7 @@ fn slot_section(batch: &Batch, slots: &SlotChoice<'_>) -> Markup {
                 }
             }
             @if slots.free.is_empty() {
+                (problem(&problem_id, slots.problem))
                 p.muted {
                     "No free slot to "
                     @if batch.slot.is_some() { "move it to" } @else { "brew it on" }

@@ -21,7 +21,7 @@ use crate::domain::batches::{
     Batch, BatchError, BatchName, BatchNumber, Bottling, BrewDay, FG_MAX, FG_MIN, Gravity,
     GravityError, LinkError, MoveError, NAME_MAX, NOTES_MAX, NameError, NewBatch, Notes,
     NotesError, OG_MAX, OG_MIN, RECIPE_MAX_BYTES, Recipe, RecipeError, RecordError, RuleError,
-    Slot, SlotError, SlotId, SlotState, VOLUME_MAX, Volume, VolumeError,
+    SlotError, SlotId, VOLUME_MAX, Volume, VolumeError,
 };
 use crate::views;
 use crate::views::batches::{
@@ -182,19 +182,12 @@ async fn batch_page(
     link_problem: Option<&str>,
 ) -> Result<Markup, AppError> {
     let recipe = state.batches.recipe(batch.number).await?;
-    let free = free_slots(state).await?;
+    let free = state.batches.free_slots().await?;
     let slots = SlotChoice {
         free: &free,
         problem: link_problem,
     };
     Ok(views::batches::batch_page(batch, recipe.as_ref(), &slots))
-}
-
-/// The upcoming slots with nothing chosen, soonest first.
-async fn free_slots(state: &AppState) -> Result<Vec<Slot>, AppError> {
-    let mut slots = state.batches.open_slots().await?;
-    slots.retain(|slot| slot.state == SlotState::Upcoming && slot.batch.is_none());
-    Ok(slots)
 }
 
 #[derive(Deserialize)]
@@ -230,6 +223,7 @@ async fn link_batch(
             Err(LinkError::SlotNotFound) => {
                 "That slot is gone: someone cancelled it. Pick another."
             }
+            Err(LinkError::SlotDone) => "That slot's Batch is brewed already. Pick another.",
             Err(LinkError::Database(err)) => return Err(err.into()),
         },
         Err(_) => "Pick a slot to brew it on.",
@@ -260,7 +254,7 @@ async fn unlink_batch(
         ),
         Err(LinkError::BatchNotFound) => return Ok(gone(htmx, number)),
         // Its page shows it's brewed, with no slot to unlink.
-        Err(LinkError::NotPlanned | LinkError::SlotNotFound) => {}
+        Err(LinkError::NotPlanned | LinkError::SlotNotFound | LinkError::SlotDone) => {}
         Err(LinkError::Database(err)) => return Err(err.into()),
     }
     Ok(go_to(htmx, &paths::batch(number)))
@@ -1049,6 +1043,8 @@ async fn link_slot(
                 return Ok(go_to(htmx, Tab::Batches.href()));
             }
             Err(LinkError::SlotNotFound) => return Ok(slot_gone(htmx, id)),
+            // Its Batch is brewed, so the slot is done and no longer shown.
+            Err(LinkError::SlotDone) => return Ok(go_to(htmx, Tab::Batches.href())),
             Err(LinkError::BatchNotFound) => {
                 "That Batch is gone: someone deleted it. Pick another."
             }
@@ -1085,7 +1081,7 @@ async fn unlink_slot(
         ),
         Err(LinkError::SlotNotFound) => return Ok(slot_gone(htmx, id)),
         // Its Batch is brewed, so the slot is done and no longer shown.
-        Err(LinkError::NotPlanned | LinkError::BatchNotFound) => {}
+        Err(LinkError::NotPlanned | LinkError::BatchNotFound | LinkError::SlotDone) => {}
         Err(LinkError::Database(err)) => return Err(err.into()),
     }
     Ok(go_to(htmx, Tab::Batches.href()))
@@ -2741,6 +2737,55 @@ mod tests {
             "{tab}"
         );
         assert!(!tab.contains("Unlink"));
+    }
+
+    #[sqlx::test]
+    async fn a_passed_slot_is_moved_or_cancelled_like_any_other(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-01").await;
+        plan(&app, &cookie, "2026-01-02").await;
+        app.clock.advance(std::time::Duration::from_hours(48));
+
+        let response = post_slot(&app, &cookie, "/batches/slots/1", "2026-01-10", true).await;
+        assert_eq!(response.headers()[HX_REDIRECT], "/batches");
+        post_slot(&app, &cookie, "/batches/slots/2/cancel", "", true).await;
+
+        let tab = page(&app, &cookie, "/batches").await;
+        assert_eq!(slot_dates(&tab), ["2026-01-10"]);
+        assert!(!tab.contains("Did you brew?"), "{tab}");
+    }
+
+    #[sqlx::test]
+    async fn a_done_slot_cant_be_given_another_batch(db: SqlitePool) {
+        let app = TestApp::new(db);
+        let cookie = app.sign_in_new_admin("Josef").await;
+        plan(&app, &cookie, "2026-01-10").await;
+        add(&app, &cookie, "Pils", "").await;
+        add(&app, &cookie, "Stout", "").await;
+        recorded(&app, &cookie, 1, "brew-day", &[("brew_date", "2026-01-10")]).await;
+
+        posted(
+            &app,
+            &cookie,
+            "/batches/slots/1/batch",
+            &[("batch", "2")],
+            "/batches",
+        )
+        .await;
+        let html = link_refused(&app, &cookie, "/batches/2/slot", &[("slot", "1")]).await;
+        assert!(
+            html.contains("That slot's Batch is brewed already."),
+            "{html}"
+        );
+
+        assert!(
+            page(&app, &cookie, "/batches/2")
+                .await
+                .contains("Waiting for a slot")
+        );
+        let slot = page(&app, &cookie, "/batches/slots/1").await;
+        assert!(slot.contains("#1 Pils</a>"), "{slot}");
     }
 
     /// Posts `pairs` to `uri` as a plain form, expecting a redirect to `to`.

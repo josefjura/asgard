@@ -311,7 +311,15 @@ fn link_form(slot: &Slot, planned: &[&PlannedBatch], problem_message: Option<&st
 
 /// What a `slot` whose day has passed asks: which of `planned` was brewed on it, each leading
 /// to its Brew day form with the slot's date filled in.
+///
+/// Only its own Batch and those waiting for a slot are offered: recording the Brew day links a
+/// Batch to the slot only if it has none, so a Batch on another slot would leave this one asking.
 fn did_you_brew(slot: &Slot, planned: &[PlannedBatch]) -> Markup {
+    let own = slot.batch.as_ref().map(|batch| batch.number);
+    let planned: Vec<&PlannedBatch> = planned
+        .iter()
+        .filter(|batch| batch.slot.is_none() || Some(batch.number) == own)
+        .collect();
     html! {
         section.section.narrow #(BATCH_ID) aria-labelledby="slot-batch-heading" {
             h2 #slot-batch-heading { "Did you brew?" }
@@ -557,13 +565,23 @@ mod tests {
     }
 
     #[test]
-    fn a_passed_slots_page_leads_to_each_planned_batchs_brew_day_on_its_date() {
+    fn a_passed_slots_page_leads_to_the_brew_day_of_batches_waiting_for_a_slot() {
         let html = page_of(&asking(), &planned(), None).into_string();
 
         assert!(html.contains("Did you brew?"), "{html}");
         assert!(html.contains(r#"href="/batches/15/brew-day?date=2026-11-08""#));
-        assert!(html.contains(r#"href="/batches/14/brew-day?date=2026-11-08""#));
+        assert!(
+            !html.contains("/batches/14/brew-day"),
+            "not one on another slot"
+        );
         assert!(!html.contains("/batches/slots/2/batch"), "no link form");
+
+        let own = crate::domain::batches::slot_fixtures::passed(linked());
+        let html = page_of(&own, &planned(), None).into_string();
+        assert!(
+            html.contains(r#"href="/batches/14/brew-day?date=2026-11-21""#),
+            "its own Batch: {html}"
+        );
     }
 
     #[test]

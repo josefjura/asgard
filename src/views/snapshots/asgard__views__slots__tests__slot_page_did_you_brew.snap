@@ -52,12 +52,6 @@ expression: "page_of(&asking(), &planned(), None).into_string().replace(\"><\", 
 <li>
 <a href="/batches/15/brew-day?date=2026-11-08">#15 Winter Stout</a>
 </li>
-<li>
-<a href="/batches/14/brew-day?date=2026-11-08">#14 Vzor 10°</a>
-</li>
-<li>
-<a href="/batches/10/brew-day?date=2026-11-08">#10 Hoppy Lager</a>
-</li>
 </ul>
 </section>
 <section class="section narrow" aria-labelledby="move-heading">
