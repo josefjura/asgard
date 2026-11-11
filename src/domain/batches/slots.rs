@@ -11,7 +11,7 @@ use jiff::civil::Date;
 
 use super::Batches;
 use crate::domain::clock::unix_seconds;
-use crate::domain::members::{MemberId, parse_date};
+use crate::domain::members::{MemberId, everyone_but, parse_date};
 
 /// Which Brewing slot: the one a form or link names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -140,15 +140,7 @@ impl Batches {
             date,
         )?;
         let slot = SlotId(id);
-        let notify = sqlx::query_scalar!(
-            r#"SELECT id AS "id!" FROM members WHERE id != ? ORDER BY id"#,
-            member
-        )
-        .fetch_all(&self.db)
-        .await?
-        .into_iter()
-        .map(MemberId::from_stored)
-        .collect();
+        let notify = everyone_but(&self.db, planned_by).await?;
         self.events.emit(SlotPlanned {
             slot,
             date,
@@ -254,9 +246,8 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, SystemTime};
-
     use std::convert::identity;
+    use std::time::{Duration, SystemTime};
 
     use jiff::civil::{Date, date};
     use sqlx::SqlitePool;

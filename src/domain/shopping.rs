@@ -8,7 +8,7 @@ use sqlx::SqlitePool;
 
 use crate::domain::channel::Emitter;
 use crate::domain::clock::{Clock, crew_time_of_unix_seconds, unix_seconds};
-use crate::domain::members::{DisplayName, MemberId};
+use crate::domain::members::{DisplayName, MemberId, everyone_but};
 
 /// The longest name of an Item, in characters.
 pub const NAME_MAX: usize = 200;
@@ -252,15 +252,7 @@ impl Shopping {
         .await?;
         let id = ItemId(id);
         if item.urgency == Urgency::Asap {
-            let notify = sqlx::query_scalar!(
-                r#"SELECT id AS "id!" FROM members WHERE id != ? ORDER BY id"#,
-                added_by
-            )
-            .fetch_all(&self.db)
-            .await?
-            .into_iter()
-            .map(MemberId::from_stored)
-            .collect();
+            let notify = everyone_but(&self.db, adder).await?;
             self.events.emit(AsapItemAdded {
                 item: id,
                 name: item.name.clone(),
