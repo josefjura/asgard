@@ -35,6 +35,17 @@ fn display_faces() -> String {
     .join("\n")
 }
 
+/// PROTOTYPE (#146): the desktop variants and their switcher, in debug builds only.
+#[cfg(debug_assertions)]
+fn prototype_head() -> Markup {
+    crate::views::prototype_desktop::head()
+}
+
+#[cfg(not(debug_assertions))]
+fn prototype_head() -> Markup {
+    html! {}
+}
+
 /// A complete HTML document with the shared head: stylesheet, scripts, icons and manifest.
 #[must_use]
 pub fn document(title: &str, body: &Markup) -> Markup {
@@ -60,6 +71,7 @@ pub fn document(title: &str, body: &Markup) -> Markup {
                 meta name="htmx-config" content=(HTMX_CONFIG);
                 script src=(assets::HTMX.url) defer {}
                 script type="module" src=(assets::REGISTER_SW.url) {}
+                (prototype_head())
             }
             body { (body) }
         }

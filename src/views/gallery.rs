@@ -1319,6 +1319,7 @@ pub fn page(fixtures: &[Fixture]) -> Markup {
                 meta name="viewport" content="width=device-width, initial-scale=1";
                 title { "Gallery | Asgard" }
                 style { (GALLERY_CSS) }
+                (crate::views::prototype_desktop::head())
             }
             body {
                 h1 { "Component gallery" }

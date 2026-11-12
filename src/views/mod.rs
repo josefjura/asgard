@@ -16,6 +16,8 @@ pub mod nav;
 pub mod offline;
 pub mod passkey;
 pub mod passkeys;
+#[cfg(debug_assertions)]
+pub mod prototype_desktop;
 pub mod push;
 pub mod quotes;
 pub mod reminders;
