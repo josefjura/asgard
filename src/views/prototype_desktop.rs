@@ -8,10 +8,12 @@
 use maud::{Markup, PreEscaped, html};
 
 /// The variants, in switcher order: the key `?variant=` takes, and its name.
-pub const VARIANTS: [(&str, &str); 4] = [
+pub const VARIANTS: [(&str, &str); 6] = [
     ("today", "Today"),
     ("a", "A: Wide band, aside on the right"),
     ("b", "B: Side rail, three columns"),
+    ("b2", "B2: Side rail, content centred beside it"),
+    ("b3", "B3: Side rail and content centred together"),
     ("c", "C: Summary panel on the left"),
 ];
 
@@ -64,11 +66,11 @@ const CSS: &str = r#"
   html[data-proto="a"] #recently-bought { grid-area: bought; }
 
   /* ---------- B: a side rail for the navigation, three columns of content ---------- */
-  html[data-proto="b"] .shell {
+  html[data-proto^="b"] .shell {
     grid-template-columns: 14rem minmax(0, 1fr);
     grid-template-rows: 1fr;
   }
-  html[data-proto="b"] .shell-header {
+  html[data-proto^="b"] .shell-header {
     grid-area: 1 / 1 / 2 / 2;
     position: sticky;
     top: 0;
@@ -77,18 +79,20 @@ const CSS: &str = r#"
     align-items: flex-start;
     padding: var(--space-4) var(--space-3);
   }
-  html[data-proto="b"] .settings-link { margin: auto 0 0; }
-  html[data-proto="b"] .settings-link::before {
+  html[data-proto^="b"] .settings-link { margin: auto 0 0; }
+  html[data-proto^="b"] .settings-link::before {
     inset: var(--space-2) auto var(--space-2) calc(-1 * var(--space-3));
     width: 3px;
     height: auto;
     border-radius: 0 3px 3px 0;
   }
-  html[data-proto="b"] .tabs {
-    position: fixed;
+  html[data-proto^="b"] .tabs {
+    grid-area: 1 / 1 / 2 / 2;
+    align-self: start;
+    justify-self: stretch;
+    position: sticky;
     top: 5rem;
-    left: 0;
-    width: 14rem;
+    margin-top: 5rem;
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
@@ -96,27 +100,37 @@ const CSS: &str = r#"
     background: transparent;
     z-index: 1;
   }
-  html[data-proto="b"] .tab {
+  html[data-proto^="b"] .tab {
     justify-content: flex-start;
     gap: var(--space-3);
     padding: var(--space-2) var(--space-3);
     font-size: 1rem;
     border-radius: var(--radius);
   }
-  html[data-proto="b"] .tab[aria-current="page"] { background: rgb(255 255 255 / 0.1); }
-  html[data-proto="b"] .tab::before {
+  html[data-proto^="b"] .tab[aria-current="page"] { background: rgb(255 255 255 / 0.1); }
+  html[data-proto^="b"] .tab::before {
     inset: var(--space-2) auto var(--space-2) calc(-1 * var(--space-2));
     width: 3px;
     height: auto;
     border-radius: 0 3px 3px 0;
   }
-  html[data-proto="b"] .shell-main {
+  html[data-proto^="b"] .shell-main {
     grid-area: 1 / 2 / 2 / 3;
     max-width: 80rem;
     padding: var(--space-5);
   }
 
-  html[data-proto="b"] .shell-main:has(.my-balance) {
+  /* B2: the rail at the screen's edge, the content centred in what's left. */
+  html[data-proto="b2"] .shell-main { justify-self: center; }
+
+  /* B3: rail and content centred as one block; the band's green runs out to the left edge. */
+  html[data-proto="b3"] .shell { max-width: calc(14rem + 80rem); margin-inline: auto; }
+  html[data-proto="b3"] body {
+    background: linear-gradient(to right, var(--band) 50%, var(--bg) 50%);
+  }
+  html[data-proto="b3"] .shell-main { background: var(--bg); min-height: 100dvh; }
+
+  html[data-proto^="b"] .shell-main:has(.my-balance) {
     display: grid;
     grid-template-columns: 20rem minmax(0, 1fr) 20rem;
     grid-template-rows: auto auto 1fr;
@@ -124,34 +138,34 @@ const CSS: &str = r#"
     gap: 0 var(--space-5);
     align-items: start;
   }
-  html[data-proto="b"] .shell-main:has(.my-balance) > h1 { grid-area: title; }
-  html[data-proto="b"] .my-balance { grid-area: balance; }
-  html[data-proto="b"] .finance-actions { grid-area: actions; flex-direction: column; }
-  html[data-proto="b"] .shell-main .columns { display: contents; }
-  html[data-proto="b"] [aria-labelledby="latest-entries"] { grid-area: latest; }
-  html[data-proto="b"] [aria-labelledby="crew-balances"] { grid-area: crew; }
+  html[data-proto^="b"] .shell-main:has(.my-balance) > h1 { grid-area: title; }
+  html[data-proto^="b"] .my-balance { grid-area: balance; }
+  html[data-proto^="b"] .finance-actions { grid-area: actions; flex-direction: column; }
+  html[data-proto^="b"] .shell-main .columns { display: contents; }
+  html[data-proto^="b"] [aria-labelledby="latest-entries"] { grid-area: latest; }
+  html[data-proto^="b"] [aria-labelledby="crew-balances"] { grid-area: crew; }
 
   /* Shopping as a board: the form in one line, a column per Urgency. */
-  html[data-proto="b"] [aria-labelledby="new-item"] .entry-form {
+  html[data-proto^="b"] [aria-labelledby="new-item"] .entry-form {
     grid-template-columns: minmax(0, 2fr) auto minmax(0, 1fr) auto;
     align-items: end;
     max-width: none;
   }
-  html[data-proto="b"] [aria-labelledby="new-item"] .entry-form > * { margin: 0; }
-  html[data-proto="b"] #open-items {
+  html[data-proto^="b"] [aria-labelledby="new-item"] .entry-form > * { margin: 0; }
+  html[data-proto^="b"] #open-items {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--space-4);
     align-items: start;
   }
-  html[data-proto="b"] #open-items > .section {
+  html[data-proto^="b"] #open-items > .section {
     margin: 0 0 var(--space-5);
     padding: var(--space-3);
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--surface);
   }
-  html[data-proto="b"] #open-items > .empty { grid-column: 1 / -1; }
+  html[data-proto^="b"] #open-items > .empty { grid-column: 1 / -1; }
 
   /* ---------- C: the band across the screen, a summary panel on the left ---------- */
   html[data-proto="c"] { --column: 80rem; }
